@@ -307,7 +307,7 @@ class VRWebSocketServer(BaseInputProvider):
                 logger.info(f"🔒 {hand.upper()} grip activated - controlling {hand} arm (target reset to current position)")
             
             # Compute target position
-            if controller.origin_position:
+            if controller.origin_position is not None:
                 relative_delta = compute_relative_position(
                     position, 
                     controller.origin_position, 

@@ -1,82 +1,82 @@
-// Wait for A-Frame scene to load
+// 等待 A-Frame 场景加载
 
 AFRAME.registerComponent('controller-updater', {
   init: function () {
-    console.log("Controller updater component initialized.");
-    // Controllers are enabled
+    console.log("控制器更新组件已初始化。");
+    // 控制器已启用
 
     this.leftHand = document.querySelector('#leftHand');
     this.rightHand = document.querySelector('#rightHand');
     this.leftHandInfoText = document.querySelector('#leftHandInfo');
     this.rightHandInfoText = document.querySelector('#rightHandInfo');
 
-    // --- WebSocket Setup ---
+    // --- WebSocket 设置 ---
     this.websocket = null;
     this.leftGripDown = false;
     this.rightGripDown = false;
     this.leftTriggerDown = false;
     this.rightTriggerDown = false;
 
-    // --- Status reporting ---
+    // --- 状态报告 ---
     this.lastStatusUpdate = 0;
     this.statusUpdateInterval = 5000; // 5 seconds
 
-    // --- Relative rotation tracking ---
+    // --- 相对旋转跟踪 ---
     this.leftGripInitialRotation = null;
     this.rightGripInitialRotation = null;
     this.leftRelativeRotation = { x: 0, y: 0, z: 0 };
     this.rightRelativeRotation = { x: 0, y: 0, z: 0 };
 
-    // --- Quaternion-based Z-axis rotation tracking ---
+    // --- 基于四元数的 Z 轴旋转跟踪 ---
     this.leftGripInitialQuaternion = null;
     this.rightGripInitialQuaternion = null;
     this.leftZAxisRotation = 0;
     this.rightZAxisRotation = 0;
 
-    // --- Get hostname dynamically ---
+    // --- 动态获取主机名 ---
     const serverHostname = window.location.hostname;
-    const websocketPort = 8442; // Make sure this matches controller_server.py
+    const websocketPort = 8442; // 确保与 controller_server.py 中的端口一致
     const websocketUrl = `wss://${serverHostname}:${websocketPort}`;
-    console.log(`Attempting WebSocket connection to: ${websocketUrl}`);
-    // !!! IMPORTANT: Replace 'YOUR_LAPTOP_IP' with the actual IP address of your laptop !!!
+    console.log(`尝试连接到 WebSocket: ${websocketUrl}`);
+    // !!! 重要：将 'YOUR_LAPTOP_IP' 替换为您的笔记本电脑的实际 IP 地址 !!!
     // const websocketUrl = 'ws://YOUR_LAPTOP_IP:8442';
     try {
       this.websocket = new WebSocket(websocketUrl);
       this.websocket.onopen = (event) => {
-        console.log(`WebSocket connected to ${websocketUrl}`);
+        console.log(`WebSocket 已连接到 ${websocketUrl}`);
         this.reportVRStatus(true);
       };
       this.websocket.onerror = (event) => {
-        // More detailed error logging
-        console.error(`WebSocket Error: Event type: ${event.type}`, event);
+        // 更详细的错误日志
+        console.error(`WebSocket 错误: 事件类型: ${event.type}`, event);
         this.reportVRStatus(false);
       };
       this.websocket.onclose = (event) => {
-        console.log(`WebSocket disconnected from ${websocketUrl}. Clean close: ${event.wasClean}, Code: ${event.code}, Reason: '${event.reason}'`);
-        // Attempt to log specific error if available (might be limited by browser security)
+        console.log(`WebSocket 已从 ${websocketUrl} 断开连接。正常关闭: ${event.wasClean}, 代码: ${event.code}, 原因: '${event.reason}'`);
+        // 如果可用，尝试记录具体错误（可能受浏览器安全限制）
         if (!event.wasClean) {
-          console.error('WebSocket closed unexpectedly.');
+          console.error('WebSocket 意外关闭。');
         }
         this.websocket = null; // Clear the reference
         this.reportVRStatus(false);
       };
       this.websocket.onmessage = (event) => {
-        console.log(`WebSocket message received: ${event.data}`); // Log any messages from server
+        console.log(`收到 WebSocket 消息: ${event.data}`); // 记录来自服务器的任何消息
       };
     } catch (error) {
-        console.error(`Failed to create WebSocket connection to ${websocketUrl}:`, error);
+        console.error(`无法创建到 ${websocketUrl} 的 WebSocket 连接:`, error);
         this.reportVRStatus(false);
     }
-    // --- End WebSocket Setup ---
+    // --- WebSocket 设置结束 ---
 
-    // --- VR Status Reporting Function ---
+    // --- VR 状态报告函数 ---
     this.reportVRStatus = (connected) => {
-      // Update global status if available (for desktop interface)
+      // 更新全局状态（如果可用，用于桌面界面）
       if (typeof updateStatus === 'function') {
         updateStatus({ vrConnected: connected });
       }
       
-      // Also try to notify parent window if in iframe
+      // 如果在 iframe 中，也尝试通知父窗口
       try {
         if (window.parent && window.parent !== window) {
           window.parent.postMessage({
@@ -85,29 +85,29 @@ AFRAME.registerComponent('controller-updater', {
           }, '*');
         }
       } catch (e) {
-        // Ignore cross-origin errors
+        // 忽略跨域错误
       }
     };
 
     if (!this.leftHand || !this.rightHand || !this.leftHandInfoText || !this.rightHandInfoText) {
-      console.error("Controller or text entities not found!");
-      // Check which specific elements are missing
-      if (!this.leftHand) console.error("Left hand entity not found");
-      if (!this.rightHand) console.error("Right hand entity not found");
-      if (!this.leftHandInfoText) console.error("Left hand info text not found");
-      if (!this.rightHandInfoText) console.error("Right hand info text not found");
+      console.error("未找到控制器或文本实体！");
+      // 检查哪些特定元素缺失
+      if (!this.leftHand) console.error("未找到左手实体");
+      if (!this.rightHand) console.error("未找到右手实体");
+      if (!this.leftHandInfoText) console.error("未找到左手信息文本");
+      if (!this.rightHandInfoText) console.error("未找到右手信息文本");
       return;
     }
 
-    // Apply initial rotation to combined text elements
-    const textRotation = '-90 0 0'; // Rotate -90 degrees around X-axis
+    // 为组合文本元素应用初始旋转
+    const textRotation = '-90 0 0'; // 绕 X 轴旋转 -90 度
     if (this.leftHandInfoText) this.leftHandInfoText.setAttribute('rotation', textRotation);
     if (this.rightHandInfoText) this.rightHandInfoText.setAttribute('rotation', textRotation);
 
-    // --- Create axis indicators ---
+    // --- 创建坐标轴指示器 ---
     this.createAxisIndicators();
 
-    // --- Helper function to send grip release message ---
+    // --- 辅助函数：发送握把释放消息 ---
     this.sendGripRelease = (hand) => {
       if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
         const releaseMessage = {
@@ -115,11 +115,11 @@ AFRAME.registerComponent('controller-updater', {
           gripReleased: true
         };
         this.websocket.send(JSON.stringify(releaseMessage));
-        console.log(`Sent grip release for ${hand} hand`);
+        console.log(`发送${hand}手握把释放`);
       }
     };
 
-    // --- Helper function to send trigger release message ---
+    // --- 辅助函数：发送扳机释放消息 ---
     this.sendTriggerRelease = (hand) => {
       if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
         const releaseMessage = {
@@ -127,11 +127,11 @@ AFRAME.registerComponent('controller-updater', {
           triggerReleased: true
         };
         this.websocket.send(JSON.stringify(releaseMessage));
-        console.log(`Sent trigger release for ${hand} hand`);
+        console.log(`发送${hand}手扳机释放`);
       }
     };
 
-    // --- Helper function to calculate relative rotation ---
+    // --- 辅助函数：计算相对旋转 ---
     this.calculateRelativeRotation = (currentRotation, initialRotation) => {
       return {
         x: currentRotation.x - initialRotation.x,
@@ -140,25 +140,25 @@ AFRAME.registerComponent('controller-updater', {
       };
     };
 
-    // --- Helper function to calculate Z-axis rotation from quaternions ---
+    // --- 辅助函数：从四元数计算 Z 轴旋转 ---
     this.calculateZAxisRotation = (currentQuaternion, initialQuaternion) => {
-      // Calculate relative quaternion (from initial to current)
+      // 计算相对四元数（从初始到当前）
       const relativeQuat = new THREE.Quaternion();
       relativeQuat.multiplyQuaternions(currentQuaternion, initialQuaternion.clone().invert());
       
-      // Get the controller's current forward direction (local Z-axis in world space)
+      // 获取控制器的当前前进方向（世界空间中的局部 Z 轴）
       const forwardDirection = new THREE.Vector3(0, 0, 1);
       forwardDirection.applyQuaternion(currentQuaternion);
       
-      // Convert relative quaternion to axis-angle representation
+      // 将相对四元数转换为轴角表示
       const angle = 2 * Math.acos(Math.abs(relativeQuat.w));
       
-      // Handle case where there's no rotation (avoid division by zero)
+      // 处理无旋转的情况（避免除以零）
       if (angle < 0.0001) {
         return 0;
       }
       
-      // Get the rotation axis
+      // 获取旋转轴
       const sinHalfAngle = Math.sqrt(1 - relativeQuat.w * relativeQuat.w);
       const rotationAxis = new THREE.Vector3(
         relativeQuat.x / sinHalfAngle,
@@ -166,17 +166,16 @@ AFRAME.registerComponent('controller-updater', {
         relativeQuat.z / sinHalfAngle
       );
       
-      // Project the rotation axis onto the forward direction to get the component
-      // of rotation around the forward axis
+      // 将旋转轴投影到前进方向上，以获得围绕前进轴的旋转分量
       const projectedComponent = rotationAxis.dot(forwardDirection);
       
-      // The rotation around the forward axis is the angle times the projection
+      // 围绕前进轴的旋转等于角度乘以投影
       const forwardRotation = angle * projectedComponent;
       
-      // Convert to degrees and handle the sign properly
+      // 转换为度数并正确处理符号
       let degrees = THREE.MathUtils.radToDeg(forwardRotation);
       
-      // Normalize to -180 to +180 range to avoid sudden jumps
+      // 归一化到 -180 到 +180 范围以避免突然跳变
       while (degrees > 180) degrees -= 360;
       while (degrees < -180) degrees += 360;
       
@@ -194,10 +193,10 @@ AFRAME.registerComponent('controller-updater', {
         this.sendTriggerRelease('left'); // Send trigger release message
     });
     this.leftHand.addEventListener('gripdown', (evt) => {
-        console.log('Left Grip Pressed');
-        this.leftGripDown = true; // Set grip state
+        console.log('左握把按下');
+        this.leftGripDown = true; // 设置握把状态
         
-        // Store initial rotation for relative tracking
+        // 存储初始旋转以进行相对跟踪
         if (this.leftHand.object3D.visible) {
           const leftRotEuler = this.leftHand.object3D.rotation;
           this.leftGripInitialRotation = {
@@ -206,37 +205,37 @@ AFRAME.registerComponent('controller-updater', {
             z: THREE.MathUtils.radToDeg(leftRotEuler.z)
           };
           
-          // Store initial quaternion for Z-axis rotation tracking
+          // 存储初始四元数以进行 Z 轴旋转跟踪
           this.leftGripInitialQuaternion = this.leftHand.object3D.quaternion.clone();
           
-          console.log('Left grip initial rotation:', this.leftGripInitialRotation);
-          console.log('Left grip initial quaternion:', this.leftGripInitialQuaternion);
+          console.log('左握把初始旋转:', this.leftGripInitialRotation);
+          console.log('左握把初始四元数:', this.leftGripInitialQuaternion);
         }
     });
-    this.leftHand.addEventListener('gripup', (evt) => { // Add gripup listener
-        console.log('Left Grip Released');
-        this.leftGripDown = false; // Reset grip state
-        this.leftGripInitialRotation = null; // Reset initial rotation
-        this.leftGripInitialQuaternion = null; // Reset initial quaternion
-        this.leftRelativeRotation = { x: 0, y: 0, z: 0 }; // Reset relative rotation
-        this.leftZAxisRotation = 0; // Reset Z-axis rotation
-        this.sendGripRelease('left'); // Send grip release message
+    this.leftHand.addEventListener('gripup', (evt) => { // 添加 gripup 监听器
+        console.log('左握把释放');
+        this.leftGripDown = false; // 重置握把状态
+        this.leftGripInitialRotation = null; // 重置初始旋转
+        this.leftGripInitialQuaternion = null; // 重置初始四元数
+        this.leftRelativeRotation = { x: 0, y: 0, z: 0 }; // 重置相对旋转
+        this.leftZAxisRotation = 0; // 重置 Z 轴旋转
+        this.sendGripRelease('left'); // 发送握把释放消息
     });
 
     this.rightHand.addEventListener('triggerdown', (evt) => {
-        console.log('Right Trigger Pressed');
+        console.log('右扳机按下');
         this.rightTriggerDown = true;
     });
     this.rightHand.addEventListener('triggerup', (evt) => {
-        console.log('Right Trigger Released');
+        console.log('右扳机释放');
         this.rightTriggerDown = false;
-        this.sendTriggerRelease('right'); // Send trigger release message
+        this.sendTriggerRelease('right'); // 发送扳机释放消息
     });
     this.rightHand.addEventListener('gripdown', (evt) => {
-        console.log('Right Grip Pressed');
-        this.rightGripDown = true; // Set grip state
+        console.log('右握把按下');
+        this.rightGripDown = true; // 设置握把状态
         
-        // Store initial rotation for relative tracking
+        // 存储初始旋转以进行相对跟踪
         if (this.rightHand.object3D.visible) {
           const rightRotEuler = this.rightHand.object3D.rotation;
           this.rightGripInitialRotation = {
@@ -245,38 +244,38 @@ AFRAME.registerComponent('controller-updater', {
             z: THREE.MathUtils.radToDeg(rightRotEuler.z)
           };
           
-          // Store initial quaternion for Z-axis rotation tracking
+          // 存储初始四元数以进行 Z 轴旋转跟踪
           this.rightGripInitialQuaternion = this.rightHand.object3D.quaternion.clone();
           
-          console.log('Right grip initial rotation:', this.rightGripInitialRotation);
-          console.log('Right grip initial quaternion:', this.rightGripInitialQuaternion);
+          console.log('右握把初始旋转:', this.rightGripInitialRotation);
+          console.log('右握把初始四元数:', this.rightGripInitialQuaternion);
         }
     });
-    this.rightHand.addEventListener('gripup', (evt) => { // Add gripup listener
-        console.log('Right Grip Released');
-        this.rightGripDown = false; // Reset grip state
-        this.rightGripInitialRotation = null; // Reset initial rotation
-        this.rightGripInitialQuaternion = null; // Reset initial quaternion
-        this.rightRelativeRotation = { x: 0, y: 0, z: 0 }; // Reset relative rotation
-        this.rightZAxisRotation = 0; // Reset Z-axis rotation
-        this.sendGripRelease('right'); // Send grip release message
+    this.rightHand.addEventListener('gripup', (evt) => { // 添加 gripup 监听器
+        console.log('右握把释放');
+        this.rightGripDown = false; // 重置握把状态
+        this.rightGripInitialRotation = null; // 重置初始旋转
+        this.rightGripInitialQuaternion = null; // 重置初始四元数
+        this.rightRelativeRotation = { x: 0, y: 0, z: 0 }; // 重置相对旋转
+        this.rightZAxisRotation = 0; // 重置 Z 轴旋转
+        this.sendGripRelease('right'); // 发送握把释放消息
     });
-    // --- End Modify Event Listeners ---
+    // --- 事件监听器修改结束 ---
 
   },
 
   createAxisIndicators: function() {
-    // Create XYZ axis indicators for both controllers
+    // 为两个控制器创建 XYZ 坐标轴指示器
     
-    // Left Controller Axes
-    // X-axis (Red)
+    // 左控制器坐标轴
+    // X 轴（红色）
     const leftXAxis = document.createElement('a-cylinder');
     leftXAxis.setAttribute('id', 'leftXAxis');
     leftXAxis.setAttribute('height', '0.08');
     leftXAxis.setAttribute('radius', '0.003');
-    leftXAxis.setAttribute('color', '#ff0000'); // Red for X
+    leftXAxis.setAttribute('color', '#ff0000'); // X 轴用红色
     leftXAxis.setAttribute('position', '0.04 0 0');
-    leftXAxis.setAttribute('rotation', '0 0 90'); // Rotate to point along X-axis
+    leftXAxis.setAttribute('rotation', '0 0 90'); // 旋转以沿 X 轴指向
     this.leftHand.appendChild(leftXAxis);
 
     const leftXTip = document.createElement('a-cone');
@@ -288,14 +287,14 @@ AFRAME.registerComponent('controller-updater', {
     leftXTip.setAttribute('rotation', '0 0 90');
     this.leftHand.appendChild(leftXTip);
 
-    // Y-axis (Green) - Up
+    // Y 轴（绿色）- 向上
     const leftYAxis = document.createElement('a-cylinder');
     leftYAxis.setAttribute('id', 'leftYAxis');
     leftYAxis.setAttribute('height', '0.08');
     leftYAxis.setAttribute('radius', '0.003');
-    leftYAxis.setAttribute('color', '#00ff00'); // Green for Y
+    leftYAxis.setAttribute('color', '#00ff00'); // Y 轴用绿色
     leftYAxis.setAttribute('position', '0 0.04 0');
-    leftYAxis.setAttribute('rotation', '0 0 0'); // Default up orientation
+    leftYAxis.setAttribute('rotation', '0 0 0'); // 默认向上方向
     this.leftHand.appendChild(leftYAxis);
 
     const leftYTip = document.createElement('a-cone');
@@ -306,14 +305,14 @@ AFRAME.registerComponent('controller-updater', {
     leftYTip.setAttribute('position', '0 0.055 0');
     this.leftHand.appendChild(leftYTip);
 
-    // Z-axis (Blue) - Forward
+    // Z 轴（蓝色）- 向前
     const leftZAxis = document.createElement('a-cylinder');
     leftZAxis.setAttribute('id', 'leftZAxis');
     leftZAxis.setAttribute('height', '0.08');
     leftZAxis.setAttribute('radius', '0.003');
-    leftZAxis.setAttribute('color', '#0000ff'); // Blue for Z
+    leftZAxis.setAttribute('color', '#0000ff'); // Z 轴用蓝色
     leftZAxis.setAttribute('position', '0 0 0.04');
-    leftZAxis.setAttribute('rotation', '90 0 0'); // Rotate to point along Z-axis
+    leftZAxis.setAttribute('rotation', '90 0 0'); // 旋转以沿 Z 轴指向
     this.leftHand.appendChild(leftZAxis);
 
     const leftZTip = document.createElement('a-cone');
@@ -325,15 +324,15 @@ AFRAME.registerComponent('controller-updater', {
     leftZTip.setAttribute('rotation', '90 0 0');
     this.leftHand.appendChild(leftZTip);
 
-    // Right Controller Axes
-    // X-axis (Red)
+    // 右控制器坐标轴
+    // X 轴（红色）
     const rightXAxis = document.createElement('a-cylinder');
     rightXAxis.setAttribute('id', 'rightXAxis');
     rightXAxis.setAttribute('height', '0.08');
     rightXAxis.setAttribute('radius', '0.003');
-    rightXAxis.setAttribute('color', '#ff0000'); // Red for X
+    rightXAxis.setAttribute('color', '#ff0000'); // X 轴用红色
     rightXAxis.setAttribute('position', '0.04 0 0');
-    rightXAxis.setAttribute('rotation', '0 0 90'); // Rotate to point along X-axis
+    rightXAxis.setAttribute('rotation', '0 0 90'); // 旋转以沿 X 轴指向
     this.rightHand.appendChild(rightXAxis);
 
     const rightXTip = document.createElement('a-cone');
@@ -345,14 +344,14 @@ AFRAME.registerComponent('controller-updater', {
     rightXTip.setAttribute('rotation', '0 0 90');
     this.rightHand.appendChild(rightXTip);
 
-    // Y-axis (Green) - Up
+    // Y 轴（绿色）- 向上
     const rightYAxis = document.createElement('a-cylinder');
     rightYAxis.setAttribute('id', 'rightYAxis');
     rightYAxis.setAttribute('height', '0.08');
     rightYAxis.setAttribute('radius', '0.003');
-    rightYAxis.setAttribute('color', '#00ff00'); // Green for Y
+    rightYAxis.setAttribute('color', '#00ff00'); // Y 轴用绿色
     rightYAxis.setAttribute('position', '0 0.04 0');
-    rightYAxis.setAttribute('rotation', '0 0 0'); // Default up orientation
+    rightYAxis.setAttribute('rotation', '0 0 0'); // 默认向上方向
     this.rightHand.appendChild(rightYAxis);
 
     const rightYTip = document.createElement('a-cone');
@@ -363,14 +362,14 @@ AFRAME.registerComponent('controller-updater', {
     rightYTip.setAttribute('position', '0 0.055 0');
     this.rightHand.appendChild(rightYTip);
 
-    // Z-axis (Blue) - Forward
+    // Z 轴（蓝色）- 向前
     const rightZAxis = document.createElement('a-cylinder');
     rightZAxis.setAttribute('id', 'rightZAxis');
     rightZAxis.setAttribute('height', '0.08');
     rightZAxis.setAttribute('radius', '0.003');
-    rightZAxis.setAttribute('color', '#0000ff'); // Blue for Z
+    rightZAxis.setAttribute('color', '#0000ff'); // Z 轴用蓝色
     rightZAxis.setAttribute('position', '0 0 0.04');
-    rightZAxis.setAttribute('rotation', '90 0 0'); // Rotate to point along Z-axis
+    rightZAxis.setAttribute('rotation', '90 0 0'); // 旋转以沿 Z 轴指向
     this.rightHand.appendChild(rightZAxis);
 
     const rightZTip = document.createElement('a-cone');
@@ -382,23 +381,23 @@ AFRAME.registerComponent('controller-updater', {
     rightZTip.setAttribute('rotation', '90 0 0');
     this.rightHand.appendChild(rightZTip);
 
-    console.log('XYZ axis indicators created for both controllers (RGB for XYZ)');
+    console.log('已为两个控制器创建 XYZ 坐标轴指示器（RGB 对应 XYZ）');
   },
 
   tick: function () {
-    // Update controller text if controllers are visible
-    if (!this.leftHand || !this.rightHand) return; // Added safety check
+    // 如果控制器可见，更新控制器文本
+    if (!this.leftHand || !this.rightHand) return; // 添加安全检查
 
-    // --- BEGIN DETAILED LOGGING ---
+    // --- 开始详细日志 ---
     if (this.leftHand.object3D) {
       // console.log(`Left Hand Raw - Visible: ${this.leftHand.object3D.visible}, Pos: ${this.leftHand.object3D.position.x.toFixed(2)},${this.leftHand.object3D.position.y.toFixed(2)},${this.leftHand.object3D.position.z.toFixed(2)}`);
     }
     if (this.rightHand.object3D) {
       // console.log(`Right Hand Raw - Visible: ${this.rightHand.object3D.visible}, Pos: ${this.rightHand.object3D.position.x.toFixed(2)},${this.rightHand.object3D.position.y.toFixed(2)},${this.rightHand.object3D.position.z.toFixed(2)}`);
     }
-    // --- END DETAILED LOGGING ---
+    // --- 结束详细日志 ---
 
-    // Collect data from both controllers
+    // 从两个控制器收集数据
     const leftController = {
         hand: 'left',
         position: null,
@@ -415,7 +414,7 @@ AFRAME.registerComponent('controller-updater', {
         trigger: 0
     };
 
-    // Update Left Hand Text & Collect Data
+    // 更新左手文本并收集数据
     if (this.leftHand.object3D.visible) {
         const leftPos = this.leftHand.object3D.position;
         const leftRotEuler = this.leftHand.object3D.rotation; // Euler angles in radians
@@ -439,8 +438,8 @@ AFRAME.registerComponent('controller-updater', {
             );
           }
           
-          console.log('Left relative rotation:', this.leftRelativeRotation);
-          console.log('Left Z-axis rotation:', this.leftZAxisRotation.toFixed(1), 'degrees');
+          console.log('左相对旋转:', this.leftRelativeRotation);
+          console.log('左 Z 轴旋转:', this.leftZAxisRotation.toFixed(1), '度');
         }
 
         // Create display text including relative rotation when grip is held
@@ -453,7 +452,7 @@ AFRAME.registerComponent('controller-updater', {
             this.leftHandInfoText.setAttribute('value', combinedLeftText);
         }
 
-        // Collect left controller data
+        // 收集左控制器数据
         leftController.position = { x: leftPos.x, y: leftPos.y, z: leftPos.z };
         leftController.rotation = { x: leftRotX, y: leftRotY, z: leftRotZ };
         leftController.quaternion = { 
@@ -466,7 +465,7 @@ AFRAME.registerComponent('controller-updater', {
         leftController.gripActive = this.leftGripDown;
     }
 
-    // Update Right Hand Text & Collect Data
+    // 更新右手文本并收集数据
     if (this.rightHand.object3D.visible) {
         const rightPos = this.rightHand.object3D.position;
         const rightRotEuler = this.rightHand.object3D.rotation; // Euler angles in radians
@@ -490,8 +489,8 @@ AFRAME.registerComponent('controller-updater', {
             );
           }
           
-          console.log('Right relative rotation:', this.rightRelativeRotation);
-          console.log('Right Z-axis rotation:', this.rightZAxisRotation.toFixed(1), 'degrees');
+          console.log('右相对旋转:', this.rightRelativeRotation);
+          console.log('右 Z 轴旋转:', this.rightZAxisRotation.toFixed(1), '度');
         }
 
         // Create display text including relative rotation when grip is held
@@ -504,7 +503,7 @@ AFRAME.registerComponent('controller-updater', {
             this.rightHandInfoText.setAttribute('value', combinedRightText);
         }
 
-        // Collect right controller data
+        // 收集右控制器数据
         rightController.position = { x: rightPos.x, y: rightPos.y, z: rightPos.z };
         rightController.rotation = { x: rightRotX, y: rightRotY, z: rightRotZ };
         rightController.quaternion = { 
@@ -517,7 +516,7 @@ AFRAME.registerComponent('controller-updater', {
         rightController.gripActive = this.rightGripDown;
     }
 
-    // Send combined packet if WebSocket is open and at least one controller has valid data
+    // 如果 WebSocket 已打开且至少有一个控制器有有效数据，则发送组合数据包
     if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
         const hasValidLeft = leftController.position && (leftController.position.x !== 0 || leftController.position.y !== 0 || leftController.position.z !== 0);
         const hasValidRight = rightController.position && (rightController.position.x !== 0 || rightController.position.y !== 0 || rightController.position.z !== 0);
@@ -535,49 +534,49 @@ AFRAME.registerComponent('controller-updater', {
 });
 
 
-// Add the component to the scene after it's loaded
+// 场景加载后将组件添加到场景
 document.addEventListener('DOMContentLoaded', (event) => {
     const scene = document.querySelector('a-scene');
 
     if (scene) {
         // Listen for controller connection events
         scene.addEventListener('controllerconnected', (evt) => {
-            console.log('Controller CONNECTED:', evt.detail.name, evt.detail.component.data.hand);
+            console.log('控制器已连接:', evt.detail.name, evt.detail.component.data.hand);
         });
         scene.addEventListener('controllerdisconnected', (evt) => {
-            console.log('Controller DISCONNECTED:', evt.detail.name, evt.detail.component.data.hand);
+            console.log('控制器已断开:', evt.detail.name, evt.detail.component.data.hand);
         });
 
-        // Add controller-updater component when scene is loaded (A-Frame manages session)
+        // 场景加载后添加 controller-updater 组件（A-Frame 管理会话）
         if (scene.hasLoaded) {
             scene.setAttribute('controller-updater', '');
-            console.log("controller-updater component added immediately.");
+            console.log("立即添加了 controller-updater 组件。");
         } else {
             scene.addEventListener('loaded', () => {
                 scene.setAttribute('controller-updater', '');
-                console.log("controller-updater component added after scene loaded.");
+                console.log("场景加载后添加了 controller-updater 组件。");
             });
         }
     } else {
-        console.error('A-Frame scene not found!');
+        console.error('未找到 A-Frame 场景！');
     }
 
-    // Add controller tracking button logic
+    // 添加控制器跟踪按钮逻辑
     addControllerTrackingButton();
 });
 
 function addControllerTrackingButton() {
     if (navigator.xr) {
-        // Check for either immersive-ar (Quest 3/Pro) or immersive-vr (Quest 2)
+        // 检查 immersive-ar（Quest 3/Pro）或 immersive-vr（Quest 2）支持
         Promise.all([
             navigator.xr.isSessionSupported('immersive-ar').catch(() => false),
             navigator.xr.isSessionSupported('immersive-vr').catch(() => false)
         ]).then(([arSupported, vrSupported]) => {
             if (arSupported || vrSupported) {
-                // Create Start Controller Tracking button
+                // 创建开始控制器跟踪按钮
                 const startButton = document.createElement('button');
                 startButton.id = 'start-tracking-button';
-                startButton.textContent = 'Start Controller Tracking';
+                startButton.textContent = '开始控制器跟踪';
                 startButton.style.position = 'fixed';
                 startButton.style.top = '50%';
                 startButton.style.left = '50%';
@@ -594,7 +593,7 @@ function addControllerTrackingButton() {
                 startButton.style.boxShadow = '0 4px 8px rgba(0,0,0,0.3)';
                 startButton.style.transition = 'all 0.3s ease';
 
-                // Hover effects
+                // 悬停效果
                 startButton.addEventListener('mouseenter', () => {
                     startButton.style.backgroundColor = '#45a049';
                     startButton.style.transform = 'translate(-50%, -50%) scale(1.05)';
@@ -605,27 +604,27 @@ function addControllerTrackingButton() {
                 });
 
                 startButton.onclick = async () => {
-                    console.log('Start Controller Tracking button clicked.');
+                    console.log('点击了开始控制器跟踪按钮。');
                     const sceneEl = document.querySelector('a-scene');
                     if (!sceneEl) {
-                        console.error('A-Frame scene not found for enterVR call!');
+                        console.error('未找到用于 enterVR 调用的 A-Frame 场景！');
                         return;
                     }
 
-                    // Update button to show we're connecting
-                    startButton.textContent = 'Connecting...';
+                    // 更新按钮以显示正在连接
+                    startButton.textContent = '连接中...';
                     startButton.disabled = true;
 
                     try {
-                        // Check if robot is already connected
+                        // 检查机器人是否已连接
                         const statusResponse = await fetch('/api/status');
                         const status = await statusResponse.json();
 
                         if (!status.robotEngaged) {
-                            console.log('Robot not connected. Connecting arms first...');
-                            startButton.textContent = 'Connecting Arms...';
+                            console.log('机器人未连接。先连接机械臂...');
+                            startButton.textContent = '连接机械臂中...';
 
-                            // Connect the robot arms
+                            // 连接机器人机械臂
                             const connectResponse = await fetch('/api/robot', {
                                 method: 'POST',
                                 headers: {
@@ -636,67 +635,67 @@ function addControllerTrackingButton() {
                             const connectResult = await connectResponse.json();
 
                             if (!connectResult.success) {
-                                throw new Error(connectResult.error || 'Failed to connect robot arms');
+                                throw new Error(connectResult.error || '无法连接机器人机械臂');
                             }
-                            console.log('Robot arms connected successfully.');
+                            console.log('机器人机械臂连接成功。');
 
-                            // Wait a moment for arms to initialize
+                            // 等待片刻让机械臂初始化
                             await new Promise(resolve => setTimeout(resolve, 500));
                         } else {
-                            console.log('Robot already connected.');
+                            console.log('机器人已连接。');
                         }
 
-                        // Now enter VR mode
-                        console.log('Requesting VR session via A-Frame...');
-                        startButton.textContent = 'Starting VR...';
+                        // 现在进入 VR 模式
+                        console.log('通过 A-Frame 请求 VR 会话...');
+                        startButton.textContent = '启动 VR 中...';
                         await sceneEl.enterVR(true);
                     } catch (err) {
-                        console.error('Failed to start controller tracking:', err);
-                        alert(`Failed to start: ${err.message}`);
-                        // Reset button state
-                        startButton.textContent = 'Start Controller Tracking';
+                        console.error('无法启动控制器跟踪:', err);
+                        alert(`启动失败: ${err.message}`);
+                        // 重置按钮状态
+                        startButton.textContent = '开始控制器跟踪';
                         startButton.disabled = false;
                     }
                 };
 
                 document.body.appendChild(startButton);
-                console.log('Official "Start Controller Tracking" button added.');
+                console.log('已添加官方"开始控制器跟踪"按钮。');
 
-                // Add VR instructions panel
+                // 添加 VR 说明面板
                 createVrInstructionsPanel();
 
-                // Show the back to desktop button (function defined in interface.js)
+                // 显示返回桌面按钮（函数在 interface.js 中定义）
                 if (typeof showBackToDesktopButton === 'function') {
                     showBackToDesktopButton();
                 }
 
-                // Listen for VR session events to hide/show start button
+                // 监听 VR 会话事件以隐藏/显示开始按钮
                 const sceneEl = document.querySelector('a-scene');
                 if (sceneEl) {
                     sceneEl.addEventListener('enter-vr', () => {
-                        console.log('Entered VR - hiding start button');
+                        console.log('已进入 VR - 隐藏开始按钮');
                         startButton.style.display = 'none';
                     });
 
                     sceneEl.addEventListener('exit-vr', () => {
-                        console.log('Exited VR - showing start button');
+                        console.log('已退出 VR - 显示开始按钮');
                         startButton.style.display = 'block';
                     });
                 }
 
             } else {
-                console.warn('Neither immersive-ar nor immersive-vr supported by this browser/device.');
+                console.warn('此浏览器/设备不支持 immersive-ar 或 immersive-vr。');
             }
         }).catch((err) => {
-            console.error('Error checking XR support:', err);
+            console.error('检查 XR 支持时出错:', err);
         });
     } else {
-        console.warn('WebXR not supported by this browser.');
+        console.warn('此浏览器不支持 WebXR。');
     }
 }
 
 function createVrInstructionsPanel() {
-    // Don't create if already exists
+    // 如果已存在则不创建
     if (document.getElementById('vr-instructions-panel')) return;
 
     const panel = document.createElement('div');
@@ -718,18 +717,18 @@ function createVrInstructionsPanel() {
     `;
 
     panel.innerHTML = `
-        <h2 style="margin: 0 0 15px 0; font-size: 1.2em; text-align: center;">VR Controller Instructions</h2>
+        <h2 style="margin: 0 0 15px 0; font-size: 1.2em; text-align: center;">VR 控制器使用说明</h2>
         <div style="display: flex; gap: 15px; align-items: flex-start; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 150px; text-align: center;">
-                <img src="media/telegrip_instructions.jpg" alt="VR Controller Instructions"
+                <img src="media/telegrip_instructions.jpg" alt="VR 控制器使用说明"
                      style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
             </div>
             <div style="flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; font-size: 14px;">
                 <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 6px;">
-                    <strong style="color: #ee4d9a;">Grip Button:</strong> Hold to move the arm
+                    <strong style="color: #ee4d9a;">握把按钮：</strong>按住以移动机械臂
                 </div>
                 <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 6px;">
-                    <strong style="color: #9af58c;">Trigger:</strong> Hold to close gripper
+                    <strong style="color: #9af58c;">扳机：</strong>按住以闭合夹爪
                 </div>
             </div>
         </div>
@@ -737,7 +736,7 @@ function createVrInstructionsPanel() {
 
     document.body.appendChild(panel);
 
-    // Hide panel when entering VR
+    // 进入 VR 时隐藏面板
     const sceneEl = document.querySelector('a-scene');
     if (sceneEl) {
         sceneEl.addEventListener('enter-vr', () => {
