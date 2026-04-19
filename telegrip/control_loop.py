@@ -60,6 +60,9 @@ class ControlLoop:
         self.left_arm = ArmState("left")
         self.right_arm = ArmState("right")
         
+        # Aloha chassis state
+        self.aloha_height = self.config.aloha_initial_height
+        
         # Control timing
         self.last_log_time = 0
         self.log_interval = 1.0  # Log status every second
@@ -252,6 +255,13 @@ class ControlLoop:
                     self.web_keyboard_handler.on_key_release(key)
             else:
                 logger.warning("🎮 Web keyboard handler not enabled")
+        elif action == 'set_aloha_height':
+            # Handle Aloha chassis height adjustment
+            height = command.get('height', self.aloha_height)
+            self.aloha_height = height
+            if self.visualizer:
+                self.visualizer.set_aloha_height(height)
+                logger.info(f"⬆️ Aloha chassis height set to {height:.3f}m")
         elif action == 'robot_connect':
             logger.info("🔌 Processing robot_connect command")
             if self.robot_interface and self.robot_interface.is_connected:
@@ -292,6 +302,15 @@ class ControlLoop:
 
     async def _execute_goal(self, goal: ControlGoal):
         """Execute a control goal."""
+        # Handle special Aloha chassis control commands
+        if goal.metadata and goal.metadata.get("action") == "set_aloha_height":
+            height = goal.metadata.get("height", self.aloha_height)
+            self.aloha_height = height
+            if self.visualizer:
+                self.visualizer.set_aloha_height(height)
+                logger.debug(f"⬆️ Aloha chassis height set to {height:.3f}m via VR joystick")
+            return
+        
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm
         
         # Handle special reset signal from keyboard idle timeout

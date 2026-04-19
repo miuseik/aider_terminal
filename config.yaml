@@ -17,6 +17,9 @@ ik:
   position_error_threshold: 0.001
   hysteresis_threshold: 0.05
   movement_penalty_weight: 0.01
+aloha:
+  enabled: true
+  initial_height: 0.3
 network:
   host_ip: 0.0.0.0
   https_port: 8443

@@ -211,11 +211,18 @@ class VRWebSocketServer(BaseInputProvider):
     async def process_controller_data(self, data: Dict):
         """Process incoming VR controller data."""
         
+        # 打印原始数据
+        print(f"📥 Raw: {str(data)[:500]}")
+
+        # 如果 data 是字符串,解析它
+        if isinstance(data, str):
+            data = json.loads(data)
+        
         # Handle new dual controller format
         if 'leftController' in data and 'rightController' in data:
             left_data = data['leftController']
             right_data = data['rightController']
-            
+
             # Process left controller
             if left_data.get('position') and (left_data.get('gripActive', False) or left_data.get('trigger', 0) > 0.5):
                 await self.process_single_controller('left', left_data)

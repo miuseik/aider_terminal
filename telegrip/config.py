@@ -66,6 +66,10 @@ DEFAULT_CONFIG = {
         "position_error_threshold": 0.001,
         "hysteresis_threshold": 0.01,
         "movement_penalty_weight": 0.01
+    },
+    "aloha": {
+        "enabled": True,
+        "initial_height": 0.3
     }
 }
 
@@ -150,6 +154,10 @@ IK_POSITION_ERROR_THRESHOLD = _config_data["ik"]["position_error_threshold"]
 IK_HYSTERESIS_THRESHOLD = _config_data["ik"]["hysteresis_threshold"]
 IK_MOVEMENT_PENALTY_WEIGHT = _config_data["ik"]["movement_penalty_weight"]
 
+# Aloha Configuration
+ALOHA_ENABLED = _config_data["aloha"]["enabled"]
+ALOHA_INITIAL_HEIGHT = _config_data["aloha"]["initial_height"]
+
 # --- Joint Configuration ---
 JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 NUM_JOINTS = len(JOINT_NAMES)
@@ -231,6 +239,10 @@ class TelegripConfig:
     ik_position_error_threshold: float = IK_POSITION_ERROR_THRESHOLD
     ik_hysteresis_threshold: float = IK_HYSTERESIS_THRESHOLD
     ik_movement_penalty_weight: float = IK_MOVEMENT_PENALTY_WEIGHT
+    
+    # Aloha settings
+    aloha_enabled: bool = ALOHA_ENABLED
+    aloha_initial_height: float = ALOHA_INITIAL_HEIGHT
     
     # Gripper settings
     gripper_open_angle: float = GRIPPER_OPEN_ANGLE

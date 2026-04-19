@@ -65,6 +65,7 @@ class PyBulletVisualizer:
         # PyBullet state
         self.physics_client = None
         self.robot_ids = {'left': None, 'right': None}  # Two robot instances
+        self.aloha_id = None  # Aloha chassis instance
         self.joint_indices = {'left': [None] * NUM_JOINTS, 'right': [None] * NUM_JOINTS}  # Joint indices for both arms
         self.end_effector_link_indices = {'left': -1, 'right': -1}  # End effector links for both arms
         
@@ -164,6 +165,12 @@ class PyBulletVisualizer:
             p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
             p.configureDebugVisualizer(p.COV_ENABLE_TINY_RENDERER, 0)
         
+        # 即使使用 GUI，也关闭一些不必要的元素以提高性能
+        if self.use_gui:
+            p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)  # 关闭侧边栏
+            p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1)  # 保持渲染
+            p.configureDebugVisualizer(p.COV_ENABLE_WIREFRAME, 0)  # 关闭线框模式
+        
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -9.81)
         
@@ -199,6 +206,23 @@ class PyBulletVisualizer:
             logger.error(f"Failed to load right robot URDF: {e}")
             return False
         
+        # Load Aloha chassis (positioned at origin)
+        aloha_urdf_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                       "URDF", "aloha", "Aloha.urdf")
+        if os.path.exists(aloha_urdf_path):
+            try:
+                if should_suppress_output:
+                    with suppress_stdout_stderr():
+                        self.aloha_id = p.loadURDF(aloha_urdf_path, [0, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+                else:
+                    self.aloha_id = p.loadURDF(aloha_urdf_path, [0, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+                if getattr(logging, self.log_level.upper()) <= logging.INFO:
+                    logger.info("Aloha chassis loaded successfully")
+            except p.error as e:
+                logger.warning(f"Failed to load Aloha URDF: {e}")
+        else:
+            logger.warning(f"Aloha URDF not found at: {aloha_urdf_path}")
+        
         # Map joint names to PyBullet indices
         if not self._map_joints():
             return False
@@ -215,6 +239,13 @@ class PyBulletVisualizer:
         
         # Setup camera position behind the robot (negative Y)
         self._setup_camera()
+        
+        # Initialize Aloha chassis height if loaded
+        if self.aloha_id is not None:
+            from ..config import ALOHA_INITIAL_HEIGHT
+            self.set_aloha_height(ALOHA_INITIAL_HEIGHT)
+            if getattr(logging, self.log_level.upper()) <= logging.INFO:
+                logger.info(f"Aloha chassis initialized at height: {ALOHA_INITIAL_HEIGHT}m")
         
         self.is_connected = True
         if getattr(logging, self.log_level.upper()) <= logging.INFO:
@@ -365,6 +396,28 @@ class PyBulletVisualizer:
                 
                 p.resetJointState(self.robot_ids[arm], self.joint_indices[arm][i], joint_angles_rad[i])
     
+    def set_aloha_height(self, height: float):
+        """Set the vertical position of the Aloha chassis.
+        
+        Args:
+            height: Height value (0 to 0.7854 meters based on URDF limits)
+        """
+        if not self.is_connected or self.aloha_id is None:
+            return
+        
+        # Find the vertical_move joint index
+        num_joints = p.getNumJoints(self.aloha_id)
+        for i in range(num_joints):
+            info = p.getJointInfo(self.aloha_id, i)
+            joint_name = info[1].decode('UTF-8')
+            if joint_name == "vertical_move":
+                # Clamp height to URDF limits (0 to 0.7854)
+                clamped_height = max(0.0, min(height, 0.7854))
+                p.resetJointState(self.aloha_id, i, clamped_height)
+                if getattr(logging, self.log_level.upper()) <= logging.DEBUG:
+                    logger.debug(f"Aloha height set to {clamped_height:.3f}m")
+                break
+    
     def update_marker_position(self, marker_name: str, position: np.ndarray, 
                               orientation: Optional[np.ndarray] = None):
         """Update position of a visualization marker."""
@@ -435,7 +488,11 @@ class PyBulletVisualizer:
     def step_simulation(self):
         """Step the simulation forward."""
         if self.is_connected:
+            # 使用固定时间步长，避免渲染卡顿
             p.stepSimulation()
+            # 可选：限制最大帧率，减少CPU占用
+            import time
+            time.sleep(0.001)  # 1ms 延迟，约 1000 FPS 上限
     
     def disconnect(self):
         """Disconnect from PyBullet."""
