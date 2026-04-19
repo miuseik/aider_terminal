@@ -212,7 +212,7 @@ class VRWebSocketServer(BaseInputProvider):
         """Process incoming VR controller data."""
         
         # 打印原始数据
-        print(f"📥 Raw: {str(data)[:500]}")
+        # print(f"📥 Raw: {str(data)[:500]}")
 
         # 如果 data 是字符串,解析它
         if isinstance(data, str):
@@ -222,6 +222,15 @@ class VRWebSocketServer(BaseInputProvider):
         if 'leftController' in data and 'rightController' in data:
             left_data = data['leftController']
             right_data = data['rightController']
+            
+            # 打印摇杆和扳机数据
+            if left_data:
+                print(f"🎮 Left - joystick: {left_data.get('joystick')}, trigger: {left_data.get('trigger')}")
+            if right_data:
+                print(f"🎮 Right - joystick: {right_data.get('joystick')}, trigger: {right_data.get('trigger')}")
+            
+            # 处理摇杆控制 Aloha 底盘
+            await self.process_joystick_control(left_data, right_data)
 
             # Process left controller
             if left_data.get('position') and (left_data.get('gripActive', False) or left_data.get('trigger', 0) > 0.5):
@@ -464,4 +473,47 @@ class VRWebSocketServer(BaseInputProvider):
             return x_rotation_deg
         except Exception as e:
             logger.warning(f"Error extracting pitch from quaternion: {e}")
-            return 0.0 
+            return 0.0
+    
+    async def process_joystick_control(self, left_data: Dict, right_data: Dict):
+        """Process joystick input for Aloha chassis control."""
+        if not self.config.aloha_enabled:
+            return
+        
+        left_joystick = left_data.get('joystick', {'x': 0, 'y': 0}) if left_data else {'x': 0, 'y': 0}
+        right_joystick = right_data.get('joystick', {'x': 0, 'y': 0}) if right_data else {'x': 0, 'y': 0}
+        
+        # Dead zone
+        dead_zone = 0.1
+        left_y = left_joystick['y'] if abs(left_joystick['y']) > dead_zone else 0.0
+        right_x = right_joystick['x'] if abs(right_joystick['x']) > dead_zone else 0.0
+        right_y = right_joystick['y'] if abs(right_joystick['y']) > dead_zone else 0.0
+        
+        # Control parameters
+        move_speed = 0.02
+        height_speed = 0.01
+        
+        # Left Y: forward/backward
+        if left_y != 0:
+            print(f"⬆️ Aloha move: {left_y:.2f}")
+        
+        # Right X: left/right translation
+        if right_x != 0:
+            print(f"➡️ Aloha translate: {right_x:.2f}")
+        
+        # Right Y: height control
+        if right_y != 0:
+            try:
+                from ..config import config
+                aloha_goal = ControlGoal(
+                    arm='left',
+                    metadata={
+                        "source": "vr_joystick",
+                        "action": "set_aloha_height",
+                        "height_delta": -right_y * height_speed
+                    }
+                )
+                await self.send_goal(aloha_goal)
+                print(f"🔼 Aloha height delta: {-right_y * height_speed:.3f}")
+            except Exception as e:
+                print(f"❌ Error sending height command: {e}") 

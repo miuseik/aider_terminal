@@ -98,7 +98,7 @@ class ControlLoop:
         if self.config.enable_pybullet:
             try:
                 # Import PyBulletVisualizer on demand
-                from .core.visualizer import PyBulletVisualizer
+                from .sim.sim2real.visualizer import PyBulletVisualizer
                 
                 self.visualizer = PyBulletVisualizer(
                     self.config.get_absolute_urdf_path(), 
@@ -304,11 +304,11 @@ class ControlLoop:
         """Execute a control goal."""
         # Handle special Aloha chassis control commands
         if goal.metadata and goal.metadata.get("action") == "set_aloha_height":
-            height = goal.metadata.get("height", self.aloha_height)
-            self.aloha_height = height
+            height_delta = goal.metadata.get("height_delta", 0)
+            self.aloha_height = max(0.0, min(0.7854, self.aloha_height + height_delta))
             if self.visualizer:
-                self.visualizer.set_aloha_height(height)
-                logger.debug(f"⬆️ Aloha chassis height set to {height:.3f}m via VR joystick")
+                self.visualizer.set_aloha_height(self.aloha_height)
+                logger.debug(f"⬆️ Aloha chassis height: {self.aloha_height:.3f}m (delta: {height_delta:.3f})")
             return
         
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm

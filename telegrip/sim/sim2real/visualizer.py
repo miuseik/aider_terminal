@@ -14,7 +14,7 @@ import sys
 import contextlib
 from scipy.spatial.transform import Rotation as R
 
-from ..config import (
+from ...config import (
     JOINT_NAMES, NUM_JOINTS, URDF_TO_INTERNAL_NAME_MAP, 
     END_EFFECTOR_LINK_NAME
 )
@@ -207,7 +207,7 @@ class PyBulletVisualizer:
             return False
         
         # Load Aloha chassis (positioned at origin)
-        aloha_urdf_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+        aloha_urdf_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 
                                        "URDF", "aloha", "Aloha.urdf")
         if os.path.exists(aloha_urdf_path):
             try:
@@ -242,7 +242,7 @@ class PyBulletVisualizer:
         
         # Initialize Aloha chassis height if loaded
         if self.aloha_id is not None:
-            from ..config import ALOHA_INITIAL_HEIGHT
+            from ...config import ALOHA_INITIAL_HEIGHT
             self.set_aloha_height(ALOHA_INITIAL_HEIGHT)
             if getattr(logging, self.log_level.upper()) <= logging.INFO:
                 logger.info(f"Aloha chassis initialized at height: {ALOHA_INITIAL_HEIGHT}m")

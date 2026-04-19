@@ -5,7 +5,7 @@ Contains robot interface, kinematics, and visualization components.
 
 from .robot_interface import RobotInterface
 from .kinematics import IKSolver, ForwardKinematics
-from .visualizer import PyBulletVisualizer
+from ..sim.sim2real.visualizer import PyBulletVisualizer
 
 __all__ = [
     "RobotInterface",

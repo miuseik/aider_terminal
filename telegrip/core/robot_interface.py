@@ -1,6 +1,6 @@
 """
-Robot interface module for the SO100 teleoperation system.
-Provides a clean wrapper around robot devices with safety checks and convenience methods.
+SO100 遥操作系统的机器人接口模块。
+提供带有安全检查的机器人设备封装和便捷方法。
 """
 
 import numpy as np
@@ -58,7 +58,7 @@ def suppress_stdout_stderr():
 
 
 class RobotInterface:
-    """High-level interface for SO100 robot control with safety features."""
+    """带有安全功能的 SO100 机器人控制高级接口。"""
     
     def __init__(self, config: TelegripConfig):
         self.config = config
@@ -71,29 +71,29 @@ class RobotInterface:
         self.left_arm_connected = False
         self.right_arm_connected = False
         
-        # Joint state
+        # 关节状态
         self.left_arm_angles = np.zeros(NUM_JOINTS)
         self.right_arm_angles = np.zeros(NUM_JOINTS)
         
-        # Joint limits (will be set by visualizer)
+        # 关节限制(将由 visualizer 设置)
         self.joint_limits_min_deg = np.full(NUM_JOINTS, -180.0)
         self.joint_limits_max_deg = np.full(NUM_JOINTS, 180.0)
         
-        # Kinematics solvers (will be set after PyBullet setup)
+        # 运动学求解器(将在 PyBullet 设置后配置)
         self.fk_solvers = {'left': None, 'right': None}
         self.ik_solvers = {'left': None, 'right': None}
         
-        # Control timing
+        # 控制时序
         self.last_send_time = 0
         
-        # Error tracking - separate for each arm
+        # 错误跟踪 - 每个机械臂单独跟踪
         self.left_arm_errors = 0
         self.right_arm_errors = 0
         self.general_errors = 0
         self.max_arm_errors = 3  # Allow fewer errors per arm before marking as disconnected
         self.max_general_errors = 8  # Allow more general errors before full disconnection
         
-        # Initial positions for safe shutdown - restored original values
+        # 安全关闭的初始位置 - 恢复原始值
         self.initial_left_arm = np.array([0, -100, 100, 60, 0, 0])
         self.initial_right_arm = np.array([0, -100, 100, 60, 0, 0])
     
@@ -118,7 +118,7 @@ class RobotInterface:
         return left_config, right_config
     
     def connect(self) -> bool:
-        """Connect to robot hardware."""
+        """连接到机器人硬件。"""
         if self.is_connected:
             logger.info("Robot interface already connected")
             return True
@@ -138,7 +138,7 @@ class RobotInterface:
             if not should_suppress:
                 logger.info("Connecting to robot...")
             
-            # Connect left arm
+            # 连接左机械臂
             try:
                 if should_suppress:
                     with suppress_stdout_stderr():
@@ -153,7 +153,7 @@ class RobotInterface:
                 logger.error(f"❌ Left arm connection failed: {e}")
                 self.left_arm_connected = False
             
-            # Connect right arm  
+            # 连接右机械臂  
             try:
                 if should_suppress:
                     with suppress_stdout_stderr():
@@ -168,11 +168,11 @@ class RobotInterface:
                 logger.error(f"❌ Right arm connection failed: {e}")
                 self.right_arm_connected = False
                 
-            # Mark as connected if at least one arm is connected
+            # 如果至少一个机械臂连接成功,标记为已连接
             self.is_connected = self.left_arm_connected or self.right_arm_connected
             
             if self.is_connected:
-                # Initialize joint states
+                # 初始化关节状态
                 self._read_initial_state()
                 logger.info(f"🤖 Robot interface connected: Left={self.left_arm_connected}, Right={self.right_arm_connected}")
             else:
@@ -186,7 +186,7 @@ class RobotInterface:
             return False
     
     def _read_initial_state(self):
-        """Read initial joint state from robot."""
+        """从机器人读取初始关节状态。"""
         try:
             if self.left_robot and self.left_arm_connected:
                 observation = self.left_robot.get_observation()
@@ -222,11 +222,11 @@ class RobotInterface:
     def setup_kinematics(self, physics_client, robot_ids: Dict, joint_indices: Dict, 
                         end_effector_link_indices: Dict, joint_limits_min_deg: np.ndarray, 
                         joint_limits_max_deg: np.ndarray):
-        """Setup kinematics solvers using PyBullet components for both arms."""
+        """使用 PyBullet 组件为两个机械臂配置运动学求解器。"""
         self.joint_limits_min_deg = joint_limits_min_deg.copy()
         self.joint_limits_max_deg = joint_limits_max_deg.copy()
         
-        # Setup solvers for both arms
+        # 为两个机械臂配置求解器
         for arm in ['left', 'right']:
             self.fk_solvers[arm] = ForwardKinematics(
                 physics_client, robot_ids[arm], joint_indices[arm], end_effector_link_indices[arm]
@@ -240,7 +240,7 @@ class RobotInterface:
         logger.info("Kinematics solvers initialized for both arms")
     
     def get_current_end_effector_position(self, arm: str) -> np.ndarray:
-        """Get current end effector position for specified arm."""
+        """获取指定机械臂的当前末端执行器位置。"""
         if arm == "left":
             angles = self.left_arm_angles
         elif arm == "right":
@@ -257,7 +257,7 @@ class RobotInterface:
     
     def solve_ik(self, arm: str, target_position: np.ndarray, 
                  target_orientation: Optional[np.ndarray] = None) -> np.ndarray:
-        """Solve inverse kinematics for specified arm."""
+        """求解指定机械臂的逆运动学。"""
         if arm == "left":
             current_angles = self.left_arm_angles
         elif arm == "right":
@@ -271,12 +271,12 @@ class RobotInterface:
             return current_angles[:3]  # Return current angles if no IK solver
     
     def clamp_joint_angles(self, joint_angles: np.ndarray) -> np.ndarray:
-        """Clamp joint angles to safe limits with margins for problem joints."""
-        # Create a copy to avoid modifying the original
+        """将关节角度限制到安全范围内,问题关节添加余量。"""
+        # 创建副本以避免修改原始数据
         processed_angles = joint_angles.copy()
         
-        # First, normalize angles that can wrap around (like shoulder_pan)
-        # Check if first joint (shoulder_pan) is outside limits but can be wrapped
+        # 首先,规范化可以环绕的角度(如 shoulder_pan)
+        # 检查第一个关节(shoulder_pan)是否超出限制但可以环绕
         shoulder_pan_idx = 0
         shoulder_pan_angle = processed_angles[shoulder_pan_idx]
         min_limit = self.joint_limits_min_deg[shoulder_pan_idx]  # -120.3°
@@ -284,7 +284,7 @@ class RobotInterface:
         
         # Try to wrap the angle to an equivalent angle within limits
         if shoulder_pan_angle < min_limit or shoulder_pan_angle > max_limit:
-            # Try wrapping by ±360°
+            # 尝试通过 ±360° 环绕角度
             for offset in [-360.0, 360.0]:
                 wrapped_angle = shoulder_pan_angle + offset
                 if min_limit <= wrapped_angle <= max_limit:
@@ -292,11 +292,11 @@ class RobotInterface:
                     processed_angles[shoulder_pan_idx] = wrapped_angle
                     break
         
-        # Apply standard joint limits to all joints
+        # 对所有关节应用标准关节限制
         return np.clip(processed_angles, self.joint_limits_min_deg, self.joint_limits_max_deg)
     
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float):
-        """Update joint angles for specified arm with IK solution and direct wrist/gripper control."""
+        """使用 IK 解和直接腕部/夹爪控制更新指定机械臂的关节角度。"""
         if arm == "left":
             target_angles = self.left_arm_angles
         elif arm == "right":
@@ -304,20 +304,20 @@ class RobotInterface:
         else:
             raise ValueError(f"Invalid arm: {arm}")
         
-        # Update first 3 joints with IK solution
+        # 用 IK 解更新前 3 个关节
         target_angles[:3] = ik_angles
         
-        # Set wrist angles directly
+        # 直接设置腕部角度
         target_angles[3] = wrist_flex
         target_angles[4] = wrist_roll
         
-        # Handle gripper separately (clamp to gripper limits)
+        # 单独处理夹爪(限制到夹爪范围)
         target_angles[5] = np.clip(gripper, GRIPPER_OPEN_ANGLE, GRIPPER_CLOSED_ANGLE)
         
-        # Apply joint limits to all joints (except gripper which we handle specially)
+        # 对所有关节应用关节限制(夹爪除外,我们特殊处理)
         clamped_angles = self.clamp_joint_angles(target_angles)
         
-        # Preserve gripper control (don't clamp gripper if it was set intentionally)
+        # 保留夹爪控制(如果有意设置则不限制夹爪)
         clamped_angles[5] = target_angles[5]
         
         if arm == "left":
@@ -326,7 +326,7 @@ class RobotInterface:
             self.right_arm_angles = clamped_angles
     
     def engage(self) -> bool:
-        """Engage robot motors (start sending commands)."""
+        """接合机器人电机(开始发送命令)。"""
         if not self.is_connected:
             logger.warning("Cannot engage robot: not connected")
             return False
@@ -336,16 +336,16 @@ class RobotInterface:
         return True
     
     def disengage(self) -> bool:
-        """Disengage robot motors (stop sending commands)."""
+        """断开机器人电机(停止发送命令)。"""
         if not self.is_connected:
             logger.info("Robot already disconnected")
             return True
         
         try:
-            # Return to safe position before disengaging
+            # 断开前先返回安全位置
             self.return_to_initial_position()
             
-            # Disable torque
+            # 禁用扭矩
             self.disable_torque()
             
             self.is_engaged = False
@@ -357,7 +357,7 @@ class RobotInterface:
             return False
     
     def send_command(self) -> bool:
-        """Send current joint angles to robot using dictionary format."""
+        """使用字典格式向机器人发送当前关节角度。"""
         if not self.is_connected or not self.is_engaged:
             return False
         
@@ -366,10 +366,10 @@ class RobotInterface:
             return True  # Don't send too frequently
         
         try:
-            # Send commands with dictionary format - no joint direction mapping
+            # 使用字典格式发送命令 - 无关节方向映射
             success = True
             
-            # Send left arm command
+            # 发送左机械臂命令
             if self.left_robot and self.left_arm_connected:
                 try:
                     action_dict = {
@@ -389,7 +389,7 @@ class RobotInterface:
                         logger.error("❌ Left arm disconnected due to repeated errors")
                     success = False
             
-            # Send right arm command
+            # 发送右机械臂命令
             if self.right_robot and self.right_arm_connected:
                 try:
                     action_dict = {
@@ -421,7 +421,7 @@ class RobotInterface:
             return False
     
     def set_gripper(self, arm: str, closed: bool):
-        """Set gripper state for specified arm."""
+        """设置指定机械臂的夹爪状态。"""
         angle = GRIPPER_CLOSED_ANGLE if closed else GRIPPER_OPEN_ANGLE
         
         if arm == "left":
@@ -432,7 +432,7 @@ class RobotInterface:
             raise ValueError(f"Invalid arm: {arm}")
     
     def get_arm_angles(self, arm: str) -> np.ndarray:
-        """Get current joint angles for specified arm."""
+        """获取指定机械臂的当前关节角度。"""
         if arm == "left":
             angles = self.left_arm_angles.copy()
         elif arm == "right":
@@ -443,12 +443,12 @@ class RobotInterface:
         return angles
     
     def get_arm_angles_for_visualization(self, arm: str) -> np.ndarray:
-        """Get current joint angles for specified arm, for PyBullet visualization."""
-        # Return raw angles without any correction for proper diagnosis
+        """获取指定机械臂的当前关节角度,用于 PyBullet 可视化。"""
+        # 返回原始角度而不进行任何修正以进行正确诊断
         return self.get_arm_angles(arm)
     
     def get_actual_arm_angles(self, arm: str) -> np.ndarray:
-        """Get actual joint angles from robot hardware (not commanded angles)."""
+        """从机器人硬件获取实际关节角度(非命令角度)。"""
         try:
             if arm == "left" and self.left_robot and self.left_arm_connected:
                 observation = self.left_robot.get_observation()
@@ -475,19 +475,19 @@ class RobotInterface:
         except Exception as e:
             logger.debug(f"Error reading actual arm angles for {arm}: {e}")
         
-        # Fallback to commanded angles if we can't read actual angles
+        # 如果无法读取实际角度,回退到命令角度
         return self.get_arm_angles(arm)
     
     def return_to_initial_position(self):
-        """Return both arms to initial position."""
+        """将两个机械臂返回到初始位置。"""
         logger.info("⏪ Returning robot to initial position...")
         
         try:
-            # Set initial positions - no direction mapping
+            # 设置初始位置 - 无方向映射
             self.left_arm_angles = self.initial_left_arm.copy()
             self.right_arm_angles = self.initial_right_arm.copy()
             
-            # Send commands for a few iterations to ensure movement
+            # 发送几次命令以确保移动
             for i in range(10):
                 self.send_command()
                 time.sleep(0.1)
@@ -497,10 +497,10 @@ class RobotInterface:
             logger.error(f"Error returning to initial position: {e}")
     
     def disable_torque(self, arm: str = None):
-        """Disable torque on robot joints.
+        """禁用机器人关节扭矩。
 
         Args:
-            arm: 'left', 'right', or None for both arms
+            arm: 'left'、'right' 或 None 表示两个机械臂
         """
         if not self.is_connected:
             return
@@ -520,20 +520,20 @@ class RobotInterface:
             logger.error(f"Error disabling torque: {e}")
     
     def disconnect(self):
-        """Disconnect from robot hardware."""
+        """断开与机器人硬件的连接。"""
         if not self.is_connected:
             return
         
         logger.info("Disconnecting from robot...")
         
-        # Return to initial positions if engaged
+        # 如果已接合,返回初始位置
         if self.is_engaged:
             try:
                 self.return_to_initial_position()
             except Exception as e:
                 logger.error(f"Error returning to initial position: {e}")
         
-        # Disconnect both arms
+        # 断开两个机械臂
         if self.left_robot:
             try:
                 self.left_robot.disconnect()
@@ -555,8 +555,8 @@ class RobotInterface:
         logger.info("🔌 Robot disconnected")
     
     def get_arm_connection_status(self, arm: str) -> bool:
-        """Get connection status for specific arm based on device file existence."""
-        # Only check device file existence - ignore overall robot connection status
+        """基于设备文件存在性获取特定机械臂的连接状态。"""
+        # 仅检查设备文件存在性 - 忽略整体机器人连接状态
         if arm == "left":
             device_path = self.config.follower_ports["left"]
             return os.path.exists(device_path)
@@ -567,14 +567,14 @@ class RobotInterface:
             return False
 
     def update_arm_connection_status(self):
-        """Update individual arm connection status based on device file existence."""
+        """基于设备文件存在性更新各个机械臂的连接状态。"""
         if self.is_connected:
             self.left_arm_connected = os.path.exists(self.config.follower_ports["left"])
             self.right_arm_connected = os.path.exists(self.config.follower_ports["right"])
     
     @property
     def status(self) -> Dict:
-        """Get robot status information."""
+        """获取机器人状态信息。"""
         return {
             "connected": self.is_connected,
             "left_arm_connected": self.left_arm_connected,
