@@ -14,6 +14,8 @@ from typing import Optional, Dict, Tuple
 
 # New lerobot structure imports
 from lerobot.robots.so_follower.so_follower import SOFollower, SOFollowerRobotConfig
+from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors import Motor, MotorNormMode
 
 from ..config import (
     TelegripConfig, NUM_JOINTS, JOINT_NAMES,
@@ -64,6 +66,8 @@ class RobotInterface:
         self.config = config
         self.left_robot = None
         self.right_robot = None
+        self.base_bus = None      # 底盘电机总线
+        self.lift_bus = None      # 升降轴电机总线
         self.is_connected = False
         self.is_engaged = False  # New state for motor engagement
         
@@ -167,6 +171,36 @@ class RobotInterface:
             except Exception as e:
                 logger.error(f"❌ Right arm connection failed: {e}")
                 self.right_arm_connected = False
+
+            # 连接移动底盘 (AlohaMini)
+            if self.config._config_data.get("robot", {}).get("mobile_base", {}).get("enabled"):
+                try:
+                    base_port = self.config._config_data["robot"]["mobile_base"]["port"]
+                    # 定义底盘电机: ID 8, 9, 10 对应左、后、右轮
+                    base_motors = {
+                        "base_left_wheel": Motor(id=8, model="sts3215", norm_mode=MotorNormMode.RANGE_0_100),
+                        "base_back_wheel": Motor(id=9, model="sts3215", norm_mode=MotorNormMode.RANGE_0_100),
+                        "base_right_wheel": Motor(id=10, model="sts3215", norm_mode=MotorNormMode.RANGE_0_100),
+                    }
+                    self.base_bus = FeetechMotorsBus(port=base_port, motors=base_motors)
+                    self.base_bus.connect(handshake=False)
+                    logger.info(f"✅ Mobile base connected on {base_port}")
+                except Exception as e:
+                    logger.error(f"❌ Mobile base connection failed: {e}")
+
+            # 连接升降轴 (AlohaMini)
+            if self.config._config_data.get("robot", {}).get("lift_axis", {}).get("enabled"):
+                try:
+                    lift_port = self.config._config_data["robot"]["lift_axis"]["port"]
+                    # 定义升降轴电机: ID 11
+                    lift_motors = {
+                        "lift_axis": Motor(id=11, model="sts3215", norm_mode=MotorNormMode.RANGE_0_100),
+                    }
+                    self.lift_bus = FeetechMotorsBus(port=lift_port, motors=lift_motors)
+                    self.lift_bus.connect(handshake=False)
+                    logger.info(f"✅ Lift axis connected on {lift_port}")
+                except Exception as e:
+                    logger.error(f"❌ Lift axis connection failed: {e}")
                 
             # 如果至少一个机械臂连接成功,标记为已连接
             self.is_connected = self.left_arm_connected or self.right_arm_connected
@@ -356,8 +390,8 @@ class RobotInterface:
             logger.error(f"Error disengaging robot: {e}")
             return False
     
-    def send_command(self) -> bool:
-        """使用字典格式向机器人发送当前关节角度。"""
+    def send_command(self, action_dict: dict = None) -> bool:
+        """使用字典格式向机器人发送当前关节角度及底盘/升降指令。"""
         if not self.is_connected or not self.is_engaged:
             return False
         
@@ -366,13 +400,13 @@ class RobotInterface:
             return True  # Don't send too frequently
         
         try:
-            # 使用字典格式发送命令 - 无关节方向映射
+            # 1. 发送机械臂命令 (原有逻辑)
             success = True
             
             # 发送左机械臂命令
             if self.left_robot and self.left_arm_connected:
                 try:
-                    action_dict = {
+                    arm_action = {
                         "shoulder_pan.pos": float(self.left_arm_angles[0]),
                         "shoulder_lift.pos": float(self.left_arm_angles[1]),
                         "elbow_flex.pos": float(self.left_arm_angles[2]),
@@ -380,19 +414,15 @@ class RobotInterface:
                         "wrist_roll.pos": float(self.left_arm_angles[4]),
                         "gripper.pos": float(self.left_arm_angles[5])
                     }
-                    self.left_robot.send_action(action_dict)
+                    self.left_robot.send_action(arm_action)
                 except Exception as e:
                     logger.error(f"Error sending left arm command: {e}")
-                    self.left_arm_errors += 1
-                    if self.left_arm_errors > self.max_arm_errors:
-                        self.left_arm_connected = False
-                        logger.error("❌ Left arm disconnected due to repeated errors")
                     success = False
             
             # 发送右机械臂命令
             if self.right_robot and self.right_arm_connected:
                 try:
-                    action_dict = {
+                    arm_action = {
                         "shoulder_pan.pos": float(self.right_arm_angles[0]),
                         "shoulder_lift.pos": float(self.right_arm_angles[1]),
                         "elbow_flex.pos": float(self.right_arm_angles[2]),
@@ -400,24 +430,37 @@ class RobotInterface:
                         "wrist_roll.pos": float(self.right_arm_angles[4]),
                         "gripper.pos": float(self.right_arm_angles[5])
                     }
-                    self.right_robot.send_action(action_dict)
+                    self.right_robot.send_action(arm_action)
                 except Exception as e:
                     logger.error(f"Error sending right arm command: {e}")
-                    self.right_arm_errors += 1
-                    if self.right_arm_errors > self.max_arm_errors:
-                        self.right_arm_connected = False
-                        logger.error("❌ Right arm disconnected due to repeated errors")
                     success = False
+
+            # 2. 发送底盘和升降轴命令 (新增逻辑)
+            if action_dict:
+                # 处理底盘速度
+                if self.base_bus:
+                    wheel_cmds = {}
+                    for name in ["base_left_wheel", "base_back_wheel", "base_right_wheel"]:
+                        if f"{name}.vel" in action_dict:
+                            wheel_cmds[name] = action_dict[f"{name}.vel"]
+                    if wheel_cmds:
+                        # 批量写入 Goal_Velocity 寄存器
+                        names = list(wheel_cmds.keys())
+                        vals = list(wheel_cmds.values())
+                        self.base_bus.write("Goal_Velocity", vals, names, normalize=False)
+
+                # 处理升降轴高度
+                if self.lift_bus and "lift.height_mm" in action_dict:
+                    from .axis import height_mm_to_ticks
+                    target_ticks = height_mm_to_ticks(action_dict["lift.height_mm"])
+                    # 写入 Goal_Position 寄存器
+                    self.lift_bus.write("Goal_Position", "lift_axis", target_ticks, normalize=False)
             
             self.last_send_time = current_time
             return success
             
         except Exception as e:
             logger.error(f"Error sending robot command: {e}")
-            self.general_errors += 1
-            if self.general_errors > self.max_general_errors:
-                self.is_connected = False
-                logger.error("❌ Robot interface disconnected due to repeated errors")
             return False
     
     def set_gripper(self, arm: str, closed: bool):

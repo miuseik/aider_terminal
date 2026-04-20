@@ -3,6 +3,7 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/参考项目修改时请忽略/lerobot_alohamini/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 (aider_terminal)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

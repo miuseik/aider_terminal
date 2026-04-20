@@ -212,7 +212,7 @@ class VRWebSocketServer(BaseInputProvider):
         """Process incoming VR controller data."""
         
         # 打印原始数据
-        # print(f"📥 Raw: {str(data)[:500]}")
+        # print(f"📥 Raw: {str(data)[:800]}")
 
         # 如果 data 是字符串,解析它
         if isinstance(data, str):
@@ -223,11 +223,9 @@ class VRWebSocketServer(BaseInputProvider):
             left_data = data['leftController']
             right_data = data['rightController']
             
-            # 打印摇杆和扳机数据
-            if left_data:
-                print(f"🎮 Left - joystick: {left_data.get('joystick')}, trigger: {left_data.get('trigger')}")
-            if right_data:
-                print(f"🎮 Right - joystick: {right_data.get('joystick')}, trigger: {right_data.get('trigger')}")
+            # 【核心修改】存储摇杆数据到 controller 状态，供后续使用
+            self.left_controller.joystick_data = left_data.get('joystick', {'x': 0, 'y': 0}) if left_data else {'x': 0, 'y': 0}
+            self.right_controller.joystick_data = right_data.get('joystick', {'x': 0, 'y': 0}) if right_data else {'x': 0, 'y': 0}
             
             # 处理摇杆控制 Aloha 底盘
             await self.process_joystick_control(left_data, right_data)
@@ -349,12 +347,21 @@ class VRWebSocketServer(BaseInputProvider):
                 # Create position control goal
                 # Note: We send relative position here, the control loop will handle
                 # adding it to the robot's current position
+                
+                # 获取当前的摇杆数据 (从 process_controller_data 传入的原始数据中提取)
+                # 注意：这里我们需要在 process_single_controller 中也能访问到原始的 data 对象
+                # 为了简单起见，我们直接在 process_controller_data 里把摇杆数据存到 controller 状态里
+                left_joy = self.left_controller.joystick_data if hasattr(self.left_controller, 'joystick_data') else None
+                right_joy = self.right_controller.joystick_data if hasattr(self.right_controller, 'joystick_data') else None
+
                 goal = ControlGoal(
                     arm=hand,
                     mode=ControlMode.POSITION_CONTROL,
                     target_position=relative_delta,  # Relative position delta
                     wrist_roll_deg=-controller.z_axis_rotation,
                     wrist_flex_deg=-controller.x_axis_rotation,
+                    left_joystick=left_joy,
+                    right_joystick=right_joy,
                     metadata={
                         "source": "vr_grip",
                         "relative_position": True,
@@ -494,12 +501,7 @@ class VRWebSocketServer(BaseInputProvider):
         height_speed = 0.01
         
         # Left Y: forward/backward
-        if left_y != 0:
-            print(f"⬆️ Aloha move: {left_y:.2f}")
-        
         # Right X: left/right translation
-        if right_x != 0:
-            print(f"➡️ Aloha translate: {right_x:.2f}")
         
         # Right Y: height control
         if right_y != 0:
@@ -514,6 +516,5 @@ class VRWebSocketServer(BaseInputProvider):
                     }
                 )
                 await self.send_goal(aloha_goal)
-                print(f"🔼 Aloha height delta: {-right_y * height_speed:.3f}")
             except Exception as e:
-                print(f"❌ Error sending height command: {e}") 
+                pass 

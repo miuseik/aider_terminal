@@ -247,7 +247,7 @@
     name="vertical_move"
     type="prismatic">
     <origin
-      xyz="-0.001045 -0.067891 0.064"
+      xyz="-0.001045 -0.067891 0"
       rpy="0 0 0" />
     <parent
       link="base_link" />
