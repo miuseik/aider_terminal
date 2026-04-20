@@ -378,8 +378,48 @@ class PyBulletVisualizer:
         if getattr(logging, self.log_level.upper()) <= logging.INFO:
             logger.info(f"Camera positioned behind robot at distance={camera_distance}, yaw={camera_yaw}°, pitch={camera_pitch}°")
     
+    def update_aloha_arm_pose(self, joint_angles_deg: np.ndarray, arm: str = 'left'):
+        """更新 AlohaMini 机械臂姿态（带仿真偏移）。
+        
+        Args:
+            joint_angles_deg: SO100 关节角度数组（度）
+            arm: 'left' 或 'right'
+        """
+        if not self.is_connected or self.aloha_id is None:
+            return
+        
+        # 【秘密武器】给 Aloha 的第2、3关节加偏移，对齐 SO100 初始姿态
+        adjusted_angles = joint_angles_deg.copy()
+        if len(adjusted_angles) >= 3:
+            adjusted_angles[1] += 90.0   # 第2关节 +90°
+            adjusted_angles[2] -= 90.0   # 第3关节 -90°
+        
+        joint_angles_rad = np.deg2rad(adjusted_angles)
+        
+        num_joints = p.getNumJoints(self.aloha_id)
+        for i in range(num_joints):
+            info = p.getJointInfo(self.aloha_id, i)
+            joint_name = info[1].decode('UTF-8')
+            
+            # 左臂关节
+            if arm == 'left' and joint_name.startswith('left_joint'):
+                joint_num = int(joint_name.replace('left_joint', '')) - 1  # 0-indexed
+                if 0 <= joint_num < 6:
+                    p.resetJointState(self.aloha_id, i, joint_angles_rad[joint_num])
+            
+            # 右臂关节
+            elif arm == 'right' and joint_name.startswith('right_joint'):
+                joint_num = int(joint_name.replace('right_joint', '')) - 1  # 0-indexed
+                if 0 <= joint_num < 6:
+                    p.resetJointState(self.aloha_id, i, joint_angles_rad[joint_num])
+    
     def update_robot_pose(self, joint_angles_deg: np.ndarray, arm: str = 'left'):
-        """更新指定机械臂在可视化中的关节位置。"""
+        """更新指定机械臂在可视化中的关节位置。
+        
+        Args:
+            joint_angles_deg: 关节角度数组（度）
+            arm: 'left' 或 'right'
+        """
         if not self.is_connected or arm not in self.robot_ids:
             return
         

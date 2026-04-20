@@ -310,9 +310,18 @@ class ControlLoop:
         
         # 【核心修改】提取摇杆数据并存入共享状态
         if goal.left_joystick is not None:
-            self.vr_raw_data['leftController'] = {'joystick': goal.left_joystick}
+            self.vr_raw_data['leftController'] = self.vr_raw_data.get('leftController', {})
+            self.vr_raw_data['leftController']['joystick'] = goal.left_joystick
         if goal.right_joystick is not None:
-            self.vr_raw_data['rightController'] = {'joystick': goal.right_joystick}
+            self.vr_raw_data['rightController'] = self.vr_raw_data.get('rightController', {})
+            self.vr_raw_data['rightController']['joystick'] = goal.right_joystick
+        
+        # 【秘密武器】存储 trigger 线性值
+        if goal.metadata and 'trigger_value' in goal.metadata:
+            arm = goal.arm
+            controller_key = f'{arm}Controller'
+            self.vr_raw_data[controller_key] = self.vr_raw_data.get(controller_key, {})
+            self.vr_raw_data[controller_key]['trigger'] = goal.metadata['trigger_value']
 
         # 1. 优先处理 Aloha 底盘的特殊控制指令
         if goal.metadata and goal.metadata.get("action") == "set_aloha_height":
@@ -574,8 +583,27 @@ class ControlLoop:
         left_angles = self.robot_interface.get_arm_angles("left")
         right_angles = self.robot_interface.get_arm_angles("right")
         
+        # 【秘密武器】从 VR 数据中提取 trigger 线性值，替换夹爪角度
+        left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
+        right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
+        
+        # print(f"🔧 Trigger L:{left_trigger} R:{right_trigger}")
+        
+        if left_trigger is not None and len(left_angles) > GRIPPER_INDEX:
+            # trigger: 0.0 -> 0°, 1.0 -> -90°
+            left_angles[GRIPPER_INDEX] = -left_trigger * 90.0
+        
+        if right_trigger is not None and len(right_angles) > GRIPPER_INDEX:
+            right_angles[GRIPPER_INDEX] = -right_trigger * 90.0
+        
         self.visualizer.update_robot_pose(left_angles, 'left')
         self.visualizer.update_robot_pose(right_angles, 'right')
+        
+        # 4. 【秘密武器】将 SO100 IK 结果映射到 AlohaMini 机械臂
+        if self.visualizer.aloha_id is not None:
+
+            self.visualizer.update_aloha_arm_pose(left_angles, 'left')
+            self.visualizer.update_aloha_arm_pose(right_angles, 'right')
         
         # 2. 更新空间中的目标点（Goal）和当前点（Target）可视化标记
         if self.left_arm.mode == ControlMode.POSITION_CONTROL:

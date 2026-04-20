@@ -353,6 +353,9 @@ class VRWebSocketServer(BaseInputProvider):
                 # 为了简单起见，我们直接在 process_controller_data 里把摇杆数据存到 controller 状态里
                 left_joy = self.left_controller.joystick_data if hasattr(self.left_controller, 'joystick_data') else None
                 right_joy = self.right_controller.joystick_data if hasattr(self.right_controller, 'joystick_data') else None
+                
+                # 【秘密武器】获取 trigger 线性值
+                trigger_value = data.get('trigger', 0.0) if isinstance(data, dict) else 0.0
 
                 goal = ControlGoal(
                     arm=hand,
@@ -365,7 +368,8 @@ class VRWebSocketServer(BaseInputProvider):
                     metadata={
                         "source": "vr_grip",
                         "relative_position": True,
-                        "origin_position": controller.origin_position.copy()
+                        "origin_position": controller.origin_position.copy(),
+                        "trigger_value": trigger_value  # 【秘密武器】传递 trigger 线性值
                     }
                 )
                 await self.send_goal(goal)
