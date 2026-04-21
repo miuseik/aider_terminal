@@ -46,3 +46,9 @@ robot:
 ssl:
   certfile: cert.pem
   keyfile: key.pem
+ecs:
+  enabled: true  # 设置为 true 启用 ECS 客户端模式
+#  websocket_url: "wss://ws.houqicg.com/ws"  # ECS WebSocket 服务器地址
+  websocket_url: "wss://localhost:8442/ws"  # ECS WebSocket 服务器地址
+local_ws:
+  enabled: false  # 是否开启本地 WebSocket 服务端 (ECS 模式下可同时开启)

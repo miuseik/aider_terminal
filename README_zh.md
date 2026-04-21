@@ -63,11 +63,12 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -sha256 -days 3
 
 运行完整的遥操作系统：
 
+开发环境启动时运行：
 ```bash
-telegrip
-```
-```bash
-telegrip --no-robot
+export ECS_WS_URL="wss://192.168.1.30:8442
+#export ECS_WS_URL="wss://ws.houqicg.com"
+python main.py
+
 ```
 
 首次运行时，可能需要按照[此指南](https://github.com/huggingface/lerobot/blob/8cfab3882480bdde38e42d93a9752de5ed42cae2/examples/10_use_so100.md#e-calibrate)完成姿态校准。校准文件存储在 `.cache/calibration/so100/arm_name.json`。找到校准文件后，会显示类似以下消息：

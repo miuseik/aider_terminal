@@ -13,7 +13,7 @@ from .utils import get_absolute_path, get_project_root
 
 logger = logging.getLogger(__name__)
 
-# 默认配置值（YAML 文件不存在时的后备）
+# 默认配置值(YAML 文件不存在时的后备)
 DEFAULT_CONFIG = {
     "network": {
         "https_port": 8443,
@@ -23,6 +23,13 @@ DEFAULT_CONFIG = {
     "ssl": {
         "certfile": "cert.pem",
         "keyfile": "key.pem"
+    },
+    "ecs": {
+        "enabled": False,
+        "websocket_url": "wss://your-ecs-domain:8442"
+    },
+    "local_ws": {
+        "enabled": True
     },
     "robot": {
         "left_arm": {
@@ -204,6 +211,14 @@ class TelegripConfig:
     # SSL 设置
     certfile: str = CERTFILE
     keyfile: str = KEYFILE
+    
+    # ECS 中转设置
+    ecs_enabled: bool = _config_data.get("ecs", {}).get("enabled", False)
+    # ecs_websocket_url: str = os.getenv("ECS_WS_URL") or _config_data.get("ecs", {}).get("websocket_url", "wss://your-ecs-domain:8442")
+    ecs_websocket_url: str =  _config_data.get("ecs", {}).get("websocket_url", "wss://your-ecs-domain:8442")
+
+    # 本地 WebSocket 服务端设置
+    local_ws_enabled: bool = _config_data.get("local_ws", {}).get("enabled", True)
     
     # 机器人设置
     vr_to_robot_scale: float = VR_TO_ROBOT_SCALE

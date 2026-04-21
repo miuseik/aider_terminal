@@ -76,6 +76,7 @@ def suppress_stdout_stderr():
 from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
 from .inputs.vr_ws_server import VRWebSocketServer
+from .inputs.vr_ws_client import VRWebSocketClient
 from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
 
@@ -469,7 +470,29 @@ class TelegripSystem:
         
         # Components
         self.https_server = HTTPSServer(config)
-        self.vr_server = VRWebSocketServer(self.command_queue, config)
+        
+        # VR components - support both server and client modes
+        self.vr_server = None
+        self.vr_client = None
+        
+        if not config.ecs_enabled:
+            # 仅本地服务端模式
+            logger.info("🏠 Local server mode enabled")
+            self.vr_server = VRWebSocketServer(self.command_queue, config)
+        else:
+            # ECS 客户端模式
+            logger.info("🌐 ECS client mode enabled - connecting to remote server")
+            self.vr_client = VRWebSocketClient(self.command_queue, config)
+            # 设置 system 引用,用于获取状态
+            self.vr_client.set_system_ref(lambda: self)
+            
+            # 根据配置决定是否启动本地服务端
+            if config.local_ws_enabled:
+                logger.info("🏠 Also starting local WebSocket server for LAN access")
+                self.vr_server = VRWebSocketServer(self.command_queue, config)
+            else:
+                logger.info("⚠️ Local WebSocket server disabled")
+        
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
 
@@ -574,7 +597,10 @@ class TelegripSystem:
             # Stop components in reverse order
             await self.control_loop.stop()
             await self.web_keyboard_handler.stop()
-            await self.vr_server.stop()
+            if self.vr_client:
+                await self.vr_client.stop()
+            if self.vr_server:
+                await self.vr_server.stop()
             # Don't stop HTTPS server - keep it running for the UI
 
             # Wait a moment for cleanup
@@ -592,7 +618,14 @@ class TelegripSystem:
             self.command_queue = asyncio.Queue()
             self.control_commands_queue = queue.Queue(maxsize=10)
 
-            # Create new components
+            # Create new components (preserve ECS mode)
+            if self.config.ecs_enabled:
+                self.vr_client = VRWebSocketClient(self.command_queue, self.config)
+                # 设置 system 引用,用于获取状态
+                self.vr_client.set_system_ref(lambda: self)
+            else:
+                self.vr_client = None
+            
             self.vr_server = VRWebSocketServer(self.command_queue, self.config)
             self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
@@ -606,8 +639,13 @@ class TelegripSystem:
             # Clear old tasks
             self.tasks = []
 
-            # Start VR WebSocket server
-            await self.vr_server.start()
+            # Start VR WebSocket server and/or client
+            if self.vr_server:
+                await self.vr_server.start()
+            if self.vr_client:
+                # Start client in background task
+                client_task = asyncio.create_task(self.vr_client.start())
+                self.tasks.append(client_task)
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -643,8 +681,13 @@ class TelegripSystem:
             # Start HTTPS server
             await self.https_server.start()
             
-            # Start VR WebSocket server
-            await self.vr_server.start()
+            # Start VR WebSocket server and/or client
+            if self.vr_server:
+                await self.vr_server.start()
+            if self.vr_client:
+                # Start client in background task
+                client_task = asyncio.create_task(self.vr_client.start())
+                self.tasks.append(client_task)
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -713,11 +756,14 @@ class TelegripSystem:
 
         # Stop VR server first to close websocket connections (unblocks any waiting handlers)
         try:
-            await asyncio.wait_for(self.vr_server.stop(), timeout=2.0)
+            if self.vr_client:
+                await asyncio.wait_for(self.vr_client.stop(), timeout=2.0)
+            if self.vr_server:
+                await asyncio.wait_for(self.vr_server.stop(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("VR server stop timed out")
+            logger.warning("VR stop timed out")
         except Exception as e:
-            logger.warning(f"Error stopping VR server: {e}")
+            logger.warning(f"Error stopping VR: {e}")
 
         # Cancel all tasks
         for task in self.tasks:
