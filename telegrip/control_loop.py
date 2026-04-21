@@ -10,8 +10,9 @@ import time
 import queue  # Add import for thread-safe queue
 from typing import Dict, Optional
 
-from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX
+from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX, get_config_data
 from .core.robot_interface import RobotInterface
+from .robots.robot_controller import RobotController  # 第1行：引入robot模块
 from .core.wheels import body_to_wheel_raw
 from .core.axis import height_mm_to_ticks, clamp_height
 # PyBulletVisualizer 将按需导入，避免启动时加载过重的物理引擎
@@ -55,6 +56,7 @@ class ControlLoop:
         
         # --- 核心组件初始化 ---
         self.robot_interface = None      # 机器人底层通信接口
+        self.robot_controller = None     # 真机舵机控制器
         self.visualizer = None           # PyBullet 仿真可视化器
         self.web_keyboard_handler = None # Web 端键盘输入处理器
         
@@ -93,6 +95,11 @@ class ControlLoop:
                 setup_errors.append(error_msg)
                 if self.config.enable_robot:
                     success = False
+            
+            # 初始化真机舵机控制器（自动从配置加载所有设备）
+            config_data = get_config_data()
+            self.robot_controller = RobotController(config_data)
+            
         except Exception as e:
             error_msg = f"机器人接口初始化异常: {e}"
             logger.error(error_msg)
@@ -558,9 +565,9 @@ class ControlLoop:
                                                   current_gripper)
 
         # --- 硬件指令下发 ---
-        # 仅在机器人处于“已连接”且“已接合 (Engaged)”状态时才发送真实指令
-        if self.robot_interface.is_connected and self.robot_interface.is_engaged:
-            self.robot_interface.send_command(action_dict)
+        # 发送指令到真机
+        if self.robot_controller and self.robot_controller.is_connected:
+            self.robot_controller.send_action(action_dict)
     
     def _update_visualization(self):
         """同步 PyBullet 仿真环境中的模型姿态与可视化标记。"""
