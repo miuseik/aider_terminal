@@ -65,6 +65,15 @@ class WebKeyboardHandler(BaseInputProvider):
             "last_key_time": 0.0,
             "any_key_pressed": False
         }
+        
+        # 底盘控制状态
+        self.base_state = {
+            "velocity_x": 0.0,   # 前后速度
+            "velocity_y": 0.0,   # 左右速度
+            "velocity_theta": 0.0,  # 旋转速度
+            "base_control_active": False,
+            "mode_enabled": False  # 底盘控制模式开关
+        }
 
         # 重新定位目标的空闲超时 (秒)
         self.idle_timeout = 1.0
@@ -208,7 +217,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.left_arm_state["delta_wrist_flex"] = ANGLE_STEP
 
             # 左夹爪控制
-            elif key == 'f':
+            elif key == 'c':
                 self.left_arm_state["gripper_closed"] = not self.left_arm_state["gripper_closed"]
                 logger.info(f"LEFT gripper: {'CLOSED' if self.left_arm_state['gripper_closed'] else 'OPENED'} (web)")
                 self._send_gripper_goal("left")
@@ -240,11 +249,11 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.right_arm_state["delta_pos"][2] = POS_STEP
 
             # 右手腕旋转
-            elif key == 'n':
+            elif key == 'm':
                 self._auto_activate_arm_if_needed("right")
                 self._update_key_activity("right")
                 self.right_arm_state["delta_wrist_roll"] = -ANGLE_STEP
-            elif key == 'm':
+            elif key == ',':
                 self._auto_activate_arm_if_needed("right")
                 self._update_key_activity("right")
                 self.right_arm_state["delta_wrist_roll"] = ANGLE_STEP
@@ -260,10 +269,54 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.right_arm_state["delta_wrist_flex"] = ANGLE_STEP
 
             # 右夹爪控制
-            elif key == ';':
+            elif key == '.':
                 self.right_arm_state["gripper_closed"] = not self.right_arm_state["gripper_closed"]
                 logger.info(f"RIGHT gripper: {'CLOSED' if self.right_arm_state['gripper_closed'] else 'OPENED'} (web)")
                 self._send_gripper_goal("right")
+            
+            # 底盘控制 (方向键 + 数字键 + V/B)
+            elif key == 'arrowup':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_x"] = 0.5  # 前进
+            elif key == 'arrowdown':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_x"] = -0.5  # 后退
+            elif key == 'arrowleft':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_theta"] = 0.5  # 左转
+            elif key == 'arrowright':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_theta"] = -0.5  # 右转
+            elif key == '7':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_y"] = 0.3  # 左平移
+            elif key == '9':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_y"] = -0.3  # 右平移
+            elif key == 'v':
+                self.base_state["base_control_active"] = True
+                # 升 - 发送高度增量指令
+                goal = ControlGoal(
+                    arm="lift",
+                    mode=ControlMode.IDLE,
+                    metadata={"action": "set_aloha_height", "height_delta": 0.01}
+                )
+                try:
+                    self.command_queue.put_nowait(goal)
+                except:
+                    pass
+            elif key == 'b':
+                self.base_state["base_control_active"] = True
+                # 降 - 发送高度减量指令
+                goal = ControlGoal(
+                    arm="lift",
+                    mode=ControlMode.IDLE,
+                    metadata={"action": "set_aloha_height", "height_delta": -0.01}
+                )
+                try:
+                    self.command_queue.put_nowait(goal)
+                except:
+                    pass
 
             # 特殊按键
             elif key == 'tab':
@@ -318,6 +371,23 @@ class WebKeyboardHandler(BaseInputProvider):
             elif key in ('h', 'y'):
                 self.right_arm_state["delta_wrist_flex"] = 0
                 self._check_if_all_keys_released("right")
+            
+            # 底盘 - 按键释放时重置速度
+            elif key == 'arrowup' or key == 'arrowdown':
+                self.base_state["velocity_x"] = 0.0
+            elif key == 'arrowleft' or key == 'arrowright':
+                self.base_state["velocity_theta"] = 0.0
+            elif key == '7' or key == '9':
+                self.base_state["velocity_y"] = 0.0
+            elif key == 'v' or key == 'b':
+                # 升降轴按键释放不需要特殊处理，已在按下时发送指令
+                pass
+            
+            # 检查是否所有底盘速度都为0，如果是则禁用底盘控制
+            if (self.base_state["velocity_x"] == 0.0 and 
+                self.base_state["velocity_y"] == 0.0 and 
+                self.base_state["velocity_theta"] == 0.0):
+                self.base_state["base_control_active"] = False
 
         except Exception as e:
             logger.error(f"处理 Web 按键释放 '{key}' 时出错: {e}")

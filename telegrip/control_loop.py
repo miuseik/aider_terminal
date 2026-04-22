@@ -518,10 +518,24 @@ class ControlLoop:
         if not self.robot_interface:
             return
         
+        # 0. 处理 Web 键盘的底盘控制
+        if self.web_keyboard_handler and self.web_keyboard_handler.is_enabled:
+            base_state = self.web_keyboard_handler.base_state
+            if base_state["base_control_active"]:
+                self.base_velocity_target["x"] = base_state["velocity_x"]
+                self.base_velocity_target["y"] = base_state["velocity_y"]
+                self.base_velocity_target["theta"] = base_state["velocity_theta"]
+        
         # 1. 获取最新的 VR 数据 (从共享存储中读取)
         vr_data = self.vr_raw_data
         
-        self._update_mobile_base(vr_data)
+        # 2. 只有在键盘未控制底盘时，才使用 VR 摇杆数据
+        keyboard_controlling = (self.web_keyboard_handler and 
+                               self.web_keyboard_handler.is_enabled and 
+                               self.web_keyboard_handler.base_state["base_control_active"])
+        
+        if not keyboard_controlling:
+            self._update_mobile_base(vr_data)
 
         # 2. 构造完整的 AlohaMini Action 字典
         action_dict = self._build_alohamini_action()
