@@ -17,6 +17,7 @@ from .core.wheels import body_to_wheel_raw
 from .core.axis import height_mm_to_ticks, clamp_height
 # PyBulletVisualizer 将按需导入，避免启动时加载过重的物理引擎
 from .inputs.base import ControlGoal, ControlMode
+from .vision.video_streamer import VideoStreamer
 # WebKeyboardHandler 将按需导入，以防止模块间的循环引用
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class ControlLoop:
         self.robot_controller = None     # 真机舵机控制器
         self.visualizer = None           # PyBullet 仿真可视化器
         self.web_keyboard_handler = None # Web 端键盘输入处理器
+        self.video_streamer = None       # 视频流发送器
         
         # --- VR 原始数据存储 (用于底盘和升降轴控制) ---
         self.vr_raw_data = {} 
@@ -150,6 +152,19 @@ class ControlLoop:
             self.web_keyboard_handler.set_robot_interface(self.robot_interface)
             logger.info("已成功向 Web 键盘处理器注入机器人接口引用")
 
+        # 初始化视频流器
+        try:
+            self.video_streamer = VideoStreamer(
+                camera_id=self.config.camera_id,
+                width=self.config.camera_width,
+                height=self.config.camera_height,
+                fps=self.config.camera_fps
+            )
+            logger.info("视频流器已初始化")
+        except Exception as e:
+            logger.warning(f"视频流器初始化失败: {e}")
+            self.video_streamer = None
+
         return success
     
     async def start(self):
@@ -163,6 +178,16 @@ class ControlLoop:
         
         # 用当前机器人位置初始化机械臂状态
         self._initialize_arm_states()
+        
+        # 启动视频流
+        video_task = None
+        if self.video_streamer:
+            try:
+                self.video_streamer.start()
+                video_task = asyncio.create_task(self._video_loop())
+                logger.info("视频流已启动")
+            except Exception as e:
+                logger.error(f"视频流启动失败: {e}")
         
         # 主控制循环
         while self.is_running:
@@ -187,6 +212,12 @@ class ControlLoop:
                 logger.error(f"控制循环出错: {e}")
                 await asyncio.sleep(0.1)
         
+        # 清理视频流
+        if video_task:
+            video_task.cancel()
+        if self.video_streamer:
+            self.video_streamer.stop()
+        
         logger.info("控制循环已停止")
     
     async def stop(self):
@@ -202,6 +233,46 @@ class ControlLoop:
 
         if self.visualizer:
             self.visualizer.disconnect()
+    
+    async def _video_loop(self):
+        """定时发送视频帧到 WebSocket。"""
+        try:
+            frame_count = 0
+            while self.is_running:
+                if self.video_streamer:
+                    frame_b64 = self.video_streamer.read_frame()
+                    if frame_b64 and self.web_keyboard_handler:
+                        # 查找 VR WebSocket Client 的 ws 连接
+                        ws_client = None
+                        if hasattr(self.web_keyboard_handler, '_system_ref') and self.web_keyboard_handler._system_ref:
+                            system = self.web_keyboard_handler._system_ref()
+                            if system and hasattr(system, 'vr_client') and system.vr_client:
+                                ws_client = system.vr_client.ws
+                        
+                        # 通过 WebSocket 发送视频帧
+                        if ws_client:
+                            import json
+                            message = json.dumps({
+                                "type": "robot_data",
+                                "data": json.dumps({
+                                    "type": "video_frame",
+                                    "frame": frame_b64
+                                })
+                            })
+                            await ws_client.send(message)
+                            frame_count += 1
+                            if frame_count % 30 == 0:  # 每 30 帧打印一次
+                                logger.debug(f"已发送 {frame_count} 帧视频")
+                await asyncio.sleep(1 / self.config.camera_fps)
+                
+        except asyncio.CancelledError:
+            logger.info("视频循环已取消")
+        except Exception as e:
+            logger.error(f"视频循环错误: {e}", exc_info=True)
+        finally:
+            if self.video_streamer:
+                self.video_streamer.stop()
+                logger.info("摄像头已停止")
     
     def _initialize_arm_states(self):
         """用当前机器人位置初始化机械臂状态。"""

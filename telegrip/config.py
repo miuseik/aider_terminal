@@ -251,6 +251,12 @@ class TelegripConfig:
     aloha_enabled: bool = ALOHA_ENABLED
     aloha_initial_height: float = ALOHA_INITIAL_HEIGHT
     
+    # 摄像头设置
+    camera_id: int = 0
+    camera_width: int = 640
+    camera_height: int = 480
+    camera_fps: int = 15
+    
     # 夹爪设置
     gripper_open_angle: float = GRIPPER_OPEN_ANGLE
     gripper_closed_angle: float = GRIPPER_CLOSED_ANGLE
