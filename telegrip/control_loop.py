@@ -152,18 +152,18 @@ class ControlLoop:
             self.web_keyboard_handler.set_robot_interface(self.robot_interface)
             logger.info("已成功向 Web 键盘处理器注入机器人接口引用")
 
-        # 初始化视频流器
-        try:
-            self.video_streamer = VideoStreamer(
-                camera_id=self.config.camera_id,
-                width=self.config.camera_width,
-                height=self.config.camera_height,
-                fps=self.config.camera_fps
-            )
-            logger.info("视频流器已初始化")
-        except Exception as e:
-            logger.warning(f"视频流器初始化失败: {e}")
-            self.video_streamer = None
+        # 初始化视频流器（已禁用，由 vr_ws_client 负责）
+        # try:
+        #     self.video_streamer = VideoStreamer(
+        #         camera_id=self.config.camera_id,
+        #         width=self.config.camera_width,
+        #         height=self.config.camera_height,
+        #         fps=self.config.camera_fps
+        #     )
+        #     logger.info("视频流器已初始化")
+        # except Exception as e:
+        #     logger.warning(f"视频流器初始化失败: {e}")
+        self.video_streamer = None
 
         return success
     
