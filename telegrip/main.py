@@ -1,6 +1,6 @@
 """
-Main entry point for the unified teleoperation system.
-Coordinates HTTPS server, WebSocket server, robot interface, and input providers.
+统一遥操作系统的主入口。
+协调 HTTPS 服务器、WebSocket 服务器、机器人接口和输入提供者。
 """
 
 import asyncio
@@ -16,7 +16,7 @@ import json
 import urllib.parse
 import time
 import contextlib
-from typing import Optional
+from typing import Optional, Dict, Any
 import queue  # Add regular queue for thread-safe communication
 import threading
 from pathlib import Path
@@ -24,7 +24,7 @@ import weakref
 
 
 def get_local_ip():
-    """Get the local IP address of this machine."""
+    """获取本机的本地 IP 地址。"""
     try:
         # Connect to a remote address to determine the local IP
         # This doesn't actually send any data
@@ -42,405 +42,204 @@ def get_local_ip():
 
 @contextlib.contextmanager
 def suppress_stdout_stderr():
-    """Context manager to suppress stdout and stderr output at the file descriptor level."""
-    # Save original file descriptors
+    """上下文管理器，在文件描述符级别抑制 stdout 和 stderr 输出。"""
+    # 保存原始文件描述符
     stdout_fd = sys.stdout.fileno()
     stderr_fd = sys.stderr.fileno()
     
-    # Save original file descriptors
+    # 保存原始文件描述符
     saved_stdout_fd = os.dup(stdout_fd)
     saved_stderr_fd = os.dup(stderr_fd)
     
     try:
-        # Open devnull
+        # 打开 /dev/null
         devnull_fd = os.open(os.devnull, os.O_WRONLY)
         
-        # Redirect stdout and stderr to devnull
+        # 将 stdout 和 stderr 重定向到 /dev/null
         os.dup2(devnull_fd, stdout_fd)
         os.dup2(devnull_fd, stderr_fd)
         
         yield
         
     finally:
-        # Restore original file descriptors
+        # 恢复原始文件描述符
         os.dup2(saved_stdout_fd, stdout_fd)
         os.dup2(saved_stderr_fd, stderr_fd)
         
-        # Close saved file descriptors
+        # 关闭已保存的文件描述符
         os.close(saved_stdout_fd)
         os.close(saved_stderr_fd)
         os.close(devnull_fd)
 
 
-# Import telegrip modules after function definition
+# 在函数定义之后导入 telegrip 模块
 from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
 from .inputs.vr_ws_server import VRWebSocketServer
 from .inputs.vr_ws_client import VRWebSocketClient
 from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
+from .api_routes import APIRoutes
+from .static_files import StaticFileServer
 
-# Logger will be configured in main() based on command line arguments
+# 日志记录器将在 main() 中根据命令行参数进行配置
 logger = logging.getLogger(__name__)
 
 
 class APIHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP request handler for the teleoperation API."""
+    """遥操作 API 的 HTTP 请求处理器。"""
     
     def __init__(self, *args, **kwargs):
-        # Set CORS headers for all requests
+        # 为所有请求设置 CORS 头
         super().__init__(*args, **kwargs)
     
     def end_headers(self):
-        """Add CORS headers to all responses."""
+        """为所有响应添加 CORS 头。"""
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         try:
             super().end_headers()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLError):
-            # Client disconnected or SSL error - ignore silently
+            # 客户端断开连接或 SSL 错误 - 静默忽略
             pass
     
     def do_OPTIONS(self):
-        """Handle preflight CORS requests."""
+        """处理预检 CORS 请求。"""
         self.send_response(200)
         self.end_headers()
     
     def log_message(self, format, *args):
-        """Override to reduce HTTP request logging noise."""
-        pass  # Disable default HTTP logging
+        """重写以减少 HTTP 请求日志噪音。"""
+        pass  # 禁用默认 HTTP 日志
     
     def do_GET(self):
-        """Handle GET requests."""
+        """处理 GET 请求 - 路由到对应的处理方法。"""
+        # 获取 API 路由处理器
+        routes = self._get_api_routes()
+        if not routes:
+            self.send_error(500, "System not available")
+            return
+        
+        # 静态文件服务器
+        static_server = self._get_static_server()
+        
+        # 路由分发
         if self.path == '/api/status':
-            self.handle_status_request()
+            self._send_json_response(routes.get_status())
         elif self.path == '/api/config':
-            self.handle_config_get_request()
-        elif self.path == '/' or self.path == '/index.html':
-            # Serve main page from web-ui directory
-            self.serve_file('web-ui/index.html', 'text/html')
-        elif self.path.endswith('.css'):
-            # Serve CSS files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'text/css')
-        elif self.path.endswith('.js'):
-            # Serve JS files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'application/javascript')
-        elif self.path.endswith('.ico'):
-            self.serve_file(self.path[1:], 'image/x-icon')
-        elif self.path.endswith(('.jpg', '.jpeg')):
-            # Serve image files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'image/jpeg')
-        elif self.path.endswith('.png'):
-            # Serve image files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'image/png')
-        elif self.path.endswith('.gif'):
-            # Serve image files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'image/gif')
+            self._send_json_response(routes.get_config())
+        elif static_server and static_server.route_static_file(self, self.path):
+            # 静态文件已处理
+            pass
         else:
             self.send_error(404, "Not found")
     
     def do_POST(self):
-        """Handle POST requests."""
+        """处理 POST 请求 - 路由到对应的处理方法。"""
+        # 获取 API 路由处理器
+        routes = self._get_api_routes()
+        if not routes:
+            self.send_error(500, "System not available")
+            return
+        
+        # 读取请求体
+        content_length = int(self.headers.get('Content-Length', 0))
+        if content_length == 0:
+            self.send_error(400, "No request body")
+            return
+        
+        try:
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
+            return
+        
+        # 路由分发
         if self.path == '/api/keyboard':
-            self.handle_keyboard_request()
+            action = data.get('action')
+            result = routes.handle_keyboard_action(action)
+            self._send_json_response(result)
         elif self.path == '/api/robot':
-            self.handle_robot_request()
+            action = data.get('action')
+            result = routes.handle_robot_action(action)
+            self._send_json_response(result)
         elif self.path == '/api/keypress':
-            self.handle_keypress_request()
+            key = data.get('key')
+            action = data.get('action')
+            result = routes.handle_keypress(key, action)
+            self._send_json_response(result)
         elif self.path == '/api/config':
-            self.handle_config_post_request()
+            result = routes.update_config(data)
+            self._send_json_response(result)
         elif self.path == '/api/restart':
-            self.handle_restart_request()
+            result = routes.restart_system()
+            self._send_json_response(result)
         else:
             self.send_error(404, "Not found")
     
-    def handle_status_request(self):
-        """Handle status requests."""
-        try:
-            # Get system reference
-            if hasattr(self.server, 'api_handler') and self.server.api_handler:
-                system = self.server.api_handler
-                
-                # Get status from control loop
-                control_status = system.control_loop.status if system.control_loop else {}
-                
-                # Get keyboard status
-                keyboard_enabled = False
-                if system.web_keyboard_handler and hasattr(system.web_keyboard_handler, 'is_enabled'):
-                    keyboard_enabled = system.web_keyboard_handler.is_enabled
-                
-                # Get robot engagement status
-                robot_engaged = False
-                if system.control_loop and system.control_loop.robot_interface:
-                    robot_engaged = system.control_loop.robot_interface.is_engaged
-                
-                # Get VR connection status
-                vr_connected = False
-                if system.vr_server and system.vr_server.is_running:
-                    vr_connected = len(system.vr_server.clients) > 0
-                
-                status = {
-                    **control_status,
-                    "keyboardEnabled": keyboard_enabled,
-                    "robotEngaged": robot_engaged,
-                    "vrConnected": vr_connected
-                }
-                
-                # Send JSON response
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                
-                response = json.dumps(status)
-                self.wfile.write(response.encode('utf-8'))
-            else:
-                self.send_error(500, "System not available")
-                
-        except Exception as e:
-            logger.error(f"Error handling status request: {e}")
-            self.send_error(500, str(e))
+    def _get_static_server(self) -> Optional['StaticFileServer']:
+        """获取静态文件服务器实例（懒加载）"""
+        if hasattr(self.server, 'api_handler') and self.server.api_handler:
+            system = self.server.api_handler
+            if not hasattr(system, '_static_server'):
+                system._static_server = StaticFileServer()
+            return system._static_server
+        return None
     
-    def handle_keyboard_request(self):
-        """Handle keyboard control requests."""
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length == 0:
-                self.send_error(400, "No request body")
-                return
-            
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            action = data.get('action')
-            
-            if action in ['enable', 'disable']:
-                # Add keyboard command to queue for processing by main thread
-                if hasattr(self.server, 'api_handler') and self.server.api_handler:
-                    command_name = f"{action}_keyboard"
-                    logger.info(f"🎮 Adding command to queue: {command_name}")
-                    self.server.api_handler.add_control_command(command_name)
-                    
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"success": True, "action": action}).encode('utf-8'))
-                else:
-                    self.send_error(500, "System not available")
-            else:
-                self.send_error(400, f"Invalid action: {action}")
-                
-        except json.JSONDecodeError:
-            self.send_error(400, "Invalid JSON")
-        except Exception as e:
-            logger.error(f"Error handling keyboard request: {e}")
-            self.send_error(500, str(e))
+    def _get_api_routes(self) -> Optional['APIRoutes']:
+        """获取 API 路由处理器实例（懒加载）"""
+        if hasattr(self.server, 'api_handler') and self.server.api_handler:
+            system = self.server.api_handler
+            if not hasattr(system, '_api_routes'):
+                system._api_routes = APIRoutes(system)
+            return system._api_routes
+        return None
     
-    def handle_robot_request(self):
-        """Handle robot control requests."""
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length == 0:
-                self.send_error(400, "No request body")
-                return
-            
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            action = data.get('action')
-            logger.info(f"🔌 Received robot action: {action}")
-            
-            if action in ['connect', 'disconnect']:
-                # Add robot command to queue for processing by main thread
-                if hasattr(self.server, 'api_handler') and self.server.api_handler:
-                    command_name = f"robot_{action}"
-                    logger.info(f"🔌 Adding command to queue: {command_name}")
-                    self.server.api_handler.add_control_command(command_name)
-                    
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"success": True, "action": action}).encode('utf-8'))
-                else:
-                    logger.error("🔌 Server api_handler not available")
-                    self.send_error(500, "System not available")
-            else:
-                self.send_error(400, f"Invalid action: {action}")
-                
-        except json.JSONDecodeError:
-            self.send_error(400, "Invalid JSON")
-        except Exception as e:
-            logger.error(f"Error handling robot request: {e}")
-            self.send_error(500, str(e))
-    
-    def handle_keypress_request(self):
-        """Handle keypress control requests."""
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length == 0:
-                self.send_error(400, "No request body")
-                return
-            
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            key = data.get('key')
-            action = data.get('action')
-            
-            if key and action in ['press', 'release']:
-                # Add keypress command to queue for processing by main thread
-                if hasattr(self.server, 'api_handler') and self.server.api_handler:
-                    command = {
-                        "action": "web_keypress",
-                        "key": key,
-                        "event": action
-                    }
-                    logger.info(f"🎮 Adding keypress command to queue: {key}_{action}")
-                    self.server.api_handler.add_keypress_command(command)
-                    
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')  
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"success": True, "key": key, "action": action}).encode('utf-8'))
-                else:
-                    logger.error("🎮 Server api_handler not available")
-                    self.send_error(500, "System not available")
-            else:
-                self.send_error(400, f"Invalid key or action: {key}, {action}")
-                
-        except json.JSONDecodeError:
-            self.send_error(400, "Invalid JSON")
-        except Exception as e:
-            logger.error(f"Error handling keypress request: {e}")
-            self.send_error(500, str(e))
-    
-    def handle_config_get_request(self):
-        """Handle configuration read requests."""
-        try:
-            config_data = get_config_data()
-            
-            # Send JSON response
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
-            response = json.dumps(config_data)
-            self.wfile.write(response.encode('utf-8'))
-            
-        except Exception as e:
-            logger.error(f"Error handling config get request: {e}")
-            self.send_error(500, str(e))
-    
-    def handle_config_post_request(self):
-        """Handle configuration update requests."""
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length == 0:
-                self.send_error(400, "No request body")
-                return
-            
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            # Update configuration
-            success = update_config_data(data)
-            
-            if success:
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": True, "message": "Configuration updated successfully"}).encode('utf-8'))
-                logger.info("Configuration updated successfully")
-            else:
-                self.send_error(500, "Failed to save configuration")
-                
-        except json.JSONDecodeError:
-            self.send_error(400, "Invalid JSON")
-        except Exception as e:
-            logger.error(f"Error handling config post request: {e}")
-            self.send_error(500, str(e))
-    
-    def handle_restart_request(self):
-        """Handle restart requests."""
-        try:
-            if hasattr(self.server, 'api_handler') and self.server.api_handler:
-                logger.info("Restarting teleoperation system...")
-                self.server.api_handler.restart()
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({"success": True, "message": "Teleoperation system restarted"}).encode('utf-8'))
-            else:
-                self.send_error(500, "System not available")
-                
-        except Exception as e:
-            logger.error(f"Error handling restart request: {e}")
-            self.send_error(500, str(e))
-    
-    def serve_file(self, filename, content_type):
-        """Serve a static file from the project directory."""
-        from .utils import get_absolute_path
-        try:
-            # Convert relative path to absolute path in project directory
-            abs_path = get_absolute_path(filename)
-            
-            with open(abs_path, 'rb') as f:
-                file_content = f.read()
-            
-            self.send_response(200)
-            self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', len(file_content))
-            self.end_headers()
-            self.wfile.write(file_content)
-            
-        except FileNotFoundError:
-            self.send_error(404, f"File {filename} not found")
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            # Client disconnected - log quietly and continue
-            logger.debug(f"Client disconnected while serving {filename}")
-        except Exception as e:
-            logger.error(f"Error serving file {filename}: {e}")
-            try:
-                self.send_error(500, "Internal server error")
-            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                # Client already disconnected, ignore
-                pass
+    def _send_json_response(self, data: Dict[str, Any]):
+        """发送 JSON 响应"""
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        response = json.dumps(data)
+        self.wfile.write(response.encode('utf-8'))
 
 
 class HTTPSServer:
-    """HTTPS server for the teleoperation API."""
+    """遥操作 API 的 HTTPS 服务器。"""
     
     def __init__(self, config: TelegripConfig):
         self.config = config
         self.httpd = None
         self.server_thread = None
-        self.system_ref = None  # Direct reference to the main system
+        self.system_ref = None  # 主系统的直接引用
     
     def set_system_ref(self, system_ref):
-        """Set reference to the main teleoperation system."""
+        """设置主遥操作系统的引用。"""
         self.system_ref = system_ref
     
     async def start(self):
-        """Start the HTTPS server."""
+        """启动 HTTPS 服务器。"""
         try:
-            # Create server - directly use APIHandler class
+            # 创建服务器 - 直接使用 APIHandler 类
             self.httpd = http.server.HTTPServer((self.config.host_ip, self.config.https_port), APIHandler)
             
-            # Set API handler reference for command queuing
+            # 设置 API 处理器引用以进行命令排队
             self.httpd.api_handler = self.system_ref
             
-            # Setup SSL
+            # 设置 SSL
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            # Get absolute paths for SSL certificates
+            # 获取 SSL 证书的绝对路径
             cert_path, key_path = self.config.get_absolute_ssl_paths()
             context.load_cert_chain(cert_path, key_path)
             self.httpd.socket = context.wrap_socket(self.httpd.socket, server_side=True)
             
-            # Start server in a separate thread
+            # 在单独的线程中启动服务器
             self.server_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
             self.server_thread.start()
             
-            # Only log if INFO level or more verbose
+            # 仅在 INFO 级别或更详细时记录日志
             if getattr(logging, self.config.log_level.upper()) <= logging.INFO:
                 host_display = get_local_ip() if self.config.host_ip == "0.0.0.0" else self.config.host_ip
                 logger.info(f"HTTPS server started on https://{host_display}:{self.config.https_port}")
@@ -450,7 +249,7 @@ class HTTPSServer:
             raise
     
     async def stop(self):
-        """Stop the HTTPS server."""
+        """停止 HTTPS 服务器。"""
         if self.httpd:
             self.httpd.shutdown()
             if self.server_thread:
@@ -459,21 +258,27 @@ class HTTPSServer:
 
 
 class TelegripSystem:
-    """Main teleoperation system that coordinates all components."""
+    """主遥操作系统，协调所有组件。"""
     
     def __init__(self, config: TelegripConfig):
         self.config = config
         
-        # Command queues
-        self.command_queue = asyncio.Queue()
-        self.control_commands_queue = queue.Queue(maxsize=10)  # Thread-safe queue
+        # 任务 - 必须最先初始化
+        self.tasks = []
+        self.is_running = False
+        self.main_loop = None  # 将在系统启动时设置
         
-        # Components
+        # 命令队列
+        self.command_queue = asyncio.Queue()
+        self.control_commands_queue = queue.Queue(maxsize=10)  # 线程安全队列
+        
+        # 组件
         self.https_server = HTTPSServer(config)
         
-        # VR components - support both server and client modes
+        # VR 组件 - 支持服务端和客户端模式
         self.vr_server = None
         self.vr_client = None
+        self.webrtc_streamer = None  # WebRTC 视频推流器（ECS 模式）
         
         if not config.ecs_enabled:
             # 仅本地服务端模式
@@ -482,7 +287,17 @@ class TelegripSystem:
         else:
             # ECS 客户端模式
             logger.info("🌐 ECS client mode enabled - connecting to remote server")
-            self.vr_client = VRWebSocketClient(self.command_queue, config)
+            
+            # 创建共享的 WebSocket 客户端
+            from .inputs.websocket_client import WebSocketClient
+            shared_ws_client = WebSocketClient(config)
+            
+            # 启动共享的 WebSocket 客户端（在后台任务中）
+            ws_client_task = asyncio.create_task(shared_ws_client.start())
+            self.tasks.append(ws_client_task)
+            
+            # 创建 VR 客户端（注入共享的 ws_client）
+            self.vr_client = VRWebSocketClient(self.command_queue, config, shared_ws_client)
             # 设置 system 引用,用于获取状态
             self.vr_client.set_system_ref(lambda: self)
             
@@ -496,7 +311,7 @@ class TelegripSystem:
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
 
-        # Set system reference for API calls
+        # 为 API 调用设置系统引用
         self.https_server.set_system_ref(self)
 
         # Set up cross-references
@@ -504,14 +319,9 @@ class TelegripSystem:
 
         # Set up disconnect callback for ESC key
         self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")
-        
-        # Tasks
-        self.tasks = []
-        self.is_running = False
-        self.main_loop = None  # Will be set when the system starts
     
     def add_control_command(self, action: str):
-        """Add a control command to the queue for processing."""
+        """向队列添加控制命令以供处理。"""
         try:
             command = {"action": action}
             logger.info(f"🔌 Queueing control command: {command}")
@@ -523,7 +333,7 @@ class TelegripSystem:
             logger.error(f"🔌 Error queuing command: {e}")
     
     def add_keypress_command(self, command: dict):
-        """Add a keypress command to the queue for processing."""
+        """向队列添加按键命令以供处理。"""
         try:
             logger.info(f"🎮 Queueing keypress command: {command}")
             self.control_commands_queue.put_nowait(command)
@@ -534,9 +344,9 @@ class TelegripSystem:
             logger.error(f"🎮 Error queuing keypress command: {e}")
     
     async def process_control_commands(self):
-        """Process control commands from the thread-safe queue."""
+        """处理来自线程安全队列的控制命令。"""
         try:
-            # Get all available commands from the thread-safe queue
+            # 从线程安全队列获取所有可用命令
             commands_to_process = []
             while True:
                 try:
@@ -545,7 +355,7 @@ class TelegripSystem:
                 except queue.Empty:
                     break
             
-            # Process each command
+            # 处理每个命令
             for command in commands_to_process:
                 if self.control_loop:
                     await self.control_loop._handle_command(command)
@@ -554,37 +364,37 @@ class TelegripSystem:
             logger.error(f"Error processing control commands: {e}")
     
     def restart(self):
-        """Restart the teleoperation system."""
+        """重启遥操作系统。"""
         def do_restart():
             try:
                 logger.info("Initiating system restart...")
-                # Use the stored main event loop reference to schedule the soft restart
+                # 使用存储的主事件循环引用来调度软重启
                 if self.main_loop and not self.main_loop.is_closed():
                     future = asyncio.run_coroutine_threadsafe(self._soft_restart_sequence(), self.main_loop)
-                    # Wait for restart to complete
+                    # 等待重启完成
                     future.result(timeout=30.0)
                 else:
                     logger.error("Main event loop not available for restart")
             except Exception as e:
                 logger.error(f"Error during restart: {e}")
         
-        # Run restart in a separate thread to avoid blocking the HTTP response
+        # 在单独的线程中运行重启以避免阻塞 HTTP 响应
         restart_thread = threading.Thread(target=do_restart, daemon=True)
         restart_thread.start()
     
     async def _soft_restart_sequence(self):
-        """Perform a soft restart by reinitializing components without exiting the process."""
+        """执行软重启，通过重新初始化组件而不退出进程。"""
         try:
             logger.info("Starting soft restart sequence...")
             
-            # Wait a moment to let the HTTP response be sent
+            # 稍等片刻让 HTTP 响应被发送
             await asyncio.sleep(1)
             
-            # Cancel all tasks
+            # 取消所有任务
             for task in self.tasks:
                 task.cancel()
             
-            # Wait for tasks to complete with timeout
+            # 等待任务完成（带超时）
             if self.tasks:
                 try:
                     await asyncio.wait_for(
@@ -594,49 +404,61 @@ class TelegripSystem:
                 except asyncio.TimeoutError:
                     logger.warning("Some tasks did not complete within timeout")
             
-            # Stop components in reverse order
+            # 按相反顺序停止组件
             await self.control_loop.stop()
             await self.web_keyboard_handler.stop()
             if self.vr_client:
                 await self.vr_client.stop()
             if self.vr_server:
                 await self.vr_server.stop()
-            # Don't stop HTTPS server - keep it running for the UI
+            # 不要停止 HTTPS 服务器 - 保持其运行以供 UI 使用
 
-            # Wait a moment for cleanup
+            # 稍等片刻进行清理
             await asyncio.sleep(1)
 
-            # Reload configuration from file but preserve command-line overrides
+            # 从文件重新加载配置但保留命令行覆盖
             from .config import get_config_data
             file_config = get_config_data()
             logger.info("Configuration reloaded from file")
 
-            # Keep the existing configuration object to preserve command-line arguments
-            # Just update specific values that might have changed in the config file
+            # 保留现有配置对象以保持命令行参数
+            # 只更新配置文件中可能已更改的特定值
 
-            # Recreate components with existing configuration
+            # 使用现有配置重新创建组件
             self.command_queue = asyncio.Queue()
             self.control_commands_queue = queue.Queue(maxsize=10)
 
-            # Create new components (preserve ECS mode)
+            # 创建新组件（保留 ECS 模式）
             if self.config.ecs_enabled:
-                self.vr_client = VRWebSocketClient(self.command_queue, self.config)
+                from .inputs.websocket_client import WebSocketClient
+                from .inputs.webrtc_streamer import WebRTCVideoStreamer
+                
+                shared_ws_client = WebSocketClient(self.config)
+                # 启动共享的 WebSocket 客户端（在后台任务中）
+                ws_client_task = asyncio.create_task(shared_ws_client.start())
+                self.tasks.append(ws_client_task)
+                
+                self.vr_client = VRWebSocketClient(self.command_queue, self.config, shared_ws_client)
                 # 设置 system 引用,用于获取状态
                 self.vr_client.set_system_ref(lambda: self)
+                
+                # 创建独立的 WebRTC 视频推流器
+                self.webrtc_streamer = WebRTCVideoStreamer(self.config, shared_ws_client)
             else:
                 self.vr_client = None
+                self.webrtc_streamer = None
             
             self.vr_server = VRWebSocketServer(self.command_queue, self.config)
             self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
 
-            # Set up cross-references
+            # 设置交叉引用
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
 
-            # Set up disconnect callback for ESC key
+            # 为 ESC 键设置断开回调
             self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")
 
-            # Clear old tasks
+            # 清除旧任务
             self.tasks = []
 
             # Start VR WebSocket server and/or client
@@ -646,6 +468,11 @@ class TelegripSystem:
                 # Start client in background task
                 client_task = asyncio.create_task(self.vr_client.start())
                 self.tasks.append(client_task)
+            
+            # Start WebRTC video streamer (ECS mode only)
+            if self.webrtc_streamer:
+                webrtc_task = asyncio.create_task(self.webrtc_streamer.start())
+                self.tasks.append(webrtc_task)
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -660,7 +487,7 @@ class TelegripSystem:
 
             logger.info("System restart completed successfully")
             
-            # Auto-connect to robot if requested (preserve autoconnect behavior after restart)
+            # 如果请求则自动连接到机器人（重启后保留自动连接行为）
             if self.config.autoconnect and self.config.enable_robot:
                 logger.info("🔌 Auto-connecting to robot motors after restart...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle
@@ -671,14 +498,14 @@ class TelegripSystem:
             raise
     
     async def start(self):
-        """Start all system components."""
+        """启动所有系统组件。"""
         try:
             self.is_running = True
             
-            # Store reference to the main event loop for restart functionality
+            # 存储主事件循环的引用以供重启功能使用
             self.main_loop = asyncio.get_event_loop()
             
-            # Start HTTPS server
+            # 启动 HTTPS 服务器
             await self.https_server.start()
             
             # Start VR WebSocket server and/or client
@@ -688,6 +515,11 @@ class TelegripSystem:
                 # Start client in background task
                 client_task = asyncio.create_task(self.vr_client.start())
                 self.tasks.append(client_task)
+            
+            # Start WebRTC video streamer (ECS mode only)
+            if self.webrtc_streamer:
+                webrtc_task = asyncio.create_task(self.webrtc_streamer.start())
+                self.tasks.append(webrtc_task)
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -702,28 +534,28 @@ class TelegripSystem:
 
             logger.info("All system components started successfully")
             
-            # Auto-connect to robot if requested
+            # 如果请求则自动连接到机器人
             if self.config.autoconnect and self.config.enable_robot:
                 logger.info("🔌 Auto-connecting to robot motors...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle
                 self.add_control_command("robot_connect")
             
-            # Main loop that handles restarts
+            # 处理重启的主循环
             while self.is_running:
                 try:
-                    # Wait for tasks to complete
+                    # 等待任务完成
                     await asyncio.gather(*self.tasks)
-                    # If we get here, all tasks completed normally (shouldn't happen in normal operation)
+                    # 如果到这里，所有任务正常完成（正常操作中不应该发生）
                     break
                 except asyncio.CancelledError:
-                    # Tasks were cancelled - check if it's due to restart
+                    # 任务被取消 - 检查是否由于重启
                     if self.is_running:
-                        # System is restarting, wait for restart to complete
+                        # 系统正在重启，等待重启完成
                         await asyncio.sleep(1)
-                        # Continue the loop to wait for new tasks
+                        # 继续循环等待新任务
                         continue
                     else:
-                        # Normal shutdown
+                        # 正常关闭
                         break
                 except Exception as e:
                     logger.error(f"Error in main task loop: {e}")
@@ -744,32 +576,34 @@ class TelegripSystem:
             raise
     
     async def _run_command_processor(self):
-        """Run the control command processor loop."""
+        """运行控制命令处理器循环。"""
         while self.is_running:
             await self.process_control_commands()
-            await asyncio.sleep(0.05)  # Check for commands every 50ms
+            await asyncio.sleep(0.05)  # 每 50ms 检查一次命令
     
     async def stop(self):
-        """Stop all system components."""
+        """停止所有系统组件。"""
         logger.info("Shutting down teleoperation system...")
         self.is_running = False
 
-        # Stop VR server first to close websocket connections (unblocks any waiting handlers)
+        # 首先停止 VR 服务器以关闭 WebSocket 连接（解除任何等待的处理程序阻塞）
         try:
             if self.vr_client:
                 await asyncio.wait_for(self.vr_client.stop(), timeout=2.0)
             if self.vr_server:
                 await asyncio.wait_for(self.vr_server.stop(), timeout=2.0)
+            if self.webrtc_streamer:
+                await asyncio.wait_for(self.webrtc_streamer.stop(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("VR stop timed out")
+            logger.warning("VR/WebRTC stop timed out")
         except Exception as e:
-            logger.warning(f"Error stopping VR: {e}")
+            logger.warning(f"Error stopping VR/WebRTC: {e}")
 
-        # Cancel all tasks
+        # 取消所有任务
         for task in self.tasks:
             task.cancel()
 
-        # Wait for tasks to complete with timeout
+        # 等待任务完成（带超时）
         if self.tasks:
             try:
                 await asyncio.wait_for(
@@ -779,7 +613,7 @@ class TelegripSystem:
             except asyncio.TimeoutError:
                 logger.warning("Some tasks did not complete within timeout")
 
-        # Stop remaining components
+        # 停止剩余组件
         try:
             await asyncio.wait_for(self.control_loop.stop(), timeout=3.0)
         except asyncio.TimeoutError:
@@ -805,61 +639,61 @@ class TelegripSystem:
 
 
 def create_signal_handler(system: 'TelegripSystem', loop: asyncio.AbstractEventLoop):
-    """Create a signal handler that properly stops the system."""
+    """创建正确停止系统的信号处理器。"""
     def signal_handler(signum, frame):
-        """Handle shutdown signals."""
+        """处理关闭信号。"""
         logger.info(f"Received signal {signum}")
         system.is_running = False
-        # Cancel all tasks from the event loop
+        # 从事件循环中取消所有任务
         for task in system.tasks:
             loop.call_soon_threadsafe(task.cancel)
-        # Raise SystemExit to break out of blocking operations
+        # 引发 SystemExit 以跳出阻塞操作
         raise SystemExit(0)
     return signal_handler
 
 
 def parse_arguments():
-    """Parse command line arguments."""
+    """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="Unified SO100 Robot Teleoperation System")
     
-    # Control flags
-    parser.add_argument("--no-robot", action="store_true", help="Disable robot connection (visualization only)")
-    parser.add_argument("--no-sim", action="store_true", help="Disable PyBullet simulation and inverse kinematics")
-    parser.add_argument("--no-viz", action="store_true", help="Disable PyBullet visualization (headless mode)")
-    parser.add_argument("--no-vr", action="store_true", help="Disable VR WebSocket server")
-    parser.add_argument("--no-keyboard", action="store_true", help="Disable keyboard input")
-    parser.add_argument("--no-https", action="store_true", help="Disable HTTPS server")
-    parser.add_argument("--autoconnect", action="store_true", help="Automatically connect to robot motors on startup")
+    # 控制标志
+    parser.add_argument("--no-robot", action="store_true", help="禁用机器人连接（仅可视化）")
+    parser.add_argument("--no-sim", action="store_true", help="禁用 PyBullet 仿真和逆运动学")
+    parser.add_argument("--no-viz", action="store_true", help="禁用 PyBullet 可视化（无头模式）")
+    parser.add_argument("--no-vr", action="store_true", help="禁用 VR WebSocket 服务器")
+    parser.add_argument("--no-keyboard", action="store_true", help="禁用键盘输入")
+    parser.add_argument("--no-https", action="store_true", help="禁用 HTTPS 服务器")
+    parser.add_argument("--autoconnect", action="store_true", help="启动时自动连接到机器人电机")
     parser.add_argument("--log-level", default="warning", 
                        choices=["debug", "info", "warning", "error", "critical"],
-                       help="Set logging level (default: warning)")
+                       help="设置日志级别（默认：warning）")
     
-    # Network settings
-    parser.add_argument("--https-port", type=int, default=8443, help="HTTPS server port")
-    parser.add_argument("--ws-port", type=int, default=8442, help="WebSocket server port")
-    parser.add_argument("--host", default="0.0.0.0", help="Host IP address")
+    # 网络设置
+    parser.add_argument("--https-port", type=int, default=8443, help="HTTPS 服务器端口")
+    parser.add_argument("--ws-port", type=int, default=8442, help="WebSocket 服务器端口")
+    parser.add_argument("--host", default="0.0.0.0", help="主机 IP 地址")
     
-    # Paths
-    parser.add_argument("--urdf", default="URDF/SO100/so100.urdf", help="Path to robot URDF file")
-    parser.add_argument("--webapp", default="webapp", help="Path to webapp directory")
-    parser.add_argument("--cert", default="cert.pem", help="Path to SSL certificate")
-    parser.add_argument("--key", default="key.pem", help="Path to SSL private key")
+    # 路径
+    parser.add_argument("--urdf", default="URDF/SO100/so100.urdf", help="机器人 URDF 文件路径")
+    parser.add_argument("--webapp", default="webapp", help="webapp 目录路径")
+    parser.add_argument("--cert", default="cert.pem", help="SSL 证书路径")
+    parser.add_argument("--key", default="key.pem", help="SSL 私钥路径")
     
-    # Robot settings
-    parser.add_argument("--config", default="config.yaml", help="Path to config file")
-    parser.add_argument("--left-port", help="Left arm serial port (overrides config file)")
-    parser.add_argument("--right-port", help="Right arm serial port (overrides config file)")
+    # 机器人设置
+    parser.add_argument("--config", default="config.yaml", help="配置文件路径")
+    parser.add_argument("--left-port", help="左臂串口（覆盖配置文件）")
+    parser.add_argument("--right-port", help="右臂串口（覆盖配置文件）")
     
     return parser.parse_args()
 
 
 def create_config_from_args(args) -> TelegripConfig:
-    """Create configuration object from command line arguments."""
-    # First load the config file
+    """从命令行参数创建配置对象。"""
+    # 首先加载配置文件
     config_data = get_config_data()
     config = TelegripConfig()
     
-    # Apply command line overrides
+    # 应用命令行覆盖
     config.enable_robot = not args.no_robot
     config.enable_pybullet = not args.no_sim
     config.enable_pybullet_gui = config.enable_pybullet and not args.no_viz
@@ -877,7 +711,7 @@ def create_config_from_args(args) -> TelegripConfig:
     config.certfile = args.cert
     config.keyfile = args.key
     
-    # Handle port configuration - use command line args if provided, otherwise use config file values
+    # 处理端口配置 - 如果提供则使用命令行参数，否则使用配置文件值
     if args.left_port or args.right_port:
         config.follower_ports = {
             "left": args.left_port if args.left_port else config_data["robot"]["left_arm"]["port"],
@@ -888,42 +722,42 @@ def create_config_from_args(args) -> TelegripConfig:
 
 
 async def main():
-    """Main entry point."""
-    # Parse arguments first to check for log level
+    """主入口点。"""
+    # 首先解析参数以检查日志级别
     args = parse_arguments()
     
-    # Setup logging based on log level
+    # 根据日志级别设置日志记录
     log_level = getattr(logging, args.log_level.upper())
     
-    # Suppress PyBullet's native output when not in verbose mode
+    # 在非详细模式下抑制 PyBullet 的原生输出
     if log_level > logging.INFO:
         os.environ['PYBULLET_SUPPRESS_CONSOLE_OUTPUT'] = '1'
         os.environ['PYBULLET_SUPPRESS_WARNINGS'] = '1'
     
     if log_level <= logging.INFO:
-        # Verbose mode - show detailed logging with timestamps
+        # 详细模式 - 显示带时间戳的详细日志
         logging.basicConfig(
             level=log_level,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
     else:
-        # Quiet mode - only show warnings and errors with simple format
+        # 安静模式 - 仅显示警告和错误，使用简单格式
         logging.basicConfig(
             level=log_level,
             format='%(message)s'
         )
 
-    # Suppress noisy websockets library logging (invalid HTTP requests to WS port)
+    # 抑制嘈杂的 websockets 库日志记录（对 WS 端口的无效 HTTP 请求）
     logging.getLogger('websockets').setLevel(logging.WARNING)
 
     config = create_config_from_args(args)
 
-    # Ensure SSL certificates exist (generate if needed for first-time startup)
+    # 确保 SSL 证书存在（首次启动时如需则生成）
     if not config.ensure_ssl_certificates():
         logger.error("Failed to ensure SSL certificates are available")
         sys.exit(1)
 
-    # Log configuration (only if INFO level or more verbose)
+    # 记录配置（仅在 INFO 级别或更详细时）
     if log_level <= logging.INFO:
         logger.info("Starting with configuration:")
         logger.info(f"  Robot: {'enabled' if config.enable_robot else 'disabled'}")
@@ -936,7 +770,7 @@ async def main():
         logger.info(f"  WebSocket Port: {config.websocket_port}")
         logger.info(f"  Robot Ports: {config.follower_ports}")
     else:
-        # Show clean startup message with HTTPS URL
+        # 显示带有 HTTPS URL 的干净启动消息
         host_display = get_local_ip() if config.host_ip == "0.0.0.0" else config.host_ip
         print(f"🤖 telegrip starting...")
         print(f"📱 Open the UI in your browser on:")
@@ -945,10 +779,10 @@ async def main():
         print(f"💡 Use --log-level info to see detailed output")
         print()
     
-    # Create and start teleoperation system
+    # 创建并启动遥操作系统
     system = TelegripSystem(config)
 
-    # Setup signal handlers with reference to system and event loop
+    # 使用系统和事件循环的引用设置信号处理器
     loop = asyncio.get_event_loop()
     signal_handler = create_signal_handler(system, loop)
     signal.signal(signal.SIGINT, signal_handler)
@@ -962,7 +796,7 @@ async def main():
         else:
             print("\n🛑 Shutting down...")
     except asyncio.CancelledError:
-        # Handle cancelled error (often from restart scenarios)
+        # 处理取消的错误（通常来自重启场景）
         if log_level <= logging.INFO:
             logger.info("System tasks cancelled")
     except Exception as e:
@@ -977,14 +811,14 @@ async def main():
             # Ignore cancelled/exit errors during shutdown
             pass
 
-        # Suppress SSL transport errors during event loop cleanup
+        # 在事件循环清理期间抑制 SSL 传输错误
         def ignore_ssl_errors(loop, context):
-            # Ignore "Bad file descriptor" and "Event loop is closed" errors during shutdown
+            # 忽略关闭期间的“Bad file descriptor”和“Event loop is closed”错误
             if 'exception' in context:
                 exc = context['exception']
                 if isinstance(exc, (OSError, RuntimeError)):
                     return
-            # Log other errors normally
+            # 正常记录其他错误
             loop.default_exception_handler(context)
 
         loop.set_exception_handler(ignore_ssl_errors)
@@ -994,13 +828,13 @@ async def main():
 
 
 def main_cli():
-    """Console script entry point for pip-installed package."""
+    """pip 安装包的控制台脚本入口点。"""
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("\nShutdown complete.")
     except asyncio.CancelledError:
-        # Handle cancelled error from restart scenarios
+        # 处理来自重启场景的取消错误
         pass
     except Exception as e:
         logger.error(f"Fatal error: {e}")
