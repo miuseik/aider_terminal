@@ -48,6 +48,7 @@ ssl:
   keyfile: key.pem
 ecs:
   enabled: true  # 设置为 true 启用 ECS 客户端模式
+#  websocket_url: "wss://192.168.1.30:8442/ws"  # 本地的 服务器地址
   websocket_url: "wss://192.168.1.30:8442/ws"  # 本地的 服务器地址
 #  websocket_url: "wss://ws.houqicg.com/ws"  # ECS WebSocket 服务器地址
 local_ws:

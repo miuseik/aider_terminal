@@ -266,7 +266,8 @@ telegrip --log-level info    # 显示详细的启动和操作信息
 telegrip --log-level debug   # 显示最大详细信息以进行调试
 ```
 ```bash
-git add ./;git commit -m "update";git push
+git add ./;git commit -m "启用RTC";git push
+
 ```
 **组件隔离**:
 - 使用禁用标志测试单个组件

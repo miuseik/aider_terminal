@@ -19,6 +19,7 @@ dependencies = [
     "pybullet",
     "scipy",
     "pyyaml",
+    "aiortc>=1.14.0",
 ]
 
 requires-python = ">=3.8"

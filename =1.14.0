@@ -1,0 +1,30 @@
+Looking in indexes: https://pypi.tuna.tsinghua.edu.cn/simple
+Collecting aiortc
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/57/ab/31646a49209568cde3b97eeade0d28bb78b400e6645c56422c101df68932/aiortc-1.14.0-py3-none-any.whl (93 kB)
+Collecting aioice<1.0.0,>=0.10.1 (from aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/c7/e3/0d23b1f930c17d371ce1ec36ee529f22fd19ebc2a07fe3418e3d1d884ce2/aioice-0.10.2-py3-none-any.whl (24 kB)
+Requirement already satisfied: av<17.0.0,>=14.0.0 in ./.venv/lib/python3.12/site-packages (from aiortc) (15.1.0)
+Collecting cryptography>=44.0.0 (from aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/c7/0b/333ddab4270c4f5b972f980adef4faa66951a4aaf646ca067af597f15563/cryptography-46.0.7-cp311-abi3-manylinux_2_34_x86_64.whl (4.5 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.5/4.5 MB 27.9 MB/s  0:00:00
+Collecting google-crc32c>=1.1 (from aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/ce/a9/a780cc66f86335a6019f557a8aaca8fbb970728f0efd2430d15ff1beae0e/google_crc32c-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl (33 kB)
+Collecting pyee>=13.0.0 (from aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/a0/c4/b4d4827c93ef43c01f599ef31453ccc1c132b353284fc6c87d535c233129/pyee-13.0.1-py3-none-any.whl (15 kB)
+Collecting pylibsrtp>=0.10.0 (from aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/0e/14/cf5d2a98a66fdfe258f6b036cda570f704a644fa861d7883a34bc359501e/pylibsrtp-1.0.0-cp310-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (2.4 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.4/2.4 MB 93.7 MB/s  0:00:00
+Collecting pyopenssl>=25.0.0 (from aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/fb/7d/d4f7d908fa8415571771b30669251d57c3cf313b36a856e6d7548ae01619/pyopenssl-26.0.0-py3-none-any.whl (57 kB)
+Collecting dnspython>=2.0.0 (from aioice<1.0.0,>=0.10.1->aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl (331 kB)
+Collecting ifaddr>=0.2.0 (from aioice<1.0.0,>=0.10.1->aiortc)
+  Using cached https://pypi.tuna.tsinghua.edu.cn/packages/9c/1f/19ebc343cc71a7ffa78f17018535adc5cbdd87afb31d7c34874680148b32/ifaddr-0.2.0-py3-none-any.whl (12 kB)
+Collecting cffi>=2.0.0 (from cryptography>=44.0.0->aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/78/2d/7fa73dfa841b5ac06c7b8855cfc18622132e365f5b81d02230333ff26e9e/cffi-2.0.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (219 kB)
+Collecting pycparser (from cffi>=2.0.0->cryptography>=44.0.0->aiortc)
+  Downloading https://pypi.tuna.tsinghua.edu.cn/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl (48 kB)
+Requirement already satisfied: typing-extensions in ./.venv/lib/python3.12/site-packages (from pyee>=13.0.0->aiortc) (4.15.0)
+Installing collected packages: ifaddr, pyee, pycparser, google-crc32c, dnspython, cffi, aioice, pylibsrtp, cryptography, pyopenssl, aiortc
+
+Successfully installed aioice-0.10.2 aiortc-1.14.0 cffi-2.0.0 cryptography-46.0.7 dnspython-2.8.0 google-crc32c-1.8.0 ifaddr-0.2.0 pycparser-3.0 pyee-13.0.1 pylibsrtp-1.0.0 pyopenssl-26.0.0
