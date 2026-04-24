@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Default configuration values (fallback if YAML file doesn't exist)
 DEFAULT_CONFIG = {
     "network": {
-        "https_port": 8443,
+        "https_port": 8442,
         "websocket_port": 8442,
         "host_ip": "0.0.0.0"
     },

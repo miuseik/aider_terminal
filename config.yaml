@@ -19,7 +19,7 @@ ik:
   movement_penalty_weight: 0.01
 network:
   host_ip: 0.0.0.0
-  https_port: 8443
+  https_port: 8442
   websocket_port: 8442
   server_host: 192.168.1.30
 paths:

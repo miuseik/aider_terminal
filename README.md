@@ -79,7 +79,7 @@ The first time you might be asked to complete pose calibrations as shown in [thi
 ```bash
 🤖 telegrip starting...
 Open the UI in your browser on:
-https://192.168.7.233:8443
+https://192.168.7.233:8442
 Then go to the same address on your VR headset browser
 ```
 Click on or enter your address in a browser to show the UI. Visit the same address from your VR headset to enter the VR web-app. The first time you should enter robot arm port information under the settings menu (top right). Alternatively you can manually enter the details in the `config.yaml` file in the root of this repo.
@@ -98,7 +98,7 @@ Options:
   --no-keyboard     Disable keyboard input
   --autoconnect     Automatically connect to robot motors on startup
   --log-level LEVEL Set logging level: debug, info, warning, error, critical (default: warning)
-  --https-port PORT HTTPS server port (default: 8443)
+  --https-port PORT HTTPS server port (default: 8442)
   --ws-port PORT    WebSocket server port (default: 8442)
   --host HOST       Host IP address (default: 0.0.0.0)
   --urdf PATH       Path to robot URDF file
@@ -137,7 +137,7 @@ python -m telegrip.main --autoconnect
 
 ### VR Controller Control
 
-1. **Setup**: Connect Meta Quest to same network, navigate to `https://<your-ip>:8443`
+1. **Setup**: Connect Meta Quest to same network, navigate to `https://<your-ip>:8442`
 
 2. **Arm Position Control**: 
    - **Hold grip button** to activate position control for that arm
@@ -224,7 +224,7 @@ class ControlGoal:
 
 ### Network Configuration
 
-- **HTTPS Port**: 8443 (web interface)
+- **HTTPS Port**: 8442 (web interface)
 - **WebSocket Port**: 8442 (VR controllers)  
 - **Host**: 0.0.0.0 (all interfaces)
 

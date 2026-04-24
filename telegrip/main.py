@@ -805,7 +805,7 @@ def parse_arguments():
                        help="Set logging level (default: warning)")
     
     # Network settings
-    parser.add_argument("--https-port", type=int, default=8443, help="HTTPS server port")
+    parser.add_argument("--https-port", type=int, default=8442, help="HTTPS server port")
     parser.add_argument("--ws-port", type=int, default=8442, help="WebSocket server port")
     parser.add_argument("--host", default="0.0.0.0", help="Host IP address")
     
