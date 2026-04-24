@@ -1,161 +1,73 @@
 """
-WebSocket client for connecting to Aider Server.
-Handles bidirectional message forwarding between VR clients and server.
+WebSocket 客户端 - 连接到 Aider Server。
+处理 VR 客户端和服务器之间的双向消息转发。
 """
 
 import asyncio
 import json
-import ssl
-import websockets
 import logging
 from typing import Optional
-from pathlib import Path
+
+from .socket.ws_transport import WSTransport
+from .socket.ws_protocol import encode_message, decode_message
 
 logger = logging.getLogger(__name__)
 
 
 class VRWebSocketClient:
-    """WebSocket client that connects to Aider Server."""
+    """WebSocket 业务层 - 处理 VR 数据和 API 命令"""
     
     def __init__(self, config, vr_handler):
         self.config = config
         self.vr_handler = vr_handler
-        self.websocket: Optional[websockets.WebSocketClientProtocol] = None
-        self.is_connected = False
-        self.client_id = "terminal"  # Terminal always uses this ID
+        self.transport = WSTransport(config)
+        self.client_id = "terminal"  # Terminal 始终使用此 ID
         
-        # SSL context
-        self.ssl_context = None
-    
-    def setup_ssl(self) -> Optional[ssl.SSLContext]:
-        """Setup SSL context for WebSocket client connection."""
-        # Client only needs to trust server cert, no client cert needed
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
-        return ssl_context
+        # 注册消息回调
+        self.transport.on_message(self._handle_message)
     
     async def connect(self):
-        """Connect to Aider Server."""
-        self.ssl_context = self.setup_ssl()
-        if self.ssl_context is None:
-            logger.error("Failed to setup SSL")
-            return False
-        
-        host = self.config.server_host
-        port = self.config.websocket_port
-        ws_url = f"wss://{host}:{port}/vr/terminal"
-        print(f"ws_url: {ws_url}")
-        try:
-            logger.info(f"🔌 Connecting to Aider Server: {ws_url}")
-            self.websocket = await websockets.connect(
-                ws_url,
-                ssl=self.ssl_context
-            )
-            self.is_connected = True
-            print(f"✅ Connected to Aider Server")
-            await self.on_connected()
-            
-            # Start message receiving task
-            asyncio.create_task(self.receive_messages())
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to connect to Aider Server: {e}")
-            # Auto reconnect after 3 seconds
-            logger.info(f"🔄 Reconnecting in 3 seconds...")
-            await asyncio.sleep(3)
-            return await self.connect()
-    
-    async def on_connected(self):
-        """Called when connection is successfully established."""
-        print(f"✅ Successfully connected to Aider Server at {self.config.server_host}:{self.config.websocket_port}")
+        """连接到 Aider Server。"""
+        return await self.transport.connect()
     
     async def disconnect(self):
-        """Disconnect from Aider Server."""
-        self.is_connected = False
-        if self.websocket:
-            try:
-                await self.websocket.close()
-            except Exception:
-                pass
-            logger.info("🔴 Disconnected from Aider Server")
+        """断开与 Aider Server 的连接。"""
+        await self.transport.disconnect()
     
-    async def receive_messages(self):
-        """Receive messages from server and forward to VR handler."""
+    async def _handle_message(self, raw_message: str):
+        """处理来自传输层的传入消息。"""
         try:
-            async for message in self.websocket:
-                if not self.is_connected:
-                    break
-                
-                try:
-                    data = json.loads(message)
-                    
-                    # Check if it's an API command
-                    if data.get('type') == 'api_command':
-                        await self.handle_api_command(data)
-                    else:
-                        # Forward to VR handler for processing
-                        await self.vr_handler.process_message(message)
-                    
-                except json.JSONDecodeError:
-                    logger.warning(f"⚠️ Received non-JSON message")
-                except Exception as e:
-                    logger.error(f"❌ Error processing message: {e}")
-        
-        except websockets.exceptions.ConnectionClosedOK:
-            logger.info("❌ Connection closed (normal)")
-            self.is_connected = False
-            # Auto reconnect
-            logger.info(f"🔄 Reconnecting in 3 seconds...")
-            await asyncio.sleep(3)
-            await self.connect()
-        except websockets.exceptions.ConnectionClosedError as e:
-            logger.error(f"❌ Connection closed (error): {e}")
-            self.is_connected = False
-            # Auto reconnect
-            logger.info(f"🔄 Reconnecting in 3 seconds...")
-            await asyncio.sleep(3)
-            await self.connect()
+            data = decode_message(raw_message)
+            
+            # 检查是否为 API 命令
+            if data.get('type') == 'api_command':
+                await self.handle_api_command(data)
+            else:
+                # 转发到 VR 处理器进行处理
+                await self.vr_handler.process_message(raw_message)
+            
+        except json.JSONDecodeError:
+            logger.warning(f"⚠️ 收到非 JSON 消息")
         except Exception as e:
-            logger.error(f"❌ Receive error: {e}")
-            self.is_connected = False
-            # Auto reconnect
-            logger.info(f"🔄 Reconnecting in 3 seconds...")
-            await asyncio.sleep(3)
-            await self.connect()
-    
-    async def send_message(self, data: dict):
-        """Send message to Aider Server."""
-        if not self.is_connected or not self.websocket:
-            logger.warning("⚠️ Not connected to server, cannot send message")
-            return False
-        
-        try:
-            await self.websocket.send(json.dumps(data))
-            return True
-        except Exception as e:
-            logger.error(f"❌ Failed to send message: {e}")
-            return False
+            logger.error(f"❌ 处理消息错误: {e}")
     
     async def send_vr_data(self, vr_data: dict):
-        """Send VR controller data to server."""
-        return await self.send_message(vr_data)
+        """发送 VR 控制器数据到服务器。"""
+        return await self.transport.send_raw(encode_message(vr_data))
     
     async def send_command(self, action: str, **kwargs):
-        """Send command to server."""
+        """发送命令到服务器。"""
         command = {"action": action, **kwargs}
-        return await self.send_message(command)
+        return await self.transport.send_raw(encode_message(command))
     
     async def handle_api_command(self, data: dict):
-        """Handle API command from server."""
+        """处理来自服务器的 API 命令。"""
         action = data.get('action')
-        print(f"🎮 Received API command: {action}")
+        print(f"🎮 收到 API 命令: {action}")
         
-        # Forward to vr_handler for processing
+        # 转发到 vr_handler 进行处理
         if hasattr(self.vr_handler, 'process_message'):
             await self.vr_handler.process_message(json.dumps(data))
-            print(f"✅ Command forwarded to vr_handler")
+            print(f"✅ 命令已转发到 vr_handler")
         else:
-            print(f"❌ vr_handler does not have process_message method")
+            print(f"❌ vr_handler 没有 process_message 方法")

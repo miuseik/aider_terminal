@@ -1,9 +1,36 @@
 ```bash
-git add ./;git commit -m "键盘+vr都ok";git push
+git add ./;git commit -m "重构了websocket";git push
 ```
 
 ```bash
 git checkout 。/
+```
+
+### Development/Testing Modes
+
+**Visualization Only** (no robot hardware):
+```bash
+python -m telegrip.main --no-robot
+```
+
+**Keyboard Only** (no VR):
+```bash
+python -m telegrip.main --no-vr
+```
+
+**No Simulation** (no PyBullet sim or IK):
+```bash
+python -m telegrip.main --no-sim
+```
+
+**Headless** (no PyBullet GUI):
+```bash
+python -m telegrip.main --no-viz
+```
+
+**Auto-connect to Robot** (skip manual connection step):
+```bash
+python -m telegrip.main --autoconnect
 ```
 # telegrip - SO100 Robot Arm Teleoperation System
 
@@ -109,32 +136,7 @@ Options:
   --right-port PORT Right arm serial port (default: /dev/ttySO100leader)
 ```
 
-### Development/Testing Modes
 
-**Visualization Only** (no robot hardware):
-```bash
-python -m telegrip.main --no-robot
-```
-
-**Keyboard Only** (no VR):
-```bash
-python -m telegrip.main --no-vr
-```
-
-**No Simulation** (no PyBullet sim or IK):
-```bash
-python -m telegrip.main --no-sim
-```
-
-**Headless** (no PyBullet GUI):
-```bash
-python -m telegrip.main --no-viz
-```
-
-**Auto-connect to Robot** (skip manual connection step):
-```bash
-python -m telegrip.main --autoconnect
-```
 
 ## Control Methods
 
