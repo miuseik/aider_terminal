@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "准备剥离wsserver,换成wsclient";git push
+git add ./;git commit -m "修改了ws访问地址，设置了重连机制";git push
 ```
 
 # telegrip - SO100 Robot Arm Teleoperation System

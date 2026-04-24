@@ -54,7 +54,8 @@ class VRWebSocketClient:
                 ssl=self.ssl_context
             )
             self.is_connected = True
-            logger.info(f"✅ Connected to Aider Server")
+            print(f"✅ Connected to Aider Server")
+            await self.on_connected()
             
             # Start message receiving task
             asyncio.create_task(self.receive_messages())
@@ -66,6 +67,10 @@ class VRWebSocketClient:
             logger.info(f"🔄 Reconnecting in 3 seconds...")
             await asyncio.sleep(3)
             return await self.connect()
+    
+    async def on_connected(self):
+        """Called when connection is successfully established."""
+        print(f"✅ Successfully connected to Aider Server at {self.config.server_host}:{self.config.websocket_port}")
     
     async def disconnect(self):
         """Disconnect from Aider Server."""
