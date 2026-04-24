@@ -4,8 +4,7 @@ Telegrip 机械臂遥操作系统启动入口
 """
 
 import sys
-# from telegrip.cli.runner import main_cli
-from telegrip.main import main_cli
+from telegrip.cli.runner import main_cli
 
 if __name__ == "__main__":
     # 默认添加 --no-robot 参数（仅可视化，不连接机械臂）
