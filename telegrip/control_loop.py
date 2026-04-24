@@ -343,11 +343,16 @@ class ControlLoop:
         
         # 2. 处理键盘空闲超时后的原点重置逻辑
         if (goal.metadata and goal.metadata.get("reset_target_to_current", False)):
-            if self.robot_interface and arm_state.mode == ControlMode.POSITION_CONTROL:
+            if self.robot_interface:
                 # 将目标点拉回当前物理位置，实现“软复位”
                 current_position = self.robot_interface.get_current_end_effector_position(goal.arm)
                 current_angles = self.robot_interface.get_arm_angles(goal.arm)
-                
+                                
+                print(f"\n🔴 [BEFORE RESET] {goal.arm.upper()} 臂:")
+                print(f"   握把按下前 - goal_position: {arm_state.goal_position}")
+                print(f"   握把按下前 - origin_position: {arm_state.origin_position}")
+                print(f"   当前机械臂位置: {current_position}")
+                        
                 arm_state.target_position = current_position.copy()
                 arm_state.goal_position = current_position.copy()
                 arm_state.origin_position = current_position.copy()
@@ -355,9 +360,12 @@ class ControlLoop:
                 arm_state.current_wrist_flex = current_angles[WRIST_FLEX_INDEX]
                 arm_state.origin_wrist_roll_angle = current_angles[WRIST_ROLL_INDEX]
                 arm_state.origin_wrist_flex_angle = current_angles[WRIST_FLEX_INDEX]
-                
+                        
+                print(f"   ✅ 重置后 - goal_position: {arm_state.goal_position}")
+                print(f"   ✅ 重置后 - origin_position: {arm_state.origin_position}\n")
+                                
                 logger.info(f"🔄 {goal.arm.upper()} 臂: 因空闲超时，目标点已重置到当前位置")
-            return
+            # 不要 return，继续执行后续的 mode 切换逻辑
         
         # 3. 处理机械臂模式切换（如：从 IDLE 切换到 POSITION_CONTROL）
         if goal.mode is not None and goal.mode != arm_state.mode:
@@ -398,12 +406,22 @@ class ControlLoop:
                 if arm_state.origin_position is not None:
                     arm_state.target_position = arm_state.origin_position + goal.target_position
                     arm_state.goal_position = arm_state.target_position.copy()
+                    
+                    print(f"🟡 [{goal.arm.upper()}] VR 相对位移控制:")
+                    print(f"   VR 传来的 relative_delta: {goal.target_position}")
+                    print(f"   origin_position: {arm_state.origin_position}")
+                    print(f"   计算后 goal_position: {arm_state.goal_position}\n")
                 else:
                     # 如果尚未设置原点（极少情况），则以当前位置为基准进行累加
                     if self.robot_interface:
                         current_position = self.robot_interface.get_current_end_effector_position(goal.arm)
                         arm_state.target_position = current_position + goal.target_position
                         arm_state.goal_position = arm_state.target_position.copy()
+                        
+                        print(f"⚠️  [{goal.arm.upper()}] origin_position 为空，使用当前位置作为基准")
+                        print(f"   当前位置: {current_position}")
+                        print(f"   relative_delta: {goal.target_position}")
+                        print(f"   计算后 goal_position: {arm_state.goal_position}\n")
             else:
                 # 绝对坐标模式（遗留代码，建议不再使用）
                 arm_state.target_position = goal.target_position.copy()
