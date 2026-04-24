@@ -75,7 +75,7 @@ def suppress_stdout_stderr():
 # Import telegrip modules after function definition
 from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
-from .inputs.vr_ws_server import VRWebSocketServer
+from .inputs.vr_ws_client import VRWebSocketServer
 from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
 
@@ -117,25 +117,23 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == '/api/config':
             self.handle_config_get_request()
         elif self.path == '/' or self.path == '/index.html':
-            # Serve main page from web-ui directory
-            self.serve_file('web-ui/index.html', 'text/html')
+            # Web UI has been migrated to external Vue project
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'<html><body><h1>Web UI migrated to external Vue project</h1></body></html>')
         elif self.path.endswith('.css'):
-            # Serve CSS files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'text/css')
+            self.send_error(404, "CSS files not available - Web UI migrated")
         elif self.path.endswith('.js'):
-            # Serve JS files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'application/javascript')
+            self.send_error(404, "JS files not available - Web UI migrated")
         elif self.path.endswith('.ico'):
             self.serve_file(self.path[1:], 'image/x-icon')
         elif self.path.endswith(('.jpg', '.jpeg')):
-            # Serve image files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'image/jpeg')
+            self.send_error(404, "Image files not available - Web UI migrated")
         elif self.path.endswith('.png'):
-            # Serve image files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'image/png')
+            self.send_error(404, "Image files not available - Web UI migrated")
         elif self.path.endswith('.gif'):
-            # Serve image files from web-ui directory
-            self.serve_file(f'web-ui{self.path}', 'image/gif')
+            self.send_error(404, "Image files not available - Web UI migrated")
         else:
             self.send_error(404, "Not found")
     

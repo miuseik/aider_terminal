@@ -1,8 +1,12 @@
+```bash
+git add ./;git commit -m "准备剥离wsserver,换成wsclient";git push
+```
+
 # telegrip - SO100 Robot Arm Teleoperation System
 
 An open source teleoperation control system for the [SO100 robot arm](https://github.com/TheRobotStudio/SO-ARM100) that supports input from VR controllers or keyboards with shared inverse kinematics, 3D visualization and a web UI.
 
-<img src="web-ui/media/telegrip_instructions.jpg" alt="VR Controller Instructions" width="400">
+
 
 *Using a VR headset like the Meta Quest and the built-in WebXR app, controller movements are streamed to the telegrip controller so you can record training data without a dedicated leader arm.*
 
@@ -69,7 +73,7 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -sha256 -days 3
 Run the complete teleoperation system:
 
 ```bash
-telegrip
+python -m telegrip.main
 ```
 The first time you might be asked to complete pose calibrations as shown in [this guide](https://github.com/huggingface/lerobot/blob/8cfab3882480bdde38e42d93a9752de5ed42cae2/examples/10_use_so100.md#e-calibrate). Calibration files are stored in `.cache/calibration/so100/arm_name.json`. When calibration files are found, you will be greeted with a message like 
 ```bash
@@ -84,7 +88,7 @@ Once you see that the robot arms are found (green indicators) you can click "Con
 ### Command Line Options
 
 ```bash
-telegrip [OPTIONS]
+python -m telegrip.main [OPTIONS]
 
 Options:
   --no-robot        Disable robot connection (visualization only)
@@ -106,27 +110,27 @@ Options:
 
 **Visualization Only** (no robot hardware):
 ```bash
-telegrip --no-robot
+python -m telegrip.main --no-robot
 ```
 
 **Keyboard Only** (no VR):
 ```bash
-telegrip --no-vr
+python -m telegrip.main --no-vr
 ```
 
 **No Simulation** (no PyBullet sim or IK):
 ```bash
-telegrip --no-sim
+python -m telegrip.main --no-sim
 ```
 
 **Headless** (no PyBullet GUI):
 ```bash
-telegrip --no-viz
+python -m telegrip.main --no-viz
 ```
 
 **Auto-connect to Robot** (skip manual connection step):
 ```bash
-telegrip --autoconnect
+python -m telegrip.main --autoconnect
 ```
 
 ## Control Methods
@@ -259,8 +263,8 @@ class ControlGoal:
 
 **Detailed Logging**:
 ```bash
-telegrip --log-level info    # Show detailed startup and operation info
-telegrip --log-level debug   # Show maximum detail for debugging
+python -m telegrip.main --log-level info    # Show detailed startup and operation info
+python -m telegrip.main --log-level debug   # Show maximum detail for debugging
 ```
 
 **Component Isolation**:

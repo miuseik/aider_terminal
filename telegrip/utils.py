@@ -22,7 +22,7 @@ def get_package_dir() -> Path:
 def get_project_root() -> Path:
     """
     Get the project root directory (parent of the telegrip package).
-    This is where config files, SSL certificates, web-ui, URDF, etc. should be located.
+    This is where config files, SSL certificates, URDF, etc. should be located.
     """
     return get_package_dir().parent
 

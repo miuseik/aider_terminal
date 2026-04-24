@@ -331,7 +331,7 @@ class ControlLoop:
                     arm_state.origin_wrist_roll_angle = current_angles[WRIST_ROLL_INDEX]
                     arm_state.origin_wrist_flex_angle = current_angles[WRIST_FLEX_INDEX]
                 
-                logger.info(f"🔒 {hand.upper()} grip activated - controlling {hand} arm (target reset to current position)")
+                logger.info(f"🔒 {goal.arm.upper()} grip activated - controlling {goal.arm} arm (target reset to current position)")
                 
             elif goal.mode == ControlMode.IDLE:
                 # Deactivate position control

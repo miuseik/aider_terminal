@@ -1,8 +1,0 @@
----
-description: 
-globs: 
-alwaysApply: true
----
-This project use the conda environment "teleop"
-telegrip can run by just
-conda activate teleop && telegrip
