@@ -21,6 +21,7 @@ network:
   host_ip: 0.0.0.0
   https_port: 8443
   websocket_port: 8442
+  server_host: 192.168.1.30
 paths:
   urdf_path: URDF/SO100/urdf/so100.urdf
 robot:

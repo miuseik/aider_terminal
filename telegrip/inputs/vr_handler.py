@@ -1,16 +1,14 @@
 """
-VR WebSocket server for receiving controller data from web browsers.
-Adapted from the original vr_robot_teleop.py script.
+VR Handler for processing controller data from WebSocket client.
+Handles VR controller state tracking and control goal generation.
 """
 
 import asyncio
 import json
-import ssl
-import websockets
 import numpy as np
 import math
 import logging
-from typing import Dict, Optional, Set
+from typing import Dict, Optional
 from scipy.spatial.transform import Rotation as R
 
 from .base import BaseInputProvider, ControlGoal, ControlMode
@@ -57,14 +55,12 @@ class VRControllerState:
         self.x_axis_rotation = 0.0
 
 
-class VRWebSocketServer(BaseInputProvider):
-    """WebSocket server for VR controller input."""
+class VRHandler(BaseInputProvider):
+    """VR controller data handler - processes VR data and generates control goals."""
     
     def __init__(self, command_queue: asyncio.Queue, config: TelegripConfig):
         super().__init__(command_queue)
         self.config = config
-        self.clients: Set = set()
-        self.server = None
         
         # Controller states
         self.left_controller = VRControllerState("left")
@@ -74,193 +70,72 @@ class VRWebSocketServer(BaseInputProvider):
         self.left_arm_origin_position = None
         self.right_arm_origin_position = None
 
-    def _get_local_ip(self) -> str:
-        """Get the local IP address of this machine."""
-        import socket
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                return s.getsockname()[0]
-        except Exception:
-            try:
-                return socket.gethostbyname(socket.gethostname())
-            except Exception:
-                return "localhost"
-
-    def setup_ssl(self) -> Optional[ssl.SSLContext]:
-        """Setup SSL context for WebSocket server."""
-        # Automatically generate SSL certificates if they don't exist
-        if not self.config.ssl_files_exist:
-            logger.info("SSL certificates not found for WebSocket server, attempting to generate them...")
-            if not self.config.ensure_ssl_certificates():
-                logger.error("Failed to generate SSL certificates for WebSocket server")
-                return None
-        
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        try:
-            # Get absolute paths for SSL certificates
-            cert_path, key_path = self.config.get_absolute_ssl_paths()
-            ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-            logger.info("SSL certificate and key loaded successfully for WebSocket server")
-            return ssl_context
-        except ssl.SSLError as e:
-            logger.error(f"Error loading SSL cert/key: {e}")
-            return None
-    
     async def start(self):
-        """Start the WebSocket server."""
-        if not self.config.enable_vr:
-            logger.info("VR WebSocket server disabled in configuration")
-            return
-        
-        ssl_context = self.setup_ssl()
-        if ssl_context is None:
-            logger.error("Failed to setup SSL for WebSocket server")
-            return
-        
-        host = self.config.host_ip
-        port = self.config.websocket_port
-        self._browser_warning_shown = False
-
-        try:
-            self.server = await websockets.serve(
-                self.websocket_handler,
-                host,
-                port,
-                ssl=ssl_context,
-                process_request=self._process_request
-            )
-            self.is_running = True
-            host_display = self._get_local_ip() if host == "0.0.0.0" else host
-            print(f"✅ VR WebSocket server listening on wss://{host_display}:{port}")
-        except Exception as e:
-            logger.error(f"Failed to start WebSocket server: {e}")
-
-    async def _process_request(self, connection, request):
-        """Process incoming requests and detect browser visits to the WebSocket port."""
-        # Check if this looks like a browser request (not a proper WebSocket upgrade)
-        # In newer websockets versions, request.headers is a Headers object
-        headers = request.headers
-        connection_header = headers.get("Connection", "")
-        upgrade_header = headers.get("Upgrade", "")
-
-        # Proper WebSocket requests have "Upgrade" in Connection header and "websocket" in Upgrade header
-        is_websocket_request = (
-            "upgrade" in connection_header.lower() and
-            "websocket" in upgrade_header.lower()
-        )
-
-        if not is_websocket_request:
-            # Only show warning once to avoid spam
-            if not self._browser_warning_shown:
-                self._browser_warning_shown = True
-                host_display = self._get_local_ip() if self.config.host_ip == "0.0.0.0" else self.config.host_ip
-                print(f"\n⚠️  Someone is trying to open port {self.config.websocket_port} in a browser.")
-                print(f"   This port is for VR WebSocket connections only.")
-                print(f"   The web UI is at: https://{host_display}:{self.config.https_port}\n")
-
-        # Return None to let websockets library handle the request normally
-        # (it will reject non-WebSocket requests with 426 Upgrade Required)
-        return None
+        """Start the VR handler (no server needed)."""
+        self.is_running = True
+        logger.info("✅ VR Handler started")
 
     async def stop(self):
-        """Stop the WebSocket server."""
+        """Stop the VR handler."""
         self.is_running = False
-
-        # Close all active client connections to unblock websocket_handler
-        for client in list(self.clients):
-            try:
-                await client.close()
-            except Exception:
-                pass
-
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-            logger.info("VR WebSocket server stopped")
+        logger.info("🛑 VR Handler stopped")
     
-    async def websocket_handler(self, websocket, path=None):
-        """Handle WebSocket connections from VR controllers."""
-        client_address = websocket.remote_address
-        print(f"✅ VR WebSocket CONNECTED: {client_address}")
-        self.clients.add(websocket)
-        
+    async def process_message(self, message: str):
+        """Process incoming VR controller data from WebSocket client."""
         try:
-            async for message in websocket:
-                try:
-                    data = json.loads(message)
-                    
-                    # Handle API-like commands via WebSocket
-                    if 'action' in data:
-                        await self.handle_api_command(data, websocket)
-                    else:
-                        # Handle VR controller data
-                        await self.process_controller_data(data)
-                except json.JSONDecodeError:
-                    print(f"⚠️ Received non-JSON message: {message}")
-                except Exception as e:
-                    print(f"❌ Error processing data: {e}")
-        
-        except websockets.exceptions.ConnectionClosedOK:
-            print(f"❌ VR WebSocket DISCONNECTED (normal): {client_address}")
-        except websockets.exceptions.ConnectionClosedError as e:
-            print(f"❌ VR WebSocket DISCONNECTED (error): {client_address} - {e}")
+            data = json.loads(message)
+            
+            # Handle API-like commands
+            if 'action' in data:
+                await self.handle_api_command(data)
+            else:
+                # Handle VR controller data
+                await self.process_controller_data(data)
+        except json.JSONDecodeError:
+            logger.warning(f"⚠️ Received non-JSON message: {message}")
         except Exception as e:
-            print(f"❌ VR WebSocket ERROR: {client_address} - {e}")
-        finally:
-            self.clients.discard(websocket)
-            # Handle grip releases when client disconnects
-            await self.handle_grip_release('left')
-            await self.handle_grip_release('right')
-            print(f"🧹 VR WebSocket cleanup complete: {client_address}")
+            logger.error(f"❌ Error processing data: {e}")
     
-    async def handle_api_command(self, data: Dict, websocket):
-        """Handle API-like commands sent via WebSocket."""
+    async def handle_api_command(self, data: Dict):
+        """Handle API-like commands."""
         action = data.get('action')
-        print(f"📡 WebSocket API command: {action}")
+        logger.info(f"📡 VR API command: {action}")
         
         if action == 'get_status':
-            # Return current status
+            # Return current status via callback if available
             status = {
                 "type": "status_response",
-                "robotEngaged": False,  # Will be updated by control loop
+                "robotEngaged": False,
                 "keyboardEnabled": self.is_running,
-                "vrConnected": len(self.clients) > 0
+                "vrConnected": True
             }
-            await websocket.send(json.dumps(status))
+            if hasattr(self, 'on_status_callback'):
+                await self.on_status_callback(status)
         
         elif action == 'enable_keyboard':
-            print("🎮 Keyboard control ENABLED via WebSocket")
-            await websocket.send(json.dumps({"type": "response", "success": True, "action": "enable_keyboard"}))
+            logger.info("🎮 Keyboard control ENABLED")
         
         elif action == 'disable_keyboard':
-            print("🎮 Keyboard control DISABLED via WebSocket")
-            await websocket.send(json.dumps({"type": "response", "success": True, "action": "disable_keyboard"}))
+            logger.info("🎮 Keyboard control DISABLED")
         
         elif action == 'robot_connect':
-            print("🔌 Robot connect command received (no-robot mode)")
-            await websocket.send(json.dumps({"type": "response", "success": True, "action": "robot_connect"}))
+            logger.info("🔌 Robot connect command received")
         
         elif action == 'robot_disconnect':
-            print("🔌 Robot disconnect command received")
-            await websocket.send(json.dumps({"type": "response", "success": True, "action": "robot_disconnect"}))
+            logger.info("🔌 Robot disconnect command received")
         
         elif action == 'keypress':
-            # Handle keyboard input
             key = data.get('key')
-            event = data.get('event')  # 'press' or 'release'
-            print(f"⌨️ Key {event}: {key}")
-            # Forward to web keyboard handler if available
+            event = data.get('event')
+            logger.info(f"⌨️ Key {event}: {key}")
             if hasattr(self, 'web_keyboard_handler') and self.web_keyboard_handler:
                 if event == 'press':
                     self.web_keyboard_handler.on_key_press(key)
                 elif event == 'release':
                     self.web_keyboard_handler.on_key_release(key)
-            await websocket.send(json.dumps({"type": "response", "success": True, "key": key, "event": event}))
         
         else:
-            print(f"⚠️ Unknown WebSocket command: {action}")
-            await websocket.send(json.dumps({"type": "error", "message": f"Unknown action: {action}"}))
+            logger.warning(f"⚠️ Unknown VR command: {action}")
     
     async def process_controller_data(self, data: Dict):
         """Process incoming VR controller data."""
@@ -304,7 +179,7 @@ class VRWebSocketServer(BaseInputProvider):
         """Process data for a single controller."""
         position = data.get('position', {})
         rotation = data.get('rotation', {})
-        quaternion = data.get('quaternion', {})  # Get quaternion data directly
+        quaternion = data.get('quaternion', {})
         grip_active = data.get('gripActive', False)
         trigger = data.get('trigger', 0)
         
@@ -315,11 +190,10 @@ class VRWebSocketServer(BaseInputProvider):
         if trigger_active != controller.trigger_active:
             controller.trigger_active = trigger_active
             
-            # Send gripper control goal - do not specify mode to avoid interfering with position control
-            # Reverse behavior: gripper open by default, closes when trigger pressed
+            # Send gripper control goal
             gripper_goal = ControlGoal(
                 arm=hand,
-                gripper_closed=not trigger_active,  # Inverted: closed when trigger NOT active
+                gripper_closed=not trigger_active,
                 metadata={"source": "vr_trigger"}
             )
             await self.send_goal(gripper_goal)
@@ -333,10 +207,10 @@ class VRWebSocketServer(BaseInputProvider):
                 controller.grip_active = True
                 controller.origin_position = position.copy()
                 
-                # Use quaternion data directly if available, otherwise fall back to Euler conversion
+                # Use quaternion data directly if available
                 if quaternion and all(k in quaternion for k in ['x', 'y', 'z', 'w']):
                     controller.origin_quaternion = np.array([quaternion['x'], quaternion['y'], quaternion['z'], quaternion['w']])
-                    controller.origin_rotation = controller.origin_quaternion  # Store for compatibility
+                    controller.origin_rotation = controller.origin_quaternion
                 else:
                     # Fallback to Euler angle conversion
                     controller.origin_quaternion = self.euler_to_quaternion(rotation) if rotation else None
@@ -346,21 +220,21 @@ class VRWebSocketServer(BaseInputProvider):
                 controller.z_axis_rotation = 0.0
                 controller.x_axis_rotation = 0.0
                 
-                # Send reset signal to control loop to reset target position to current robot position
+                # Send reset signal to control loop
                 reset_goal = ControlGoal(
                     arm=hand,
-                    mode=ControlMode.POSITION_CONTROL,  # Keep in position control
-                    target_position=None,  # Special signal
+                    mode=ControlMode.POSITION_CONTROL,
+                    target_position=None,
                     metadata={
                         "source": f"vr_grip_reset_{hand}",
-                        "reset_target_to_current": True  # Signal to reset target to current position
+                        "reset_target_to_current": True
                     }
                 )
                 await self.send_goal(reset_goal)
                 
-                logger.info(f"🔒 {hand.upper()} grip activated - controlling {hand} arm (target reset to current position)")
+                logger.info(f"🔒 {hand.upper()} grip activated - controlling {hand} arm")
             
-            # Compute target position
+            # 计算目标位置
             if controller.origin_position:
                 relative_delta = compute_relative_position(
                     position, 
@@ -368,29 +242,28 @@ class VRWebSocketServer(BaseInputProvider):
                     self.config.vr_to_robot_scale
                 )
                 
-                # Calculate Z-axis rotation for wrist_roll control
-                # Calculate X-axis rotation for wrist_flex control
+                # 计算 Z 轴旋转用于 wrist_roll 控制
+                # 计算 X 轴旋转用于 wrist_flex 控制
                 if controller.origin_quaternion is not None:
-                    # Update quaternion-based rotation tracking
+                    # 更新基于四元数的旋转跟踪
                     if quaternion and all(k in quaternion for k in ['x', 'y', 'z', 'w']):
-                        # Use quaternion data directly
+                        # 直接使用四元数数据
                         current_quat = np.array([quaternion['x'], quaternion['y'], quaternion['z'], quaternion['w']])
                         self.update_quaternion_rotation_direct(controller, current_quat)
                     else:
-                        # Fallback to Euler angle conversion
+                        # 回退到欧拉角转换
                         self.update_quaternion_rotation(controller, rotation)
                     
-                    # Get accumulated rotations from quaternion
+                    # 从四元数获取累积旋转
                     controller.z_axis_rotation = self.extract_roll_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
                     controller.x_axis_rotation = self.extract_pitch_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
                 
-                # Create position control goal
-                # Note: We send relative position here, the control loop will handle
-                # adding it to the robot's current position
+                # 创建位置控制目标
+                # 注意：这里发送相对位置，control_loop 会处理将其添加到机器人当前位置
                 goal = ControlGoal(
                     arm=hand,
                     mode=ControlMode.POSITION_CONTROL,
-                    target_position=relative_delta,  # Relative position delta
+                    target_position=relative_delta,
                     wrist_roll_deg=-controller.z_axis_rotation,
                     wrist_flex_deg=-controller.x_axis_rotation,
                     metadata={
@@ -402,7 +275,7 @@ class VRWebSocketServer(BaseInputProvider):
                 await self.send_goal(goal)
     
     async def handle_grip_release(self, hand: str):
-        """Handle grip release for a controller."""
+        """处理控制器的握把释放。"""
         if hand == 'left':
             controller = self.left_controller
         elif hand == 'right':
@@ -413,7 +286,7 @@ class VRWebSocketServer(BaseInputProvider):
         if controller.grip_active:
             controller.reset_grip()
             
-            # Send idle goal to stop arm control
+            # 发送 idle 目标以停止机械臂控制
             goal = ControlGoal(
                 arm=hand,
                 mode=ControlMode.IDLE,
@@ -424,16 +297,16 @@ class VRWebSocketServer(BaseInputProvider):
             logger.info(f"🔓 {hand.upper()} grip released - arm control stopped")
     
     async def handle_trigger_release(self, hand: str):
-        """Handle trigger release for a controller."""
+        """处理控制器的扳机释放。"""
         controller = self.left_controller if hand == 'left' else self.right_controller
         
         if controller.trigger_active:
             controller.trigger_active = False
             
-            # Send gripper closed goal - reversed behavior: gripper closes when trigger released
+            # 发送夹爪关闭目标 - 反向行为：扳机释放时夹爪关闭
             goal = ControlGoal(
                 arm=hand,
-                gripper_closed=True,  # Close gripper when trigger released
+                gripper_closed=True,  # 扳机释放时关闭夹爪
                 metadata={"source": "vr_trigger_release"}
             )
             await self.send_goal(goal)
@@ -441,74 +314,75 @@ class VRWebSocketServer(BaseInputProvider):
             logger.info(f"🤏 {hand.upper()} gripper CLOSED (trigger released)")
     
     def euler_to_quaternion(self, euler_deg: Dict[str, float]) -> np.ndarray:
-        """Convert Euler angles in degrees to quaternion [x, y, z, w]."""
+        """将欧拉角（度）转换为四元数 [x, y, z, w]。"""
+        import math
         euler_rad = [math.radians(euler_deg['x']), math.radians(euler_deg['y']), math.radians(euler_deg['z'])]
         rotation = R.from_euler('xyz', euler_rad)
         return rotation.as_quat()
     
     def update_quaternion_rotation(self, controller: VRControllerState, current_euler: dict):
-        """Update quaternion-based rotation tracking."""
+        """更新基于四元数的旋转跟踪。"""
         if not current_euler:
             return
         
-        # Convert current Euler to quaternion
+        # 将当前欧拉角转换为四元数
         current_quat = self.euler_to_quaternion(current_euler)
-        
-        # Store current quaternion for accumulated rotation calculation
+
+        # 存储当前四元数以计算累积旋转
         controller.accumulated_rotation_quat = current_quat
     
     def update_quaternion_rotation_direct(self, controller: VRControllerState, current_quat: np.ndarray):
-        """Update quaternion-based rotation tracking using quaternion data directly."""
+        """直接使用四元数数据更新基于四元数的旋转跟踪。"""
         if current_quat is None:
             return
         
-        # Store current quaternion for accumulated rotation calculation
+        # 存储当前四元数以计算累积旋转
         controller.accumulated_rotation_quat = current_quat
     
     def extract_roll_from_quaternion(self, current_quat: np.ndarray, origin_quat: np.ndarray) -> float:
-        """Extract roll rotation around Z-axis from relative quaternion rotation."""
+        """从相对四元数旋转中提取绕 Z 轴的翻滚（roll）旋转。"""
         if current_quat is None or origin_quat is None:
             return 0.0
         
         try:
-            # Calculate relative rotation quaternion (from origin to current)
+            # 计算相对旋转四元数（从原点到当前）
             origin_rotation = R.from_quat(origin_quat)
             current_rotation = R.from_quat(current_quat)
             relative_rotation = current_rotation * origin_rotation.inv()
             
-            # Project the relative rotation onto the Z-axis (roll)
-            # Get the rotation vector (axis-angle representation)
+            # 将相对旋转投影到 Z 轴（翻滚）
+            # 获取旋转向量（轴角表示）
             rotvec = relative_rotation.as_rotvec()
-            
-            # The Z-component of the rotation vector represents rotation around Z-axis (roll)
+
+            # 旋转向量的 Z 分量表示绕 Z 轴的旋转（翻滚）
             z_rotation_rad = rotvec[2]
             z_rotation_deg = -np.degrees(z_rotation_rad)
             
             return z_rotation_deg
         except Exception as e:
-            logger.warning(f"Error extracting roll from quaternion: {e}")
+            logger.warning(f"从四元数提取翻滚角时出错: {e}")
             return 0.0
     
     def extract_pitch_from_quaternion(self, current_quat: np.ndarray, origin_quat: np.ndarray) -> float:
-        """Extract pitch rotation around X-axis from relative quaternion rotation."""
+        """从相对四元数旋转中提取绕 X 轴的俯仰（pitch）旋转。"""
         if current_quat is None or origin_quat is None:
             return 0.0
         
         try:
-            # Calculate relative rotation quaternion (from origin to current)
+            # 计算相对旋转四元数（从原点到当前）
             origin_rotation = R.from_quat(origin_quat)
             current_rotation = R.from_quat(current_quat)
             relative_rotation = current_rotation * origin_rotation.inv()
             
-            # Project the relative rotation onto the X-axis (pitch)
-            # Get the rotation vector (axis-angle representation)
+            # 将相对旋转投影到 X 轴（俯仰）
+            # 获取旋转向量（轴角表示）
             rotvec = relative_rotation.as_rotvec()
-            
-            # The X-component of the rotation vector represents rotation around X-axis (pitch)
+
+            # 旋转向量的 X 分量表示绕 X 轴的旋转（俯仰）
             x_rotation_rad = rotvec[0]
             x_rotation_deg = np.degrees(x_rotation_rad)
             
             return x_rotation_deg
         except Exception as e:
-            logger.warning(f"Error extracting pitch from quaternion: {e}")
-            return 0.0 
+            logger.warning(f"从四元数提取俯仰角时出错: {e}")
+            return 0.0

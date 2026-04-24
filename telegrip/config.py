@@ -200,6 +200,7 @@ class TelegripConfig:
     https_port: int = HTTPS_PORT
     websocket_port: int = WEBSOCKET_PORT
     host_ip: str = HOST_IP
+    server_host: str = "192.168.1.30"  # Aider Server address
     
     # SSL settings
     certfile: str = CERTFILE

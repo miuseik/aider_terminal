@@ -75,7 +75,8 @@ def suppress_stdout_stderr():
 # Import telegrip modules after function definition
 from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
-from .inputs.vr_ws_client import VRWebSocketServer
+from .inputs.vr_handler import VRHandler
+from .inputs.ws_client import VRWebSocketClient
 from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
 
@@ -174,8 +175,8 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
                 
                 # Get VR connection status
                 vr_connected = False
-                if system.vr_server and system.vr_server.is_running:
-                    vr_connected = len(system.vr_server.clients) > 0
+                if system.vr_ws_client and system.vr_ws_client.is_connected:
+                    vr_connected = True
                 
                 status = {
                     **control_status,
@@ -466,13 +467,14 @@ class TelegripSystem:
         self.control_commands_queue = queue.Queue(maxsize=10)  # Thread-safe queue
         
         # Components
-        self.https_server = HTTPSServer(config)
-        self.vr_server = VRWebSocketServer(self.command_queue, config)
+        # self.https_server = HTTPSServer(config)  # UI migrated to external Vue project
+        self.vr_handler = VRHandler(self.command_queue, config)
+        self.vr_ws_client = VRWebSocketClient(config, self.vr_handler)
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
 
         # Set system reference for API calls
-        self.https_server.set_system_ref(self)
+        # self.https_server.set_system_ref(self)  # HTTPS server disabled
 
         # Set up cross-references
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
@@ -572,8 +574,9 @@ class TelegripSystem:
             # Stop components in reverse order
             await self.control_loop.stop()
             await self.web_keyboard_handler.stop()
-            await self.vr_server.stop()
-            # Don't stop HTTPS server - keep it running for the UI
+            await self.vr_ws_client.disconnect()
+            await self.vr_handler.stop()
+            # HTTPS server disabled - UI migrated to external Vue project
 
             # Wait a moment for cleanup
             await asyncio.sleep(1)
@@ -591,7 +594,8 @@ class TelegripSystem:
             self.control_commands_queue = queue.Queue(maxsize=10)
 
             # Create new components
-            self.vr_server = VRWebSocketServer(self.command_queue, self.config)
+            self.vr_handler = VRHandler(self.command_queue, self.config)
+            self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler)
             self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
 
@@ -604,8 +608,11 @@ class TelegripSystem:
             # Clear old tasks
             self.tasks = []
 
-            # Start VR WebSocket server
-            await self.vr_server.start()
+            # Start VR handler (no server, just the handler)
+            await self.vr_handler.start()
+
+            # Connect to Aider Server via WebSocket client
+            await self.vr_ws_client.connect()
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -638,11 +645,14 @@ class TelegripSystem:
             # Store reference to the main event loop for restart functionality
             self.main_loop = asyncio.get_event_loop()
             
-            # Start HTTPS server
-            await self.https_server.start()
+            # HTTPS server disabled - UI migrated to external Vue project
+            # await self.https_server.start()
             
-            # Start VR WebSocket server
-            await self.vr_server.start()
+            # Start VR handler (no server, just the handler)
+            await self.vr_handler.start()
+
+            # Connect to Aider Server via WebSocket client
+            await self.vr_ws_client.connect()
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -711,11 +721,18 @@ class TelegripSystem:
 
         # Stop VR server first to close websocket connections (unblocks any waiting handlers)
         try:
-            await asyncio.wait_for(self.vr_server.stop(), timeout=2.0)
+            await asyncio.wait_for(self.vr_ws_client.disconnect(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("VR server stop timed out")
+            logger.warning("VR WebSocket client disconnect timed out")
         except Exception as e:
-            logger.warning(f"Error stopping VR server: {e}")
+            logger.warning(f"Error disconnecting VR WebSocket client: {e}")
+
+        try:
+            await asyncio.wait_for(self.vr_handler.stop(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("VR handler stop timed out")
+        except Exception as e:
+            logger.warning(f"Error stopping VR handler: {e}")
 
         # Cancel all tasks
         for task in self.tasks:
@@ -746,12 +763,13 @@ class TelegripSystem:
         except Exception as e:
             logger.warning(f"Error stopping web keyboard handler: {e}")
 
-        try:
-            await asyncio.wait_for(self.https_server.stop(), timeout=2.0)
-        except asyncio.TimeoutError:
-            logger.warning("HTTPS server stop timed out")
-        except Exception as e:
-            logger.warning(f"Error stopping HTTPS server: {e}")
+        # HTTPS server disabled - UI migrated to external Vue project
+        # try:
+        #     await asyncio.wait_for(self.https_server.stop(), timeout=2.0)
+        # except asyncio.TimeoutError:
+        #     logger.warning("HTTPS server stop timed out")
+        # except Exception as e:
+        #     logger.warning(f"Error stopping HTTPS server: {e}")
 
         logger.info("Teleoperation system shutdown complete")
 
@@ -888,12 +906,8 @@ async def main():
         logger.info(f"  WebSocket Port: {config.websocket_port}")
         logger.info(f"  Robot Ports: {config.follower_ports}")
     else:
-        # Show clean startup message with HTTPS URL
-        host_display = get_local_ip() if config.host_ip == "0.0.0.0" else config.host_ip
+        # Show clean startup message
         print(f"🤖 telegrip starting...")
-        print(f"📱 Open the UI in your browser on:")
-        print(f"   https://{host_display}:{config.https_port}")
-        print(f"📱 Then go to the same address on your VR headset browser")
         print(f"💡 Use --log-level info to see detailed output")
         print()
     
