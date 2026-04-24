@@ -17,15 +17,12 @@ ik:
   position_error_threshold: 0.001
   hysteresis_threshold: 0.05
   movement_penalty_weight: 0.01
-aloha:
-  enabled: true
-  initial_height: 0
 network:
   host_ip: 0.0.0.0
   https_port: 8443
   websocket_port: 8442
 paths:
-  urdf_path: URDF/SO100/so100.urdf
+  urdf_path: URDF/SO100/urdf/so100.urdf
 robot:
   left_arm:
     enabled: true
@@ -35,21 +32,8 @@ robot:
     enabled: true
     name: Right Arm
     port: /dev/ttySO100red
-  mobile_base:
-    enabled: true
-    port: /dev/ttyACM2 # 请根据实际设备修改
-  lift_axis:
-    enabled: true
-    port: /dev/ttyACM2 # 如果升降轴和底盘在同一总线上，填同一个端口
   send_interval: 0.05
   vr_to_robot_scale: 1
 ssl:
   certfile: cert.pem
   keyfile: key.pem
-ecs:
-  enabled: true  # 设置为 true 启用 ECS 客户端模式
-#  websocket_url: "wss://192.168.1.30:8442/ws"  # 本地的 服务器地址
-  websocket_url: "wss://192.168.1.30:8442/ws"  # 本地的 服务器地址
-#  websocket_url: "wss://ws.houqicg.com/ws"  # ECS WebSocket 服务器地址
-local_ws:
-  enabled: false  # 是否开启本地 WebSocket 服务端 (ECS 模式下可同时开启)

@@ -1,7 +1,7 @@
 """
-基于 Web 的键盘输入处理器,用于遥操作控制。
-该模块通过 Web UI 提供键盘控制,无需 X11。
-通过 HTTP API 从浏览器接收键盘输入。
+Web-based keyboard input handler for teleoperation control.
+This module provides keyboard control through the web UI, without requiring X11.
+Receives keyboard input via HTTP API from the browser.
 """
 
 import asyncio
@@ -17,23 +17,23 @@ logger = logging.getLogger(__name__)
 
 
 class WebKeyboardHandler(BaseInputProvider):
-    """基于 Web 的双臂遥操作键盘输入提供者。
+    """Web-based keyboard input provider for dual-arm teleoperation.
 
-    该处理器处理通过 HTTP 从 Web UI 接收的键盘输入。
-    可在无头/SSH 环境中工作,无需 X11。
+    This handler processes keyboard input received from the web UI via HTTP.
+    Works in headless/SSH environments without requiring X11.
     """
 
     def __init__(self, command_queue: asyncio.Queue, config: TelegripConfig):
         super().__init__(command_queue)
         self.config = config
 
-        # 机器人接口引用 (将由控制循环设置)
+        # Reference to robot interface (will be set by control loop)
         self.robot_interface = None
 
-        # 断开连接回调 (将由 TelegripSystem 设置)
+        # Callback for disconnect command (will be set by TelegripSystem)
         self.disconnect_callback = None
 
-        # 双臂控制状态 (类似 VR 的行为)
+        # Control state for both arms (VR-like behavior)
         self.left_arm_state = {
             "origin_position": None,
             "origin_wrist_roll": 0.0,
@@ -65,42 +65,33 @@ class WebKeyboardHandler(BaseInputProvider):
             "last_key_time": 0.0,
             "any_key_pressed": False
         }
-        
-        # 底盘控制状态
-        self.base_state = {
-            "velocity_x": 0.0,   # 前后速度
-            "velocity_y": 0.0,   # 左右速度
-            "velocity_theta": 0.0,  # 旋转速度
-            "base_control_active": False,
-            "mode_enabled": False  # 底盘控制模式开关
-        }
 
-        # 重新定位目标的空闲超时 (秒)
+        # Idle timeout for repositioning target (in seconds)
         self.idle_timeout = 1.0
 
-        # 控制循环任务
+        # Control loop task
         self._control_task = None
 
     def set_robot_interface(self, robot_interface):
-        """设置机器人接口引用以获取当前位置。"""
+        """Set reference to robot interface for getting current positions."""
         self.robot_interface = robot_interface
 
     @property
     def is_enabled(self) -> bool:
-        """检查 Web 键盘控制是否已启用。"""
+        """Check if web keyboard control is enabled."""
         return self.is_running
 
     async def start(self):
-        """启动 Web 键盘处理器。"""
+        """Start the web keyboard handler."""
         self.is_running = True
 
-        # 启动控制循环
+        # Start control loop
         self._control_task = asyncio.create_task(self._control_loop())
 
-        logger.info("Web 键盘处理器已启动 (无需 X11)")
+        logger.info("Web keyboard handler started (no X11 required)")
 
     async def stop(self):
-        """停止 Web 键盘处理器。"""
+        """Stop the web keyboard handler."""
         self.is_running = False
 
         if self._control_task:
@@ -110,10 +101,10 @@ class WebKeyboardHandler(BaseInputProvider):
             except asyncio.CancelledError:
                 pass
 
-        logger.info("Web 键盘处理器已停止")
+        logger.info("Web keyboard handler stopped")
 
     def _set_keyboard_origin(self, arm: str):
-        """设置键盘控制的原点位置 (类似 VR 握持按下)。"""
+        """Set origin position for keyboard control (like VR grip press)."""
         arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
 
         if self.robot_interface:
@@ -125,14 +116,14 @@ class WebKeyboardHandler(BaseInputProvider):
                 arm_state["origin_wrist_roll"] = current_angles[WRIST_ROLL_INDEX]
                 arm_state["origin_wrist_flex"] = current_angles[WRIST_FLEX_INDEX]
 
-                # 重置当前偏移量
+                # Reset current offsets
                 arm_state["current_offset"] = np.zeros(3)
                 arm_state["current_wrist_roll_offset"] = 0.0
                 arm_state["current_wrist_flex_offset"] = 0.0
 
-                logger.info(f"🌐 {arm.upper()} 臂 Web 键盘原点设置在位置: {current_position.round(3)}")
+                logger.info(f"🌐 {arm.upper()} arm web keyboard origin set at position: {current_position.round(3)}")
 
-                # 发送重置信号到控制循环
+                # Send reset signal to control loop
                 reset_goal = ControlGoal(
                     arm=arm,
                     mode=ControlMode.POSITION_CONTROL,
@@ -148,29 +139,29 @@ class WebKeyboardHandler(BaseInputProvider):
                     pass
 
             except Exception as e:
-                logger.error(f"设置 {arm} 臂 Web 键盘原点失败: {e}")
+                logger.error(f"Failed to set web keyboard origin for {arm} arm: {e}")
 
     def _update_key_activity(self, arm: str, is_movement_key: bool = True):
-        """更新臂的最后按键活动时间。"""
+        """Update the last key activity time for an arm."""
         arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
         if is_movement_key:
             arm_state["last_key_time"] = time.time()
             arm_state["any_key_pressed"] = True
 
     def _auto_activate_arm_if_needed(self, arm: str):
-        """如果尚未激活,则自动激活臂的位置控制。"""
+        """Automatically activate position control for an arm if it's not already active."""
         arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
 
         if not arm_state["position_control_active"]:
             arm_state["position_control_active"] = True
-            logger.info(f"{arm.upper()} 臂位置控制: 自动激活 (Web)")
+            logger.info(f"{arm.upper()} arm position control: AUTO-ACTIVATED (web)")
             self._send_mode_change_goal(arm)
             self._set_keyboard_origin(arm)
 
     def on_key_press(self, key: str):
-        """处理来自 Web UI 的按键按下事件。"""
+        """Handle key press events from web UI."""
         try:
-            # 左臂控制 (WASD + QE)
+            # LEFT ARM CONTROLS (WASD + QE)
             if key == 'w':
                 self._auto_activate_arm_if_needed("left")
                 self._update_key_activity("left")
@@ -196,7 +187,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._update_key_activity("left")
                 self.left_arm_state["delta_pos"][2] = POS_STEP
 
-            # 左手腕旋转
+            # Left wrist roll
             elif key == 'z':
                 self._auto_activate_arm_if_needed("left")
                 self._update_key_activity("left")
@@ -206,7 +197,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._update_key_activity("left")
                 self.left_arm_state["delta_wrist_roll"] = ANGLE_STEP
 
-            # 左手腕弯曲 (俯仰)
+            # Left wrist flex (pitch)
             elif key == 'r':
                 self._auto_activate_arm_if_needed("left")
                 self._update_key_activity("left")
@@ -216,13 +207,13 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._update_key_activity("left")
                 self.left_arm_state["delta_wrist_flex"] = ANGLE_STEP
 
-            # 左夹爪控制
-            elif key == 'c':
+            # Left gripper control
+            elif key == 'f':
                 self.left_arm_state["gripper_closed"] = not self.left_arm_state["gripper_closed"]
                 logger.info(f"LEFT gripper: {'CLOSED' if self.left_arm_state['gripper_closed'] else 'OPENED'} (web)")
                 self._send_gripper_goal("left")
 
-            # 右臂控制 (UIOJKL)
+            # RIGHT ARM CONTROLS (UIOJKL)
             elif key == 'i':
                 self._auto_activate_arm_if_needed("right")
                 self._update_key_activity("right")
@@ -248,17 +239,17 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._update_key_activity("right")
                 self.right_arm_state["delta_pos"][2] = POS_STEP
 
-            # 右手腕旋转
-            elif key == 'm':
+            # Right wrist roll
+            elif key == 'n':
                 self._auto_activate_arm_if_needed("right")
                 self._update_key_activity("right")
                 self.right_arm_state["delta_wrist_roll"] = -ANGLE_STEP
-            elif key == ',':
+            elif key == 'm':
                 self._auto_activate_arm_if_needed("right")
                 self._update_key_activity("right")
                 self.right_arm_state["delta_wrist_roll"] = ANGLE_STEP
 
-            # 右手腕弯曲 (俯仰)
+            # Right wrist flex (pitch)
             elif key == 'h':
                 self._auto_activate_arm_if_needed("right")
                 self._update_key_activity("right")
@@ -268,57 +259,13 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._update_key_activity("right")
                 self.right_arm_state["delta_wrist_flex"] = ANGLE_STEP
 
-            # 右夹爪控制
-            elif key == '.':
+            # Right gripper control
+            elif key == ';':
                 self.right_arm_state["gripper_closed"] = not self.right_arm_state["gripper_closed"]
                 logger.info(f"RIGHT gripper: {'CLOSED' if self.right_arm_state['gripper_closed'] else 'OPENED'} (web)")
                 self._send_gripper_goal("right")
-            
-            # 底盘控制 (方向键 + 数字键 + V/B)
-            elif key == 'arrowup':
-                self.base_state["base_control_active"] = True
-                self.base_state["velocity_x"] = 0.5  # 前进
-            elif key == 'arrowdown':
-                self.base_state["base_control_active"] = True
-                self.base_state["velocity_x"] = -0.5  # 后退
-            elif key == 'arrowleft':
-                self.base_state["base_control_active"] = True
-                self.base_state["velocity_theta"] = 0.5  # 左转
-            elif key == 'arrowright':
-                self.base_state["base_control_active"] = True
-                self.base_state["velocity_theta"] = -0.5  # 右转
-            elif key == '7':
-                self.base_state["base_control_active"] = True
-                self.base_state["velocity_y"] = 0.3  # 左平移
-            elif key == '9':
-                self.base_state["base_control_active"] = True
-                self.base_state["velocity_y"] = -0.3  # 右平移
-            elif key == 'v':
-                self.base_state["base_control_active"] = True
-                # 升 - 发送高度增量指令
-                goal = ControlGoal(
-                    arm="lift",
-                    mode=ControlMode.IDLE,
-                    metadata={"action": "set_aloha_height", "height_delta": 0.01}
-                )
-                try:
-                    self.command_queue.put_nowait(goal)
-                except:
-                    pass
-            elif key == 'b':
-                self.base_state["base_control_active"] = True
-                # 降 - 发送高度减量指令
-                goal = ControlGoal(
-                    arm="lift",
-                    mode=ControlMode.IDLE,
-                    metadata={"action": "set_aloha_height", "height_delta": -0.01}
-                )
-                try:
-                    self.command_queue.put_nowait(goal)
-                except:
-                    pass
 
-            # 特殊按键
+            # Special keys
             elif key == 'tab':
                 self.left_arm_state["position_control_active"] = not self.left_arm_state["position_control_active"]
                 logger.info(f"LEFT arm position control: {'ACTIVATED' if self.left_arm_state['position_control_active'] else 'DEACTIVATED'} (web)")
@@ -333,12 +280,12 @@ class WebKeyboardHandler(BaseInputProvider):
                     self.disconnect_callback()
 
         except Exception as e:
-            logger.error(f"处理 Web 按键按下 '{key}' 时出错: {e}")
+            logger.error(f"Error handling web key press '{key}': {e}")
 
     def on_key_release(self, key: str):
-        """处理来自 Web UI 的按键释放事件。"""
+        """Handle key release events from web UI."""
         try:
-            # 左臂 - 按键释放时重置增量
+            # LEFT ARM - Reset deltas on key release
             if key in ('w', 's'):
                 self.left_arm_state["delta_pos"][1] = 0
                 self._check_if_all_keys_released("left")
@@ -355,7 +302,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.left_arm_state["delta_wrist_flex"] = 0
                 self._check_if_all_keys_released("left")
 
-            # 右臂 - 按键释放时重置增量
+            # RIGHT ARM - Reset deltas on key release
             elif key in ('i', 'k'):
                 self.right_arm_state["delta_pos"][1] = 0
                 self._check_if_all_keys_released("right")
@@ -371,29 +318,12 @@ class WebKeyboardHandler(BaseInputProvider):
             elif key in ('h', 'y'):
                 self.right_arm_state["delta_wrist_flex"] = 0
                 self._check_if_all_keys_released("right")
-            
-            # 底盘 - 按键释放时重置速度
-            elif key == 'arrowup' or key == 'arrowdown':
-                self.base_state["velocity_x"] = 0.0
-            elif key == 'arrowleft' or key == 'arrowright':
-                self.base_state["velocity_theta"] = 0.0
-            elif key == '7' or key == '9':
-                self.base_state["velocity_y"] = 0.0
-            elif key == 'v' or key == 'b':
-                # 升降轴按键释放不需要特殊处理，已在按下时发送指令
-                pass
-            
-            # 检查是否所有底盘速度都为0，如果是则禁用底盘控制
-            if (self.base_state["velocity_x"] == 0.0 and 
-                self.base_state["velocity_y"] == 0.0 and 
-                self.base_state["velocity_theta"] == 0.0):
-                self.base_state["base_control_active"] = False
 
         except Exception as e:
-            logger.error(f"处理 Web 按键释放 '{key}' 时出错: {e}")
+            logger.error(f"Error handling web key release '{key}': {e}")
 
     def _check_if_all_keys_released(self, arm: str):
-        """检查臂的所有移动键是否已释放。"""
+        """Check if all movement keys for an arm have been released."""
         arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
 
         if (np.all(arm_state["delta_pos"] == 0) and
@@ -402,7 +332,7 @@ class WebKeyboardHandler(BaseInputProvider):
             arm_state["any_key_pressed"] = False
 
     def _send_gripper_goal(self, arm: str):
-        """发送夹爪控制目标到队列。"""
+        """Send gripper control goal to queue."""
         arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
         goal = ControlGoal(
             arm=arm,
@@ -416,7 +346,7 @@ class WebKeyboardHandler(BaseInputProvider):
             pass
 
     def _send_mode_change_goal(self, arm: str):
-        """发送模式变更目标到队列。"""
+        """Send mode change goal to queue."""
         arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
         mode = ControlMode.POSITION_CONTROL if arm_state["position_control_active"] else ControlMode.IDLE
         goal = ControlGoal(
@@ -430,20 +360,20 @@ class WebKeyboardHandler(BaseInputProvider):
             pass
 
     def _send_idle_reset_signal(self, arm: str):
-        """发送因空闲超时而重置目标位置的信号。"""
+        """Send signal to reset target position due to idle timeout."""
         self._set_keyboard_origin(arm)
 
     async def _control_loop(self):
-        """主控制循环,处理 Web 键盘输入并发送命令。"""
-        logger.info("Web 键盘控制循环已启动")
+        """Main control loop that processes web keyboard input and sends commands."""
+        logger.info("Web keyboard control loop started")
 
         while self.is_running:
             try:
-                # 处理双臂
+                # Process both arms
                 for arm, arm_state in [("left", self.left_arm_state), ("right", self.right_arm_state)]:
                     if arm_state["position_control_active"]:
 
-                        # 检查空闲超时 (1 秒无活动后重置原点)
+                        # Check for idle timeout (reset origin after 1 second of inactivity)
                         current_time = time.time()
                         if (not arm_state["any_key_pressed"] and
                             arm_state["last_key_time"] > 0 and
@@ -452,12 +382,12 @@ class WebKeyboardHandler(BaseInputProvider):
                             self._send_idle_reset_signal(arm)
                             arm_state["last_key_time"] = 0
 
-                        # 根据增量更新当前偏移量
+                        # Update current offsets based on deltas
                         arm_state["current_offset"] += arm_state["delta_pos"]
                         arm_state["current_wrist_roll_offset"] += arm_state["delta_wrist_roll"]
                         arm_state["current_wrist_flex_offset"] += arm_state["delta_wrist_flex"]
 
-                        # 如果有活动移动,发送位置更新
+                        # Send position updates if there's active movement
                         if (np.any(arm_state["delta_pos"] != 0) or
                             arm_state["delta_wrist_roll"] != 0 or
                             arm_state["delta_wrist_flex"] != 0):
@@ -475,11 +405,11 @@ class WebKeyboardHandler(BaseInputProvider):
                             )
                             await self.send_goal(goal)
 
-                # 控制频率: 20Hz
+                # Control rate: 20Hz
                 await asyncio.sleep(0.05)
 
             except Exception as e:
-                logger.error(f"Web 键盘控制循环出错: {e}")
+                logger.error(f"Error in web keyboard control loop: {e}")
                 await asyncio.sleep(0.1)
 
-        logger.info("Web 键盘控制循环已停止")
+        logger.info("Web keyboard control loop stopped")

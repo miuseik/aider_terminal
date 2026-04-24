@@ -3,7 +3,7 @@ TeleGrip - SO100 robot teleoperation system.
 """
 
 from .core.robot_interface import RobotInterface
-from .sim.sim2real.visualizer import PyBulletVisualizer as Visualizer
+from .core.visualizer import PyBulletVisualizer as Visualizer
 from .control_loop import ControlLoop
 from .config import TelegripConfig, load_config
 

@@ -10,9 +10,6 @@ __pycache__/
 .Python
 build/
 dist/
-参考项目修改时请忽略/
-lerobot_alohamini/
-telegrip/
 downloads/
 eggs/
 .eggs/
