@@ -3,8 +3,11 @@ Utility functions for the teleoperation system.
 """
 
 import os
+import sys
+import socket
 import subprocess
 import logging
+import contextlib
 from pathlib import Path
 from typing import Tuple
 
@@ -110,3 +113,47 @@ def ensure_ssl_certificates(cert_path: str = "cert.pem", key_path: str = "key.pe
         return False
     
     return True 
+
+
+def get_local_ip():
+    """获取本机的本地 IP 地址。"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return "localhost"
+
+
+@contextlib.contextmanager
+def suppress_stdout_stderr():
+    """上下文管理器，在文件描述符级别抑制 stdout 和 stderr 输出。"""
+    # 保存原始文件描述符
+    stdout_fd = sys.stdout.fileno()
+    stderr_fd = sys.stderr.fileno()
+    
+    saved_stdout_fd = os.dup(stdout_fd)
+    saved_stderr_fd = os.dup(stderr_fd)
+    
+    try:
+        # 打开 /dev/null
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        
+        # 将 stdout 和 stderr 重定向到 /dev/null
+        os.dup2(devnull_fd, stdout_fd)
+        os.dup2(devnull_fd, stderr_fd)
+        
+        yield
+        
+    finally:
+        # 恢复原始文件描述符
+        os.dup2(saved_stdout_fd, stdout_fd)
+        os.dup2(saved_stderr_fd, stderr_fd)
+        
+        # 关闭已保存的文件描述符
+        os.close(saved_stdout_fd)
+        os.close(saved_stderr_fd)
+        os.close(devnull_fd) 
