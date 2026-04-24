@@ -154,7 +154,7 @@ class WebKeyboardHandler(BaseInputProvider):
 
         if not arm_state["position_control_active"]:
             arm_state["position_control_active"] = True
-            logger.info(f"{arm.upper()} arm position control: AUTO-ACTIVATED (web)")
+            print(f"{arm.upper()} arm position control: AUTO-ACTIVATED (web)")
             self._send_mode_change_goal(arm)
             self._set_keyboard_origin(arm)
 
@@ -365,7 +365,7 @@ class WebKeyboardHandler(BaseInputProvider):
 
     async def _control_loop(self):
         """Main control loop that processes web keyboard input and sends commands."""
-        logger.info("Web keyboard control loop started")
+        print("Web keyboard control loop started")
 
         while self.is_running:
             try:
@@ -392,6 +392,7 @@ class WebKeyboardHandler(BaseInputProvider):
                             arm_state["delta_wrist_roll"] != 0 or
                             arm_state["delta_wrist_flex"] != 0):
 
+                            print(f"🎮 Sending {arm} arm control: offset={arm_state['current_offset']}")
                             goal = ControlGoal(
                                 arm=arm,
                                 mode=ControlMode.POSITION_CONTROL,
@@ -412,4 +413,4 @@ class WebKeyboardHandler(BaseInputProvider):
                 logger.error(f"Error in web keyboard control loop: {e}")
                 await asyncio.sleep(0.1)
 
-        logger.info("Web keyboard control loop stopped")
+        print("Web keyboard control loop stopped")

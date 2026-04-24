@@ -1,7 +1,10 @@
 ```bash
-git add ./;git commit -m "修改了ws访问地址，设置了重连机制";git push
+git add ./;git commit -m "键盘+vr都ok";git push
 ```
 
+```bash
+git checkout 。/
+```
 # telegrip - SO100 Robot Arm Teleoperation System
 
 An open source teleoperation control system for the [SO100 robot arm](https://github.com/TheRobotStudio/SO-ARM100) that supports input from VR controllers or keyboards with shared inverse kinematics, 3D visualization and a web UI.

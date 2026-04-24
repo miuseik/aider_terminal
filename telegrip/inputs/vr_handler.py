@@ -99,7 +99,7 @@ class VRHandler(BaseInputProvider):
     async def handle_api_command(self, data: Dict):
         """Handle API-like commands."""
         action = data.get('action')
-        logger.info(f"📡 VR API command: {action}")
+        print(f"📡 VR API command: {action}")
         
         if action == 'get_status':
             # Return current status via callback if available
@@ -113,21 +113,24 @@ class VRHandler(BaseInputProvider):
                 await self.on_status_callback(status)
         
         elif action == 'enable_keyboard':
-            logger.info("🎮 Keyboard control ENABLED")
+            print("🎮 Keyboard control ENABLED")
         
         elif action == 'disable_keyboard':
-            logger.info("🎮 Keyboard control DISABLED")
+            print("🎮 Keyboard control DISABLED")
         
         elif action == 'robot_connect':
-            logger.info("🔌 Robot connect command received")
+            print("🔌 Robot connect command received")
         
         elif action == 'robot_disconnect':
-            logger.info("🔌 Robot disconnect command received")
+            print("🔌 Robot disconnect command received")
+        
+        elif action == 'restart':
+            print("🔄 Restart command received")
         
         elif action == 'keypress':
             key = data.get('key')
             event = data.get('event')
-            logger.info(f"⌨️ Key {event}: {key}")
+            print(f"⌨️ Key {event}: {key}")
             if hasattr(self, 'web_keyboard_handler') and self.web_keyboard_handler:
                 if event == 'press':
                     self.web_keyboard_handler.on_key_press(key)

@@ -92,8 +92,12 @@ class VRWebSocketClient:
                 try:
                     data = json.loads(message)
                     
-                    # Forward to VR handler for processing
-                    await self.vr_handler.process_message(message)
+                    # Check if it's an API command
+                    if data.get('type') == 'api_command':
+                        await self.handle_api_command(data)
+                    else:
+                        # Forward to VR handler for processing
+                        await self.vr_handler.process_message(message)
                     
                 except json.JSONDecodeError:
                     logger.warning(f"⚠️ Received non-JSON message")
@@ -143,3 +147,15 @@ class VRWebSocketClient:
         """Send command to server."""
         command = {"action": action, **kwargs}
         return await self.send_message(command)
+    
+    async def handle_api_command(self, data: dict):
+        """Handle API command from server."""
+        action = data.get('action')
+        print(f"🎮 Received API command: {action}")
+        
+        # Forward to vr_handler for processing
+        if hasattr(self.vr_handler, 'process_message'):
+            await self.vr_handler.process_message(json.dumps(data))
+            print(f"✅ Command forwarded to vr_handler")
+        else:
+            print(f"❌ vr_handler does not have process_message method")

@@ -477,6 +477,7 @@ class TelegripSystem:
         # self.https_server.set_system_ref(self)  # HTTPS server disabled
 
         # Set up cross-references
+        self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
 
         # Set up disconnect callback for ESC key
@@ -600,6 +601,7 @@ class TelegripSystem:
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
 
             # Set up cross-references
+            self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
 
             # Set up disconnect callback for ESC key
