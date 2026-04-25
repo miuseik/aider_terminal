@@ -358,6 +358,16 @@ class ControlLoop:
 
     async def _execute_goal(self, goal: ControlGoal):
         """执行控制目标。"""
+        
+        # 1. 优先处理 Aloha 底盘的特殊控制指令
+        if goal.metadata and goal.metadata.get("action") == "set_aloha_height":
+            height_delta = goal.metadata.get("height_delta", 0)
+            self.aloha_height = max(0.0, min(0.7854, self.aloha_height + height_delta))
+            if self.visualizer:
+                self.visualizer.set_aloha_height(self.aloha_height)
+                logger.debug(f"⬆️ Aloha lift adjustment: {self.aloha_height:.3f}m (delta: {height_delta:.3f})")
+            return
+        
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm
         
         # 处理来自键盘空闲超时的特殊重置信号
@@ -457,17 +467,26 @@ class ControlLoop:
         
         # 处理底盘控制(通过摇杆) - 只存储摇杆数据,在 _update_robot 中统一处理
         if goal.metadata and goal.metadata.get("base_control", False):
-            hand = goal.metadata.get("hand", "left")
-            joystick_x = goal.metadata.get("joystick_x", 0)
-            joystick_y = goal.metadata.get("joystick_y", 0)
-            trigger_value = goal.metadata.get("trigger_value")
-            
-            # 存储摇杆数据到 vr_raw_data
-            controller_key = f"{hand}Controller"
-            if controller_key in self.vr_raw_data:
-                self.vr_raw_data[controller_key]['joystick'] = {'x': joystick_x, 'y': joystick_y}
-                if trigger_value is not None:
-                    self.vr_raw_data[controller_key]['trigger'] = trigger_value
+            # Check if it's from keyboard (has velocity fields)
+            if "velocity_x" in goal.metadata:
+                # Keyboard control: direct velocity values
+                self.base_velocity_target["x"] = goal.metadata.get("velocity_x", 0)
+                self.base_velocity_target["y"] = goal.metadata.get("velocity_y", 0)
+                self.base_velocity_target["theta"] = goal.metadata.get("velocity_theta", 0)
+                print(f"🎮 Base control received: x={self.base_velocity_target['x']}, y={self.base_velocity_target['y']}, theta={self.base_velocity_target['theta']}")
+            else:
+                # VR joystick control: store joystick data
+                hand = goal.metadata.get("hand", "left")
+                joystick_x = goal.metadata.get("joystick_x", 0)
+                joystick_y = goal.metadata.get("joystick_y", 0)
+                trigger_value = goal.metadata.get("trigger_value")
+                
+                # 存储摇杆数据到 vr_raw_data
+                controller_key = f"{hand}Controller"
+                if controller_key in self.vr_raw_data:
+                    self.vr_raw_data[controller_key]['joystick'] = {'x': joystick_x, 'y': joystick_y}
+                    if trigger_value is not None:
+                        self.vr_raw_data[controller_key]['trigger'] = trigger_value
     
     def _update_mobile_base(self, vr_data: dict):
         """根据 VR 摇杆数据更新移动底盘（轮子）和升降轴的状态。"""
@@ -552,7 +571,17 @@ class ControlLoop:
         vr_data = self.vr_raw_data
         
         # 2. 更新移动底盘和升降轴
-        self._update_mobile_base(vr_data)
+        # 检查是否有键盘底盘控制，如果有则跳过 VR 摇杆处理
+        has_keyboard_base_control = (
+            self.web_keyboard_handler and 
+            self.web_keyboard_handler.base_state.get("base_control_active", False)
+        )
+        
+        if not has_keyboard_base_control:
+            # 只有在没有键盘控制时才处理 VR 摇杆
+            self._update_mobile_base(vr_data)
+        else:
+            print(f"🎮 Using keyboard base control, skipping VR joystick")
         
         # 3. 构造完整的 AlohaMini Action 字典
         action_dict = self._build_alohamini_action()

@@ -66,6 +66,15 @@ class WebKeyboardHandler(BaseInputProvider):
             "any_key_pressed": False
         }
 
+        # Base control state
+        self.base_state = {
+            "velocity_x": 0.0,      # Forward/backward velocity
+            "velocity_y": 0.0,      # Left/right velocity
+            "velocity_theta": 0.0,  # Rotation velocity
+            "base_control_active": False,
+            "mode_enabled": False   # Base control mode switch
+        }
+
         # Idle timeout for repositioning target (in seconds)
         self.idle_timeout = 1.0
 
@@ -265,6 +274,56 @@ class WebKeyboardHandler(BaseInputProvider):
                 logger.info(f"RIGHT gripper: {'CLOSED' if self.right_arm_state['gripper_closed'] else 'OPENED'} (web)")
                 self._send_gripper_goal("right")
 
+            # Base control (Arrow keys + Number keys + V/B)
+            elif key == 'arrowup':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_x"] = 0.5  # Forward
+                print(f"🎮 Base control: FORWARD velocity_x=0.5")
+            elif key == 'arrowdown':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_x"] = -0.5  # Backward
+                print(f"🎮 Base control: BACKWARD velocity_x=-0.5")
+            elif key == 'arrowleft':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_theta"] = 0.5  # Turn left
+                print(f"🎮 Base control: TURN LEFT velocity_theta=0.5")
+            elif key == 'arrowright':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_theta"] = -0.5  # Turn right
+                print(f"🎮 Base control: TURN RIGHT velocity_theta=-0.5")
+            elif key == '7':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_y"] = 0.3  # Left strafe
+                print(f"🎮 Base control: STRAFE LEFT velocity_y=0.3")
+            elif key == '9':
+                self.base_state["base_control_active"] = True
+                self.base_state["velocity_y"] = -0.3  # Right strafe
+                print(f"🎮 Base control: STRAFE RIGHT velocity_y=-0.3")
+            elif key == 'v':
+                self.base_state["base_control_active"] = True
+                # Lift up - send height increment command
+                goal = ControlGoal(
+                    arm="lift",
+                    mode=ControlMode.IDLE,
+                    metadata={"action": "set_aloha_height", "height_delta": 0.01}
+                )
+                try:
+                    self.command_queue.put_nowait(goal)
+                except:
+                    pass
+            elif key == 'b':
+                self.base_state["base_control_active"] = True
+                # Lift down - send height decrement command
+                goal = ControlGoal(
+                    arm="lift",
+                    mode=ControlMode.IDLE,
+                    metadata={"action": "set_aloha_height", "height_delta": -0.01}
+                )
+                try:
+                    self.command_queue.put_nowait(goal)
+                except:
+                    pass
+
             # Special keys
             elif key == 'tab':
                 self.left_arm_state["position_control_active"] = not self.left_arm_state["position_control_active"]
@@ -318,6 +377,22 @@ class WebKeyboardHandler(BaseInputProvider):
             elif key in ('h', 'y'):
                 self.right_arm_state["delta_wrist_flex"] = 0
                 self._check_if_all_keys_released("right")
+            
+            # Base - Reset velocities on key release
+            elif key == 'arrowup' or key == 'arrowdown':
+                self.base_state["velocity_x"] = 0.0
+            elif key == 'arrowleft' or key == 'arrowright':
+                self.base_state["velocity_theta"] = 0.0
+            elif key == '7' or key == '9':
+                self.base_state["velocity_y"] = 0.0
+            elif key == 'v' or key == 'b':
+                pass
+            
+            # Check if all base velocities are 0, disable base control if so
+            if (self.base_state["velocity_x"] == 0.0 and 
+                self.base_state["velocity_y"] == 0.0 and 
+                self.base_state["velocity_theta"] == 0.0):
+                self.base_state["base_control_active"] = False
 
         except Exception as e:
             logger.error(f"Error handling web key release '{key}': {e}")
@@ -405,6 +480,25 @@ class WebKeyboardHandler(BaseInputProvider):
                                 }
                             )
                             await self.send_goal(goal)
+
+                # Process base control
+                if self.base_state["base_control_active"]:
+                    print(f"🎮 Sending base control: x={self.base_state['velocity_x']}, y={self.base_state['velocity_y']}, theta={self.base_state['velocity_theta']}")
+                    goal = ControlGoal(
+                        arm="base",
+                        mode=ControlMode.IDLE,
+                        metadata={
+                            "base_control": True,
+                            "velocity_x": self.base_state["velocity_x"],
+                            "velocity_y": self.base_state["velocity_y"],
+                            "velocity_theta": self.base_state["velocity_theta"],
+                            "source": "web_keyboard_base"
+                        }
+                    )
+                    try:
+                        self.command_queue.put_nowait(goal)
+                    except:
+                        pass
 
                 # Control rate: 20Hz
                 await asyncio.sleep(0.05)
