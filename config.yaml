@@ -37,6 +37,9 @@ robot:
     port: /dev/ttySO100red
   send_interval: 0.05
   vr_to_robot_scale: 1
+aloha:
+  enabled: true              # 是否启用 Aloha 底盘
+  initial_height: 0.3        # 初始高度(米)
 ssl:
   certfile: cert.pem
   keyfile: key.pem

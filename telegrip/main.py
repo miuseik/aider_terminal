@@ -485,6 +485,7 @@ class TelegripSystem:
 
         # Set up cross-references
         self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
+        self.vr_handler.control_loop = self.control_loop  # ← 添加 control_loop 引用
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
 
         # Set up disconnect callback for ESC key
@@ -615,6 +616,7 @@ class TelegripSystem:
 
             # Set up cross-references
             self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
+            self.vr_handler.control_loop = self.control_loop  # ← 添加 control_loop 引用
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
 
             # Set up disconnect callback for ESC key

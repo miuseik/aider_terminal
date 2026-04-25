@@ -1,6 +1,6 @@
 """
-VR Handler for processing controller data from WebSocket client.
-Handles VR controller state tracking and control goal generation.
+VR 处理器，用于处理来自 WebSocket 客户端的控制器数据。
+处理 VR 控制器状态跟踪和控制目标生成。
 """
 
 import asyncio
@@ -19,33 +19,33 @@ logger = logging.getLogger(__name__)
 
 
 class VRControllerState:
-    """State tracking for a VR controller."""
+    """VR 控制器的状态跟踪。"""
     
     def __init__(self, hand: str):
         self.hand = hand
         self.grip_active = False
         self.trigger_active = False
         
-        # Position tracking for relative movement
+        # 相对移动的位置跟踪
         self.origin_position = None
         self.origin_rotation = None
         
-        # Quaternion-based rotation tracking (more stable than Euler)
+        # 基于四元数的旋转跟踪(比欧拉角更稳定)
         self.origin_quaternion = None
-        self.accumulated_rotation_quat = None  # Accumulated rotation as quaternion
+        self.accumulated_rotation_quat = None  # 累积旋转(四元数)
         
-        # Rotation tracking for wrist control
-        self.z_axis_rotation = 0.0  # For wrist_roll
-        self.x_axis_rotation = 0.0  # For wrist_flex (pitch)
+        # 腕部控制的旋转跟踪
+        self.z_axis_rotation = 0.0  # 用于 wrist_roll
+        self.x_axis_rotation = 0.0  # 用于 wrist_flex (俯仰)
         
-        # Position tracking
+        # 位置跟踪
         self.current_position = None
         
-        # Rotation tracking
+        # 旋转跟踪
         self.origin_wrist_angle = 0.0
     
     def reset_grip(self):
-        """Reset grip state but preserve trigger state."""
+        """重置握把状态但保留扳机状态。"""
         self.grip_active = False
         self.origin_position = None
         self.origin_rotation = None
@@ -56,53 +56,53 @@ class VRControllerState:
 
 
 class VRHandler(BaseInputProvider):
-    """VR controller data handler - processes VR data and generates control goals."""
+    """VR 控制器数据处理器 - 处理 VR 数据并生成控制目标。"""
     
     def __init__(self, command_queue: asyncio.Queue, config: TelegripConfig):
         super().__init__(command_queue)
         self.config = config
         
-        # Controller states
+        # 控制器状态
         self.left_controller = VRControllerState("left")
         self.right_controller = VRControllerState("right")
         
-        # Robot state tracking (for relative position calculation)
+        # 机器人状态跟踪(用于相对位置计算)
         self.left_arm_origin_position = None
         self.right_arm_origin_position = None
 
     async def start(self):
-        """Start the VR handler (no server needed)."""
+        """启动 VR 处理器(无需服务器)。"""
         self.is_running = True
-        logger.info("✅ VR Handler started")
+        logger.info("✅ VR 处理器已启动")
 
     async def stop(self):
-        """Stop the VR handler."""
+        """停止 VR 处理器。"""
         self.is_running = False
-        logger.info("🛑 VR Handler stopped")
+        logger.info("🛑 VR 处理器已停止")
     
     async def process_message(self, message: str):
-        """Process incoming VR controller data from WebSocket client."""
+        """处理来自 WebSocket 客户端的 VR 控制器数据。"""
         try:
             data = json.loads(message)
             
-            # Handle API-like commands
+            # 处理 API 类命令
             if 'action' in data:
                 await self.handle_api_command(data)
             else:
-                # Handle VR controller data
+                # 处理 VR 控制器数据
                 await self.process_controller_data(data)
         except json.JSONDecodeError:
-            logger.warning(f"⚠️ Received non-JSON message: {message}")
+            logger.warning(f"⚠️ 收到非 JSON 消息: {message}")
         except Exception as e:
-            logger.error(f"❌ Error processing data: {e}")
+            logger.error(f"❌ 处理数据错误: {e}")
     
     async def handle_api_command(self, data: Dict):
-        """Handle API-like commands."""
+        """处理 API 类命令。"""
         action = data.get('action')
-        print(f"📡 VR API command: {action}")
+        print(f"📡 VR API 命令: {action}")
         
         if action == 'get_status':
-            # Return current status via callback if available
+            # 如果有回调，通过回调返回当前状态
             status = {
                 "type": "status_response",
                 "robotEngaged": False,
@@ -113,24 +113,24 @@ class VRHandler(BaseInputProvider):
                 await self.on_status_callback(status)
         
         elif action == 'enable_keyboard':
-            print("🎮 Keyboard control ENABLED")
+            print("🎮 键盘控制已启用")
         
         elif action == 'disable_keyboard':
-            print("🎮 Keyboard control DISABLED")
+            print("🎮 键盘控制已禁用")
         
         elif action == 'robot_connect':
-            print("🔌 Robot connect command received")
+            print("🔌 收到机器人连接命令")
         
         elif action == 'robot_disconnect':
-            print("🔌 Robot disconnect command received")
+            print("🔌 收到机器人断开命令")
         
         elif action == 'restart':
-            print("🔄 Restart command received")
+            print("🔄 收到重启命令")
         
         elif action == 'keypress':
             key = data.get('key')
             event = data.get('event')
-            print(f"⌨️ Key {event}: {key}")
+            print(f"⌨️ 按键 {event}: {key}")
             if hasattr(self, 'web_keyboard_handler') and self.web_keyboard_handler:
                 if event == 'press':
                     self.web_keyboard_handler.on_key_press(key)
@@ -138,23 +138,22 @@ class VRHandler(BaseInputProvider):
                     self.web_keyboard_handler.on_key_release(key)
         
         else:
-            logger.warning(f"⚠️ Unknown VR command: {action}")
+            logger.warning(f"⚠️ 未知 VR 命令: {action}")
     
     async def process_controller_data(self, data: Dict):
-        """Process incoming VR controller data."""
+        """处理传入的 VR 控制器数据。"""
         
-        # Handle new dual controller format
+        # 处理新的双控制器格式
         if 'leftController' in data and 'rightController' in data:
             left_data = data['leftController']
             right_data = data['rightController']
-            
-            # Process left controller
+            # 处理左控制器
             if left_data.get('position') and (left_data.get('gripActive', False) or left_data.get('trigger', 0) > 0.5):
                 await self.process_single_controller('left', left_data)
             elif not left_data.get('gripActive', False) and self.left_controller.grip_active:
                 await self.handle_grip_release('left')
             
-            # Process right controller
+            # 处理右控制器
             if right_data.get('position') and (right_data.get('gripActive', False) or right_data.get('trigger', 0) > 0.5):
                 await self.process_single_controller('right', right_data)
             elif not right_data.get('gripActive', False) and self.right_controller.grip_active:
@@ -162,10 +161,10 @@ class VRHandler(BaseInputProvider):
                 
             return
         
-        # Handle legacy single controller format
+        # 处理旧版单控制器格式
         hand = data.get('hand')
         
-        # Handle explicit release messages
+        # 处理显式释放消息
         if data.get('gripReleased'):
             await self.handle_grip_release(hand)
             return
@@ -174,48 +173,51 @@ class VRHandler(BaseInputProvider):
             await self.handle_trigger_release(hand)
             return
             
-        # Process single controller data
+        # 处理单控制器数据
         if hand and data.get('position') and (data.get('gripActive', False) or data.get('trigger', 0) > 0.5):
             await self.process_single_controller(hand, data)
     
     async def process_single_controller(self, hand: str, data: Dict):
-        """Process data for a single controller."""
+        """处理单个控制器的数据。"""
         position = data.get('position', {})
         rotation = data.get('rotation', {})
         quaternion = data.get('quaternion', {})
         grip_active = data.get('gripActive', False)
         trigger = data.get('trigger', 0)
+        joystick = data.get('joystick', {'x': 0, 'y': 0})
         
         controller = self.left_controller if hand == 'left' else self.right_controller
         
-        # Handle trigger for gripper control
-        trigger_active = trigger > 0.5
-        if trigger_active != controller.trigger_active:
-            controller.trigger_active = trigger_active
-            
-            # Send gripper control goal
+        # 存储摇杆和扳机原始数据(供 control_loop 的 _update_mobile_base() 使用)
+        # 注意: 不通过 ControlGoal 传递,避免干扰机械臂的 POSITION_CONTROL 模式
+        controller_key = f"{hand}Controller"
+        if controller_key in self.control_loop.vr_raw_data:
+            self.control_loop.vr_raw_data[controller_key]['joystick'] = joystick
+            self.control_loop.vr_raw_data[controller_key]['trigger'] = trigger
+
+        # Handle trigger for gripper control (线性控制)
+        # 每帧都发送 trigger_value,实现 0-1 连续映射到夹爪角度 90°-0°
+        if grip_active:
             gripper_goal = ControlGoal(
                 arm=hand,
-                gripper_closed=not trigger_active,
-                metadata={"source": "vr_trigger"}
+                gripper_closed=False,  # 这个参数会被忽略
+                metadata={"trigger_value": trigger}  # 传递完整的 0-1 值
             )
             await self.send_goal(gripper_goal)
-            
-            logger.info(f"🤏 {hand.upper()} gripper {'OPENED' if trigger_active else 'CLOSED'}")
-        
+
         # Handle grip button for arm movement control
         if grip_active:
             if not controller.grip_active:
-                # Grip just activated - set origin and reset target position
+                # 握把刚激活 - 设置原点并重置目标位置
                 controller.grip_active = True
                 controller.origin_position = position.copy()
                 
-                # Use quaternion data directly if available
+                # 如果有四元数数据则直接使用
                 if quaternion and all(k in quaternion for k in ['x', 'y', 'z', 'w']):
                     controller.origin_quaternion = np.array([quaternion['x'], quaternion['y'], quaternion['z'], quaternion['w']])
                     controller.origin_rotation = controller.origin_quaternion
                 else:
-                    # Fallback to Euler angle conversion
+                    # 回退到欧拉角转换
                     controller.origin_quaternion = self.euler_to_quaternion(rotation) if rotation else None
                     controller.origin_rotation = controller.origin_quaternion
                 
@@ -223,7 +225,7 @@ class VRHandler(BaseInputProvider):
                 controller.z_axis_rotation = 0.0
                 controller.x_axis_rotation = 0.0
                 
-                # Send reset signal to control loop
+                # 向控制循环发送重置信号
                 reset_goal = ControlGoal(
                     arm=hand,
                     mode=ControlMode.POSITION_CONTROL,
@@ -235,7 +237,7 @@ class VRHandler(BaseInputProvider):
                 )
                 await self.send_goal(reset_goal)
                 
-                logger.info(f"🔒 {hand.upper()} grip activated - controlling {hand} arm")
+                logger.info(f"🔒 {hand.upper()} 握把已激活 - 控制 {hand} 机械臂")
             
             # 计算目标位置
             if controller.origin_position:
@@ -297,7 +299,7 @@ class VRHandler(BaseInputProvider):
             )
             await self.send_goal(goal)
             
-            logger.info(f"🔓 {hand.upper()} grip released - arm control stopped")
+            logger.info(f"🔓 {hand.upper()} 握把已释放 - 机械臂控制停止")
     
     async def handle_trigger_release(self, hand: str):
         """处理控制器的扳机释放。"""
@@ -314,7 +316,7 @@ class VRHandler(BaseInputProvider):
             )
             await self.send_goal(goal)
             
-            logger.info(f"🤏 {hand.upper()} gripper CLOSED (trigger released)")
+            logger.info(f"🤏 {hand.upper()} 夹爪已关闭 (扳机释放)")
     
     def euler_to_quaternion(self, euler_deg: Dict[str, float]) -> np.ndarray:
         """将欧拉角（度）转换为四元数 [x, y, z, w]。"""

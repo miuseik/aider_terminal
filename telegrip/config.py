@@ -66,6 +66,10 @@ DEFAULT_CONFIG = {
         "position_error_threshold": 0.001,
         "hysteresis_threshold": 0.01,
         "movement_penalty_weight": 0.01
+    },
+    "aloha": {
+        "enabled": True,
+        "initial_height": 0.3
     }
 }
 
@@ -149,6 +153,10 @@ REFERENCE_POSES_FILE = _config_data["ik"]["reference_poses_file"]
 IK_POSITION_ERROR_THRESHOLD = _config_data["ik"]["position_error_threshold"]
 IK_HYSTERESIS_THRESHOLD = _config_data["ik"]["hysteresis_threshold"]
 IK_MOVEMENT_PENALTY_WEIGHT = _config_data["ik"]["movement_penalty_weight"]
+
+# Aloha Configuration
+ALOHA_ENABLED = _config_data["aloha"]["enabled"]
+ALOHA_INITIAL_HEIGHT = _config_data["aloha"]["initial_height"]
 
 # --- Joint Configuration ---
 JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
@@ -243,6 +251,10 @@ class TelegripConfig:
     pos_step: float = POS_STEP
     angle_step: float = ANGLE_STEP
     gripper_step: float = GRIPPER_STEP
+    
+    # Aloha settings
+    aloha_enabled: bool = ALOHA_ENABLED
+    aloha_initial_height: float = ALOHA_INITIAL_HEIGHT
     
     def __post_init__(self):
         # Initialize follower_ports if not set
