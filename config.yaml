@@ -21,7 +21,9 @@ network:
   host_ip: 0.0.0.0
   https_port: 8442
   websocket_port: 8442
-  server_host: 192.168.1.30
+  server_host: ws.houqicg.com
+  enable_webrtc: true  # 启用 WebRTC 视频推流
+  video_source: /dev/video0  # 摄像头设备路径
 paths:
   urdf_path: URDF/SO100/urdf/so100.urdf
 robot:

@@ -77,6 +77,7 @@ from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
 from .inputs.vr_handler import VRHandler
 from .inputs.ws_client import VRWebSocketClient
+from .inputs.webrtc_streamer import WebRTCStreamer
 from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
 
@@ -470,6 +471,12 @@ class TelegripSystem:
         # self.https_server = HTTPSServer(config)  # UI migrated to external Vue project
         self.vr_handler = VRHandler(self.command_queue, config)
         self.vr_ws_client = VRWebSocketClient(config, self.vr_handler)
+        
+        # 初始化 WebRTC 推流器
+        video_source = getattr(config, 'video_source', '/dev/video0')
+        self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, video_source=video_source)
+        self.vr_ws_client.webrtc_streamer = self.webrtc_streamer  # 关联到 ws_client
+        
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
 
@@ -597,6 +604,12 @@ class TelegripSystem:
             # Create new components
             self.vr_handler = VRHandler(self.command_queue, self.config)
             self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler)
+            
+            # 重新初始化 WebRTC 推流器
+            video_source = getattr(self.config, 'video_source', '/dev/video0')
+            self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, video_source=video_source)
+            self.vr_ws_client.webrtc_streamer = self.webrtc_streamer
+            
             self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
 
@@ -615,6 +628,11 @@ class TelegripSystem:
 
             # Connect to Aider Server via WebSocket client
             await self.vr_ws_client.connect()
+            
+            # 启动 WebRTC 视频推流
+            if getattr(self.config, 'enable_webrtc', False):
+                logger.info("📹 启动 WebRTC 视频推流...")
+                await self.webrtc_streamer.start_streaming()
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -655,6 +673,11 @@ class TelegripSystem:
 
             # Connect to Aider Server via WebSocket client
             await self.vr_ws_client.connect()
+            
+            # 启动 WebRTC 视频推流
+            if getattr(self.config, 'enable_webrtc', False):
+                logger.info("📹 启动 WebRTC 视频推流...")
+                await self.webrtc_streamer.start_streaming()
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -728,6 +751,13 @@ class TelegripSystem:
             logger.warning("VR WebSocket client disconnect timed out")
         except Exception as e:
             logger.warning(f"Error disconnecting VR WebSocket client: {e}")
+        
+        # 停止 WebRTC 推流
+        if self.webrtc_streamer:
+            try:
+                await self.webrtc_streamer.stop_streaming()
+            except Exception as e:
+                logger.warning(f"Error stopping WebRTC streamer: {e}")
 
         try:
             await asyncio.wait_for(self.vr_handler.stop(), timeout=2.0)

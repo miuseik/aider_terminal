@@ -200,7 +200,10 @@ class TelegripConfig:
     https_port: int = HTTPS_PORT
     websocket_port: int = WEBSOCKET_PORT
     host_ip: str = HOST_IP
-    server_host: str = "192.168.1.30"  # Aider Server address
+    # server_host: str = "192.168.1.30"  # Aider Server address
+    server_host: str = "ws.houqicg.com"  # Aider Server address
+    enable_webrtc: bool = True  # 启用 WebRTC 视频推流
+    video_source: str = "/dev/video0"  # 摄像头设备路径
     
     # SSL settings
     certfile: str = CERTFILE
