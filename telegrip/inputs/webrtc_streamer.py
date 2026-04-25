@@ -14,7 +14,7 @@ class WebRTCStreamer:
         self.pc = None
         self.player = None
         self.is_streaming = False
-    
+
     async def start_streaming(self):
         """开始视频推流"""
         if self.is_streaming:
@@ -24,20 +24,38 @@ class WebRTCStreamer:
         try:
             # 打开摄像头
             self.player = MediaPlayer(self.video_source, format="v4l2", options={
-                "video_size": "640x480",
+                "video_size": "1920x1080",
                 "framerate": "30"
             })
             print(f"✅ 摄像头已打开: {self.video_source}")
             
             # 创建 PeerConnection
             self.pc = RTCPeerConnection()
-            
+
             # 配置 STUN 服务器
             self.pc.iceServers = [
-                {"urls": "stun:stun.miwifi.com:3478"},
-                {"urls": "stun:stun.qq.com:3478"}
+                # Google STUN(最稳定)
+                {'urls': 'stun:stun.l.google.com:19302'},
+                {'urls': 'stun:stun1.l.google.com:19302'},
+                {'urls': 'stun:stun2.l.google.com:19302'},
+#                 国内 STUN
+                {'urls': 'stun:stun.miwifi.com:3478'},
+                {'urls': 'stun:stun.qq.com:3478'},
+                {'urls': 'stun:stun.bige0.com:3391'},
+#                 自建 TURN 服务器
+                {
+                    'urls': 'turn:ws.houqicg.com:3478',
+                    'username': 'aider',
+                    'credential': 'aider123456'
+                },
+                {
+                    'urls': 'turns:ws.houqicg.com:5349',
+                    'username': 'aider',
+                    'credential': 'aider123456'
+                },
+                # iceCandidatePoolSize: 10
             ]
-            
+            self.pc.iceCandidatePoolSize=10
             # 添加视频轨道
             self.pc.addTrack(self.player.video)
             
@@ -50,7 +68,7 @@ class WebRTCStreamer:
             # 创建 Offer
             offer = await self.pc.createOffer()
             await self.pc.setLocalDescription(offer)
-            
+
             # 通过 WebSocket 发送 Offer
             await self.ws_client.send_message({
                 "type": "offer",
@@ -85,7 +103,7 @@ class WebRTCStreamer:
     async def restart_streaming(self):
         """重新启动推流(UI 刷新后调用)"""
         print("🔄 重新启动 WebRTC 推流...")
-        
+
         # 关闭旧的连接
         await self.stop_streaming()
         
@@ -119,12 +137,12 @@ class WebRTCStreamer:
             except Exception:
                 pass
             self.player = None
-        
+
         if self.pc:
             try:
                 await self.pc.close()
             except Exception:
                 pass
             self.pc = None
-        
+
         print("🛑 WebRTC 推流已停止")

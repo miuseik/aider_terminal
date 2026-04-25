@@ -840,6 +840,7 @@ def parse_arguments():
     parser.add_argument("--https-port", type=int, default=8442, help="HTTPS server port")
     parser.add_argument("--ws-port", type=int, default=8442, help="WebSocket server port")
     parser.add_argument("--host", default="0.0.0.0", help="Host IP address")
+    parser.add_argument("--server-host", default=None, help="Aider Server host (overrides config)")
     
     # Paths
     parser.add_argument("--urdf", default="URDF/SO100/so100.urdf", help="Path to robot URDF file")
@@ -873,6 +874,8 @@ def create_config_from_args(args) -> TelegripConfig:
     config.https_port = args.https_port
     config.websocket_port = args.ws_port
     config.host_ip = args.host
+    if args.server_host:
+        config.server_host = args.server_host
     
     config.urdf_path = args.urdf
     config.webapp_dir = args.webapp

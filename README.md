@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "视频能看了";git push
+git add ./;git commit -m "优化了视频连接，准备启用frp";git push
 ```
 
 ```bash
@@ -10,7 +10,12 @@ git checkout 。/
 
 **Visualization Only** (no robot hardware):
 ```bash
-python -m telegrip.main --no-robot
+# 开发环境 - 连接本地
+python -m telegrip.main --no-robot --server-host localhost
+```
+```bash
+# 生产环境 - 连接线上
+python -m telegrip.main --no-robot --server-host ws.houqicg.com
 ```
 
 **Keyboard Only** (no VR):
