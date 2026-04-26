@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "修复键盘控制底盘功能";git push
+git add ./;git commit -m "软件方面全部ok,准备开发硬件基础";git push
 ```
 
 ```bash

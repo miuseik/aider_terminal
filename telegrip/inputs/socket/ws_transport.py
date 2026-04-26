@@ -37,7 +37,7 @@ class WSTransport:
         
         host = self.config.server_host
         port = self.config.websocket_port
-        ws_url = f"wss://{host}:{port}/vr/terminal"
+        ws_url = f"wss://{host}:{port}/ws/terminal"
         
         try:
             logger.info(f"🔌 正在连接服务器: {ws_url}")
