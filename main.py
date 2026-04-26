@@ -32,8 +32,8 @@ if __name__ == "__main__":
         sys.argv.extend(['--log-level', 'info'])
     # 默认使用 localhost 作为服务器地址
     if '--server-host' not in sys.argv:
-        sys.argv.extend(['--server-host', 'ws.houqicg.com'])
-        # sys.argv.extend(['--server-host', 'localhost'])
+        # sys.argv.extend(['--server-host', 'ws.houqicg.com'])
+        sys.argv.extend(['--server-host', 'localhost'])
 
     # 运行异步主函数
     asyncio.run(main())

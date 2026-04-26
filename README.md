@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "软件方面全部ok,准备开发硬件基础";git push
+git add ./;git commit -m "基础逻辑写好，还没开始调用";git push
 ```
 
 ```bash

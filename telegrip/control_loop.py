@@ -18,6 +18,9 @@ from typing import Dict, Optional
 
 from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX
 from .core.robot_interface import RobotInterface
+from controller.motor_controller import MotorController
+from router.api_router import APICommandRouter
+from dispatcher.action_dispatcher import ActionDispatcher  # 新增:动作分发器
 # PyBulletVisualizer will be imported on demand
 from .inputs.base import ControlGoal, ControlMode
 from .core.wheels import body_to_wheel_raw
@@ -79,6 +82,9 @@ class ControlLoop:
         
         # === 核心组件 ===
         self.robot_interface = None  # 机器人硬件接口(连接真机)
+        self.motor_controller = None  # 电机控制器
+        self.api_router = None  # API命令路由器
+        self.action_dispatcher = None  # 动作分发器(新增!)
         self.visualizer = None  # PyBullet 可视化器(仿真环境)
         self.web_keyboard_handler = None  # Web 键盘处理器引用
         
@@ -126,11 +132,38 @@ class ControlLoop:
         try:
             self.robot_interface = RobotInterface(self.config)
             if not self.robot_interface.connect():
+                # 真机连接失败
                 error_msg = "Robot interface failed to connect"
                 logger.error(error_msg)
                 setup_errors.append(error_msg)
+                # 如果配置中启用了真机机器人,连接失败则标记setup失败
+                # 如果只使用仿真(enable_robot=False),连接失败不影响setup
                 if self.config.enable_robot:
                     success = False
+            else:
+                # 真机连接成功,初始化电机控制器和API路由器
+                # 将robot_interface传入MotorController,使其能够:
+                # 1. 访问机械臂角度数组(left/right_arm_angles)
+                # 2. 调用send_action()发送指令到真机
+                # 3. 读取实际关节角度(get_actual_arm_angles)
+                # 初始化电机控制器
+                self.motor_controller = MotorController(self.robot_interface)
+                logger.info("✅ Motor controller initialized")
+                
+                # 初始化API命令路由器
+                self.api_router = APICommandRouter(
+                    motor_controller=self.motor_controller,
+                    action_dispatcher=self.action_dispatcher  # 传入ActionDispatcher
+                )
+                logger.info("✅ API command router initialized")
+                
+                # 初始化动作分发器(新增!)
+                # ActionDispatcher负责统一分发控制指令到仿真和真机
+                self.action_dispatcher = ActionDispatcher(
+                    config=self.config.__dict__,  # 转换为字典
+                    visualizer=self.visualizer
+                )
+                logger.info("✅ Action dispatcher initialized")
         except Exception as e:
             error_msg = f"Robot interface setup failed with exception: {e}"
             logger.error(error_msg)
@@ -353,6 +386,15 @@ class ControlLoop:
                     logger.error("❌ Failed to disengage robot motors")
             else:
                 logger.warning("Cannot disengage robot: no robot interface")
+        elif action.startswith('control_') or action == 'calibrate_motor':
+            # API控制命令,交给路由器处理
+            if not self.api_router:
+                logger.warning("⚠️ API命令路由器未初始化")
+                return
+            
+            success = self.api_router.route(command)
+            if not success:
+                logger.error(f"❌ 处理API命令失败: {action}")
         else:
             logger.warning(f"Unknown command: {action}")
 
@@ -655,7 +697,16 @@ class ControlLoop:
             else:
                 logger.debug(f"Skipping right arm update: connected={arm_connected}, enable_robot={self.config.enable_robot}")
 
-        # 发送命令到机器人(仅在真正连接并 engaged 时)
+        # === 通过 ActionDispatcher 分发指令 ===
+        if self.action_dispatcher:
+            # 构造完整 Action 字典
+            action_dict = self._build_alohamini_action()
+            
+            # 分发到仿真(ActionDispatcher内部处理)
+            self.action_dispatcher.dispatch_action(action_dict)
+        
+        # === 发送指令到真机 ===
+        # send_command()负责将robot_interface的角度数组发送到真机硬件
         if self.robot_interface.is_connected and self.robot_interface.is_engaged:
             self.robot_interface.send_command()
     
