@@ -1,6 +1,6 @@
 """
-Configuration module for the unified teleoperation system.
-Loads configuration from config.yaml file with fallback to default values.
+统一遥操作系统的配置模块。
+从 config.yaml 文件加载配置，并提供默认值回退。
 """
 
 import os
@@ -14,16 +14,11 @@ from .utils import get_absolute_path, get_project_root
 
 logger = logging.getLogger(__name__)
 
-# Default configuration values (fallback if YAML file doesn't exist)
+# 默认配置值（如果 YAML 文件不存在则使用）
 DEFAULT_CONFIG = {
     "network": {
-        "https_port": 8442,
         "websocket_port": 8442,
         "host_ip": "0.0.0.0"
-    },
-    "ssl": {
-        "certfile": "cert.pem",
-        "keyfile": "key.pem"
     },
     "robot": {
         "left_arm": {
@@ -74,17 +69,17 @@ DEFAULT_CONFIG = {
 }
 
 def load_config(config_path: str = "config.yaml") -> dict:
-    """Load configuration from YAML file with fallback to defaults."""
+    """从 YAML 文件加载配置，回退到默认值。"""
     config = DEFAULT_CONFIG.copy()
     
-    # Try to load from project root first (package installation directory)
+    # 首先尝试从项目根目录加载（包安装目录）
     package_config_path = get_absolute_path(config_path)
     
-    # Check if config exists in package directory
+    # 检查包目录中是否存在配置
     if package_config_path.exists():
         config_file_to_use = package_config_path
         logger.info(f"Loading config from package directory: {config_file_to_use}")
-    # Fallback to current working directory (for user-provided configs)
+    # 回退到当前工作目录（用于用户提供的配置）
     elif os.path.exists(config_path):
         config_file_to_use = Path(config_path)
         logger.info(f"Loading config from current directory: {config_file_to_use}")
@@ -93,10 +88,10 @@ def load_config(config_path: str = "config.yaml") -> dict:
         return config
     
     try:
-        with open(config_file_to_use, 'r') as f:
+        with open(config_file_to_use, 'r', encoding='utf-8') as f:
             yaml_config = yaml.safe_load(f)
             if yaml_config:
-                # Deep merge yaml config into default config
+                # 将 yaml 配置深度合并到默认配置中
                 _deep_merge(config, yaml_config)
     except Exception as e:
         logger.warning(f"Could not load config from {config_file_to_use}: {e}")
@@ -105,8 +100,8 @@ def load_config(config_path: str = "config.yaml") -> dict:
     return config
 
 def save_config(config: dict, config_path: str = "config.yaml"):
-    """Save configuration to YAML file in project root."""
-    # Always save to project root directory
+    """将配置保存到项目根目录的 YAML 文件。"""
+    # 始终保存到项目根目录
     abs_config_path = get_absolute_path(config_path)
     try:
         with open(abs_config_path, 'w') as f:
@@ -117,23 +112,19 @@ def save_config(config: dict, config_path: str = "config.yaml"):
         return False
 
 def _deep_merge(base: dict, update: dict):
-    """Deep merge update dict into base dict."""
+    """将 update 字典深度合并到 base 字典中。"""
     for key, value in update.items():
         if key in base and isinstance(base[key], dict) and isinstance(value, dict):
             _deep_merge(base[key], value)
         else:
             base[key] = value
 
-# Load configuration
+# 加载配置
 _config_data = load_config()
 
-# Extract values for backward compatibility
-HTTPS_PORT = _config_data["network"]["https_port"]
+# 提取值以保持向后兼容性
 WEBSOCKET_PORT = _config_data["network"]["websocket_port"]
 HOST_IP = _config_data["network"]["host_ip"]
-
-CERTFILE = _config_data["ssl"]["certfile"]
-KEYFILE = _config_data["ssl"]["keyfile"]
 
 VR_TO_ROBOT_SCALE = _config_data["robot"]["vr_to_robot_scale"]
 SEND_INTERVAL = _config_data["robot"]["send_interval"]
@@ -147,18 +138,18 @@ URDF_PATH = _config_data["paths"]["urdf_path"]
 GRIPPER_OPEN_ANGLE = _config_data["gripper"]["open_angle"]
 GRIPPER_CLOSED_ANGLE = _config_data["gripper"]["closed_angle"]
 
-# IK Configuration
+# IK 配置
 USE_REFERENCE_POSES = _config_data["ik"]["use_reference_poses"]
 REFERENCE_POSES_FILE = _config_data["ik"]["reference_poses_file"]
 IK_POSITION_ERROR_THRESHOLD = _config_data["ik"]["position_error_threshold"]
 IK_HYSTERESIS_THRESHOLD = _config_data["ik"]["hysteresis_threshold"]
 IK_MOVEMENT_PENALTY_WEIGHT = _config_data["ik"]["movement_penalty_weight"]
 
-# Aloha Configuration
+# Aloha 配置
 ALOHA_ENABLED = _config_data["aloha"]["enabled"]
 ALOHA_INITIAL_HEIGHT = _config_data["aloha"]["initial_height"]
 
-# --- Joint Configuration ---
+# --- 关节配置 ---
 JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 NUM_JOINTS = len(JOINT_NAMES)
 NUM_IK_JOINTS = 3  # Use only first 3 joints for IK (Rotation, Pitch, Elbow)
@@ -166,7 +157,7 @@ WRIST_FLEX_INDEX = 3
 WRIST_ROLL_INDEX = 4
 GRIPPER_INDEX = 5
 
-# Motor configuration for SO100
+# SO100 电机配置
 COMMON_MOTORS = {
     "shoulder_pan": [1, "sts3215"],
     "shoulder_lift": [2, "sts3215"], 
@@ -176,7 +167,7 @@ COMMON_MOTORS = {
     "gripper": [6, "sts3215"],
 }
 
-# URDF joint name mapping
+# URDF 关节名称映射
 URDF_TO_INTERNAL_NAME_MAP = {
     "1": "shoulder_pan",
     "2": "shoulder_lift",
@@ -186,15 +177,15 @@ URDF_TO_INTERNAL_NAME_MAP = {
     "6": "gripper",
 }
 
-# --- PyBullet Configuration ---
+# --- PyBullet 配置 ---
 END_EFFECTOR_LINK_NAME = "Fixed_Jaw_tip"
 
-# --- Keyboard Control ---
+# --- 键盘控制 ---
 POS_STEP = 0.01  # meters
 ANGLE_STEP = 5.0 # degrees
 GRIPPER_STEP = 10.0 # degrees
 
-# --- Device Ports ---
+# --- 设备端口 ---
 DEFAULT_FOLLOWER_PORTS = {
     "left": _config_data["robot"]["left_arm"]["port"],
     "right": _config_data["robot"]["right_arm"]["port"]
@@ -202,28 +193,23 @@ DEFAULT_FOLLOWER_PORTS = {
 
 @dataclass
 class TelegripConfig:
-    """Main configuration class for the teleoperation system."""
+    """遥操作系统的主配置类。"""
     
-    # Network settings
-    https_port: int = HTTPS_PORT
+    # 网络设置
     websocket_port: int = WEBSOCKET_PORT
     host_ip: str = HOST_IP
-    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")  # Aider Server address
+    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")  # Aider Server 地址
     enable_webrtc: bool = True  # 启用 WebRTC 视频推流
     video_source: str = "/dev/video0"  # 摄像头设备路径
     
-    # SSL settings
-    certfile: str = CERTFILE
-    keyfile: str = KEYFILE
-    
-    # Robot settings
+    # 机器人设置
     vr_to_robot_scale: float = VR_TO_ROBOT_SCALE
     send_interval: float = SEND_INTERVAL
     
-    # Device ports
+    # 设备端口
     follower_ports: Dict[str, str] = None
     
-    # Control flags
+    # 控制标志
     enable_pybullet: bool = True
     enable_pybullet_gui: bool = True
     enable_robot: bool = True
@@ -232,93 +218,75 @@ class TelegripConfig:
     autoconnect: bool = False
     log_level: str = "warning"
     
-    # Paths
+    # 路径
     urdf_path: str = URDF_PATH
     webapp_dir: str = "webapp"
     
-    # IK settings
+    # IK 设置
     use_reference_poses: bool = USE_REFERENCE_POSES
     reference_poses_file: str = REFERENCE_POSES_FILE
     ik_position_error_threshold: float = IK_POSITION_ERROR_THRESHOLD
     ik_hysteresis_threshold: float = IK_HYSTERESIS_THRESHOLD
     ik_movement_penalty_weight: float = IK_MOVEMENT_PENALTY_WEIGHT
     
-    # Gripper settings
+    # 夹爪设置
     gripper_open_angle: float = GRIPPER_OPEN_ANGLE
     gripper_closed_angle: float = GRIPPER_CLOSED_ANGLE
     
-    # Keyboard control
+    # 键盘控制
     pos_step: float = POS_STEP
     angle_step: float = ANGLE_STEP
     gripper_step: float = GRIPPER_STEP
     
-    # Aloha settings
+    # Aloha 设置
     aloha_enabled: bool = ALOHA_ENABLED
     aloha_initial_height: float = ALOHA_INITIAL_HEIGHT
     
     def __post_init__(self):
-        # Initialize follower_ports if not set
+        # 如果未设置则初始化 follower_ports
         if self.follower_ports is None:
             self.follower_ports = {
                 "left": _config_data["robot"]["left_arm"]["port"],
                 "right": _config_data["robot"]["right_arm"]["port"]
             }
         
-        # Ensure ports are not None
+        # 确保端口不为 None
         if self.follower_ports["left"] is None:
             self.follower_ports["left"] = "/dev/ttyACM0"
         if self.follower_ports["right"] is None:
             self.follower_ports["right"] = "/dev/ttyACM1"
     
     @property
-    def ssl_files_exist(self) -> bool:
-        """Check if SSL certificate files exist."""
-        cert_path = get_absolute_path(self.certfile)
-        key_path = get_absolute_path(self.keyfile)
-        return cert_path.exists() and key_path.exists()
-    
-    def ensure_ssl_certificates(self) -> bool:
-        """Ensure SSL certificates exist, generating them if necessary."""
-        from .utils import ensure_ssl_certificates
-        return ensure_ssl_certificates(self.certfile, self.keyfile)
-    
-    @property
     def urdf_exists(self) -> bool:
-        """Check if URDF file exists."""
+        """检查 URDF 文件是否存在。"""
         urdf_path = get_absolute_path(self.urdf_path)
         return urdf_path.exists()
     
     @property
     def webapp_exists(self) -> bool:
-        """Check if webapp directory exists."""
+        """检查 webapp 目录是否存在。"""
         webapp_path = get_absolute_path(self.webapp_dir)
         return webapp_path.exists()
     
     def get_absolute_urdf_path(self) -> str:
-        """Get absolute path to URDF file."""
+        """获取 URDF 文件的绝对路径。"""
         return str(get_absolute_path(self.urdf_path))
     
     def get_absolute_reference_poses_path(self) -> str:
-        """Get absolute path to reference poses file."""
+        """获取参考姿态文件的绝对路径。"""
         return str(get_absolute_path(self.reference_poses_file))
-    
-    def get_absolute_ssl_paths(self) -> tuple:
-        """Get absolute paths to SSL certificate files."""
-        cert_path = str(get_absolute_path(self.certfile))
-        key_path = str(get_absolute_path(self.keyfile))
-        return cert_path, key_path
 
 def get_config_data():
-    """Get the current configuration data."""
+    """获取当前配置数据。"""
     return _config_data.copy()
 
 def update_config_data(new_config: dict):
-    """Update the global configuration data."""
+    """更新全局配置数据。"""
     global _config_data
     _config_data = new_config
     
-    # Save to file
+    # 保存到文件
     save_config(_config_data)
 
-# Global configuration instance
+# 全局配置实例
 config = TelegripConfig() 

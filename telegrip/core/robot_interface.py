@@ -4,7 +4,6 @@ SO100 遥操作系统的机器人接口模块。
 """
 
 import numpy as np
-import torch
 import time
 import logging
 import os

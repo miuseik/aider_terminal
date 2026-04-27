@@ -19,7 +19,6 @@ ik:
   movement_penalty_weight: 0.01
 network:
   host_ip: 0.0.0.0
-  https_port: 8442
   websocket_port: 8442
   server_host: ws.houqicg.com
   enable_webrtc: true  # 启用 WebRTC 视频推流
@@ -40,6 +39,3 @@ robot:
 aloha:
   enabled: true              # 是否启用 Aloha 底盘
   initial_height: 0.3        # 初始高度(米)
-ssl:
-  certfile: cert.pem
-  keyfile: key.pem

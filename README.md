@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "删除多余站位文件-删除dispacher";git push
+git add ./;git commit -m "删除了httpserver,翻译了部分注释";git push
 ```
 
 ```bash
@@ -9,9 +9,9 @@ git checkout 。/
 ```bash
 ssh root@121.40.151.10
 ```
-### Development/Testing Modes
+### 开发/测试模式
 
-**Visualization Only** (no robot hardware):
+**仅可视化**（无机器人硬件）：
 ```bash
 # 开发环境 - 连接本地
 python -m telegrip.main --no-robot --server-host localhost
@@ -21,300 +21,300 @@ python -m telegrip.main --no-robot --server-host localhost
 python -m telegrip.main --no-robot --server-host ws.houqicg.com
 ```
 
-**Keyboard Only** (no VR):
+**仅键盘**（无 VR）：
 ```bash
 python -m telegrip.main --no-vr
 ```
 
-**No Simulation** (no PyBullet sim or IK):
+**无仿真**（无 PyBullet 仿真或逆运动学）：
 ```bash
 python -m telegrip.main --no-sim
 ```
 
-**Headless** (no PyBullet GUI):
+**无头模式**（无 PyBullet GUI）：
 ```bash
 python -m telegrip.main --no-viz
 ```
 
-**Auto-connect to Robot** (skip manual connection step):
+**自动连接机器人**（跳过手动连接步骤）：
 ```bash
 python -m telegrip.main --autoconnect
 ```
-# telegrip - SO100 Robot Arm Teleoperation System
+# telegrip - SO100 机械臂遥操作系统
 
-An open source teleoperation control system for the [SO100 robot arm](https://github.com/TheRobotStudio/SO-ARM100) that supports input from VR controllers or keyboards with shared inverse kinematics, 3D visualization and a web UI.
+一个开源的 [SO100 机械臂](https://github.com/TheRobotStudio/SO-ARM100)遥操作系统，支持来自 VR 控制器或键盘的输入，具有共享逆运动学、3D 可视化和 Web UI。
 
 
 
-*Using a VR headset like the Meta Quest and the built-in WebXR app, controller movements are streamed to the telegrip controller so you can record training data without a dedicated leader arm.*
+*使用像 Meta Quest 这样的 VR 头显和内置的 WebXR 应用，控制器运动会流式传输到 telegrip 控制器，这样你就可以无需专用的主机械臂来记录训练数据。*
 
 https://github.com/user-attachments/assets/e21168b5-e9b4-4c83-ab4d-a15cb470d11b
 
 
-*telegrip operation of two SO-100 arms using a Quest 3 headset*
+*使用 Quest 3 头显操作两个 SO-100 机械臂*
 
 
-## Features
+## 特性
 
-- **Unified Architecture**: Single entry point that coordinates all components
-- **Multiple Input Methods**: VR controllers (Quest/WebXR) and keyboard control
-- **Shared IK/FK Logic**: PyBullet-based inverse and forward kinematics for both arms
-- **Real-time Visualization**: 3D PyBullet visualization with coordinate frames and markers
-- **Safety Features**: Joint limit clamping, graceful shutdown, and error handling
-- **Async/Non-blocking**: All components run concurrently without blocking
+- **统一架构**：单一入口点协调所有组件
+- **多种输入方式**：VR 控制器（Quest/WebXR）和键盘控制
+- **共享 IK/FK 逻辑**：基于 PyBullet 的双臂逆运动学和正运动学
+- **实时可视化**：带有坐标系和标记的 3D PyBullet 可视化
+- **安全功能**：关节限制钳位、优雅关闭和错误处理
+- **异步/非阻塞**：所有组件并发运行而不阻塞
 
-## Installation
+## 安装
 
-### Prerequisites
+### 前置条件
 
-1. **Robot Hardware**: One or two SO100 arm robot with USB-serial connections
-2. **Python Environment**: Python 3.8+ with required packages
-3. **VR Setup** (optional): Meta Quest or other headset with WebXR support (no app installation needed!)
-
-
+1. **机器人硬件**：一个或两个带有 USB-串行连接的 SO100 机械臂
+2. **Python 环境**：Python 3.8+ 及所需包
+3. **VR 设置**（可选）：支持 WebXR 的 Meta Quest 或其他头显（无需安装应用！）
 
 
-### Package Installation
 
-You must first manually install LeRobot according to the official instructions at [https://github.com/huggingface/lerobot](https://github.com/huggingface/lerobot).
 
-Follow the official LeRobot installation guide:
+### 包安装
+
+你必须首先按照官方说明手动安装 LeRobot：[https://github.com/huggingface/lerobot](https://github.com/huggingface/lerobot)。
+
+遵循官方 LeRobot 安装指南：
 
 ```bash
-# Clone the official LeRobot repository
+# 克隆官方 LeRobot 仓库
 git clone https://github.com/huggingface/lerobot.git
 cd lerobot
-# Install according to their instructions (typically):
+# 按照他们的说明安装（通常）：
 pip install -e .
 ```
 
-After installing LeRobot, install telegrip (this package):
+安装 LeRobot 后，安装 telegrip（此包）：
 
 ```bash
-# Install in editable mode (recommended for development)
+# 以可编辑模式安装（推荐用于开发）
 git clone https://github.com/DipFlip/telegrip.git
 pip install -e .
 ```
 
-The system will automatically create self-signed SSL certificates (`cert.pem` and `key.pem`) if they don't exist.
+如果自签名 SSL 证书（`cert.pem` 和 `key.pem`）不存在，系统将自动创建它们。
 
-If you need to generate them manually for any reason:
+如果出于任何原因需要手动生成它们：
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes -subj "/C=US/ST=Test/L=Test/O=Test/OU=Test/CN=localhost"
 ```
 
-## Usage
+## 使用方法
 
-### Basic Usage
+### 基本用法
 
-Run the complete teleoperation system:
+运行完整的遥操作系统：
 
 ```bash
 python -m telegrip.main
 ```
-The first time you might be asked to complete pose calibrations as shown in [this guide](https://github.com/huggingface/lerobot/blob/8cfab3882480bdde38e42d93a9752de5ed42cae2/examples/10_use_so100.md#e-calibrate). Calibration files are stored in `.cache/calibration/so100/arm_name.json`. When calibration files are found, you will be greeted with a message like 
+第一次运行时，你可能会被要求完成姿态校准，如[此指南](https://github.com/huggingface/lerobot/blob/8cfab3882480bdde38e42d93a9752de5ed42cae2/examples/10_use_so100.md#e-calibrate)所示。校准文件存储在 `.cache/calibration/so100/arm_name.json` 中。当找到校准文件时，你将看到类似以下消息：
 ```bash
-🤖 telegrip starting...
-Open the UI in your browser on:
+🤖 telegrip 正在启动...
+在浏览器中打开 UI：
 https://192.168.7.233:8442
-Then go to the same address on your VR headset browser
+然后在你的 VR 头显浏览器中访问相同地址
 ```
-Click on or enter your address in a browser to show the UI. Visit the same address from your VR headset to enter the VR web-app. The first time you should enter robot arm port information under the settings menu (top right). Alternatively you can manually enter the details in the `config.yaml` file in the root of this repo.
-Once you see that the robot arms are found (green indicators) you can click "Connect Robot" and start controlling it by keyboard or with the VR headset.
+点击或在浏览器中输入你的地址以显示 UI。从你的 VR 头显访问相同地址以进入 VR Web 应用。第一次你应该在设置菜单（右上角）中输入机器人臂端口信息。或者，你可以在此仓库根目录的 `config.yaml` 文件中手动输入详细信息。
+一旦你看到机器人臂已找到（绿色指示器），你可以点击"连接机器人"并开始通过键盘或 VR 头显控制它。
 
-### Command Line Options
+### 命令行选项
 
 ```bash
-python -m telegrip.main [OPTIONS]
+python -m telegrip.main [选项]
 
-Options:
-  --no-robot        Disable robot connection (visualization only)
-  --no-sim          Disable PyBullet simulation and inverse kinematics
-  --no-viz          Disable PyBullet visualization (headless mode)
-  --no-vr           Disable VR WebSocket server
-  --no-keyboard     Disable keyboard input
-  --autoconnect     Automatically connect to robot motors on startup
-  --log-level LEVEL Set logging level: debug, info, warning, error, critical (default: warning)
-  --https-port PORT HTTPS server port (default: 8442)
-  --ws-port PORT    WebSocket server port (default: 8442)
-  --host HOST       Host IP address (default: 0.0.0.0)
-  --urdf PATH       Path to robot URDF file
-  --left-port PORT  Left arm serial port (default: /dev/ttySO100red)
-  --right-port PORT Right arm serial port (default: /dev/ttySO100leader)
+选项：
+  --no-robot        禁用机器人连接（仅可视化）
+  --no-sim          禁用 PyBullet 仿真和逆运动学
+  --no-viz          禁用 PyBullet 可视化（无头模式）
+  --no-vr           禁用 VR WebSocket 服务器
+  --no-keyboard     禁用键盘输入
+  --autoconnect     启动时自动连接到机器人电机
+  --log-level LEVEL 设置日志级别：debug, info, warning, error, critical（默认：warning）
+  --https-port PORT HTTPS 服务器端口（默认：8442）
+  --ws-port PORT    WebSocket 服务器端口（默认：8442）
+  --host HOST       主机 IP 地址（默认：0.0.0.0）
+  --urdf PATH       机器人 URDF 文件路径
+  --left-port PORT  左臂串行端口（默认：/dev/ttySO100red）
+  --right-port PORT 右臂串行端口（默认：/dev/ttySO100leader）
 ```
 
 
 
-## Control Methods
+## 控制方法
 
-### VR Controller Control
+### VR 控制器控制
 
-1. **Setup**: Connect Meta Quest to same network, navigate to `https://<your-ip>:8442`
+1. **设置**：将 Meta Quest 连接到同一网络，导航到 `https://<your-ip>:8442`
 
-2. **Arm Position Control**: 
-   - **Hold grip button** to activate position control for that arm
-   - While holding grip, the robot arm gripper tip will track your controller position in 3D space
-   - Release grip button to deactivate position control
+2. **机械臂位置控制**：
+   - **按住握把按钮**以激活该机械臂的位置控制
+   - 按住握把时，机器人臂夹持器尖端将在 3D 空间中跟踪你的控制器位置
+   - 释放握把按钮以停用位置控制
 
-3. **Wrist Orientation Control**:
-   - The **roll and pitch** of your controller will be matched on the wrist joint of the arm
-   - This allows precise orientation control of the end effector
+3. **手腕方向控制**：
+   - 控制器的**滚动和俯仰**将与机械臂腕关节匹配
+   - 这允许对末端执行器进行精确的方向控制
 
-4. **Gripper Control**:
-   - Press and **hold trigger button** to close the gripper
-   - The gripper stays closed as long as you hold the trigger
-   - Release trigger to open the gripper
+4. **夹持器控制**：
+   - 按下并**按住触发按钮**以关闭夹持器
+   - 只要你按住触发器，夹持器就保持关闭状态
+   - 释放触发器以打开夹持器
 
-5. **Independent Control**: Left and right controllers control their respective robot arms independently - you can operate both arms simultaneously or one at a time
+5. **独立控制**：左右控制器独立控制各自的机器人臂 - 你可以同时操作双臂或一次操作一个
 
-### Keyboard Control
+### 键盘控制
 
-**Left Arm Control**:
-   - **W/S**: Forward/Backward
-   - **A/D**: Left/Right 
-   - **Q/E**: Down/Up
-   - **Z/X**: Wrist roll
-   - **F**: Toggle gripper open/closed
+**左臂控制**：
+   - **W/S**：前进/后退
+   - **A/D**：左/右 
+   - **Q/E**：下/上
+   - **Z/X**：手腕滚动
+   - **F**：切换夹持器开/关
 
-**Right Arm Control**:
-   - **I/K**: Forward/Backward
-   - **J/L**: Left/Right
-   - **U/O**: Up/Down
-   - **N/M**: Wrist roll
-   - **; (semicolon)**: Toggle gripper open/closed
+**右臂控制**：
+   - **I/K**：前进/后退
+   - **J/L**：左/右
+   - **U/O**：上/下
+   - **N/M**：手腕滚动
+   - **;（分号）**：切换夹持器开/关
 
-## Architecture
+## 架构
 
-### Component Communication
+### 组件通信
 
 ```mermaid
 graph TD
-    A[VR Controllers] --> B[WebSocket Server]
-    C[Keyboard] --> D[Keyboard Listener]
-    B --> E[Command Queue]
+    A[VR 控制器] --> B[WebSocket 服务器]
+    C[键盘] --> D[键盘监听器]
+    B --> E[命令队列]
     D --> E
-    E --> F[Control Loop]
-    F --> G[Robot Interface]
-    F --> H[PyBullet Visualizer]
-    G --> I[SO100 Robot Hardware]
-    H --> J[3D Visualization]
+    E --> F[控制循环]
+    F --> G[机器人接口]
+    F --> H[PyBullet 可视化器]
+    G --> I[SO100 机器人硬件]
+    H --> J[3D 可视化]
 ```
 
-### Control Flow
+### 控制流程
 
-1. **Input Providers** (VR/Keyboard) generate `ControlGoal` messages
-2. **Command Queue** buffers goals for processing
-3. **Control Loop** consumes goals and executes them:
-   - Converts position goals to IK solutions
-   - Updates robot arm angles with safety clamping
-   - Sends commands to robot hardware
-   - Updates 3D visualization
-4. **Robot Interface** manages hardware communication and safety
+1. **输入提供者**（VR/键盘）生成 `ControlGoal` 消息
+2. **命令队列**缓冲目标以供处理
+3. **控制循环**消费目标并执行：
+   - 将位置目标转换为 IK 解决方案
+   - 使用安全钳位更新机器人臂角度
+   - 向机器人硬件发送命令
+   - 更新 3D 可视化
+4. **机器人接口**管理硬件通信和安全
 
-### Data Structures
+### 数据结构
 
-**ControlGoal**: High-level control command
+**ControlGoal**：高级控制命令
 ```python
 @dataclass
 class ControlGoal:
-    arm: Literal["left", "right"]           # Target arm
-    mode: ControlMode                       # POSITION_CONTROL or IDLE
-    target_position: Optional[np.ndarray]   # 3D position (robot coordinates)
-    wrist_roll_deg: Optional[float]         # Wrist roll angle
-    gripper_closed: Optional[bool]          # Gripper state
-    metadata: Optional[Dict]                # Additional data
+    arm: Literal["left", "right"]           # 目标机械臂
+    mode: ControlMode                       # POSITION_CONTROL 或 IDLE
+    target_position: Optional[np.ndarray]   # 3D 位置（机器人坐标）
+    wrist_roll_deg: Optional[float]         # 手腕滚动角度
+    gripper_closed: Optional[bool]          # 夹持器状态
+    metadata: Optional[Dict]                # 附加数据
 ```
 
-## Configuration
+## 配置
 
-### Robot Configuration
+### 机器人配置
 
-- **Joint Names**: `["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]`
-- **IK Joints**: First 3 joints used for position control
-- **Direct Control**: Wrist roll and gripper controlled directly
-- **Safety**: Joint limits read from URDF and enforced
+- **关节名称**：`["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]`
+- **IK 关节**：前 3 个关节用于位置控制
+- **直接控制**：手腕滚动和夹持器直接控制
+- **安全**：从 URDF 读取并强制执行关节限制
 
-### Network Configuration
+### 网络配置
 
-- **HTTPS Port**: 8442 (web interface)
-- **WebSocket Port**: 8442 (VR controllers)  
-- **Host**: 0.0.0.0 (all interfaces)
+- **HTTPS 端口**：8442（Web 界面）
+- **WebSocket 端口**：8442（VR 控制器）  
+- **主机**：0.0.0.0（所有接口）
 
-### Coordinate Systems
+### 坐标系
 
-- **VR**: X=right, Y=up, Z=back (toward user)
-- **Robot**: X=forward, Y=left, Z=up
-- **Transformation**: Handled automatically in kinematics module
+- **VR**：X=右，Y=上，Z=后（朝向用户）
+- **机器人**：X=前，Y=左，Z=上
+- **转换**：在运动学模块中自动处理
 
-## Troubleshooting
+## 故障排除
 
-### Common Issues
+### 常见问题
 
-**Robot Connection Failed**:
-- Check USB-serial device permissions: `sudo chmod 666 /dev/ttySO100*`
-- Verify port names match actual devices
-- Try running with `--no-robot` for testing
+**机器人连接失败**：
+- 检查 USB-串行设备权限：`sudo chmod 666 /dev/ttySO100*`
+- 验证端口名称与实际设备匹配
+- 尝试使用 `--no-robot` 进行测试
 
-**VR Controllers Not Connecting**:
-- Ensure Quest and robot are on same network
-- SSL certificates are generated automatically, but check `cert.pem` and `key.pem` exist if issues persist
-- Try accessing web interface directly in browser first
-- If OpenSSL is missing, install it: `sudo apt-get install openssl` (Ubuntu) or `brew install openssl` (macOS)
+**VR 控制器未连接**：
+- 确保 Quest 和机器人在同一网络上
+- SSL 证书会自动生成，但如果问题持续存在，请检查 `cert.pem` 和 `key.pem` 是否存在
+- 首先尝试直接在浏览器中访问 Web 界面
+- 如果缺少 OpenSSL，请安装它：`sudo apt-get install openssl`（Ubuntu）或 `brew install openssl`（macOS）
 
-**PyBullet Visualization Issues**:
-- Install PyBullet: `pip install pybullet`
-- Try headless mode: `--no-viz`
-- Check URDF file exists at specified path
+**PyBullet 可视化问题**：
+- 安装 PyBullet：`pip install pybullet`
+- 尝试无头模式：`--no-viz`
+- 检查 URDF 文件是否存在于指定路径
 
-**Keyboard Input Not Working**:
-- Run with appropriate permissions for input access
-- Check terminal has focus for key events
-- Try `--no-keyboard` to isolate issue
+**键盘输入不起作用**：
+- 以适当的权限运行以获取输入访问权限
+- 检查终端是否具有焦点以获取按键事件
+- 尝试 `--no-keyboard` 隔离问题
 
-### Debug Modes
+### 调试模式
 
-**Detailed Logging**:
+**详细日志**：
 ```bash
-python -m telegrip.main --log-level info    # Show detailed startup and operation info
-python -m telegrip.main --log-level debug   # Show maximum detail for debugging
+python -m telegrip.main --log-level info    # 显示详细的启动和操作信息
+python -m telegrip.main --log-level debug   # 显示最大详细信息以进行调试
 ```
 
-**Component Isolation**:
-- Test individual components with disable flags
-- Check component status in logs
-- Verify queue communication
+**组件隔离**：
+- 使用禁用标志测试各个组件
+- 检查日志中的组件状态
+- 验证队列通信
 
-## Development
+## 开发
 
-### Adding New Input Methods
+### 添加新的输入方法
 
-1. Create new input provider inheriting from `BaseInputProvider`
-2. Implement `start()`, `stop()`, and command generation
-3. Add to `TelegripSystem` initialization
-4. Configure via command line arguments
+1. 创建继承自 `BaseInputProvider` 的新输入提供者
+2. 实现 `start()`、`stop()` 和命令生成
+3. 添加到 `TelegripSystem` 初始化
+4. 通过命令行参数配置
 
-### Extending Robot Interface
+### 扩展机器人接口
 
-1. Add new methods to `RobotInterface`
-2. Update `ControlGoal` data structure if needed
-3. Modify control loop execution logic
-4. Test with `--no-robot` mode first
+1. 向 `RobotInterface` 添加新方法
+2. 如果需要，更新 `ControlGoal` 数据结构
+3. 修改控制循环执行逻辑
+4. 首先使用 `--no-robot` 模式测试
 
-### Custom Visualization
+### 自定义可视化
 
-1. Extend `PyBulletVisualizer` class
-2. Add new marker types or coordinate frames
-3. Update visualization calls in control loop
+1. 扩展 `PyBulletVisualizer` 类
+2. 添加新的标记类型或坐标系
+3. 更新控制循环中的可视化调用
 
-## Safety Notes
+## 安全注意事项
 
-- **Emergency Stop**: Press Ctrl+C for graceful shutdown
-- **Joint Limits**: Automatically enforced from URDF
-- **Initial Position**: Robot returns to safe position on shutdown
-- **Torque Disable**: Motors disabled during shutdown sequence
-- **Error Handling**: System continues running if non-critical components fail
+- **紧急停止**：按 Ctrl+C 进行优雅关闭
+- **关节限制**：从 URDF 自动强制执行
+- **初始位置**：机器人在关闭时返回安全位置
+- **扭矩禁用**：在关闭序列期间电机关闭
+- **错误处理**：如果非关键组件失败，系统继续运行
 
-## License
+## 许可证
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。

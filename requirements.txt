@@ -8,7 +8,7 @@ scipy
 pybullet
 websockets
 pynput
-lerobot[feetech]
+# lerobot[feetech]  # 注释掉，使用 drivers/so_follower.py 的空实现
 # For development
 pytest
 black

@@ -79,7 +79,11 @@ class PyBulletVisualizer:
         self.is_connected = False
     
     def _can_use_display(self) -> bool:
-        """检查 X11/显示是否可用于带 OpenGL 支持的 GUI 模式。"""
+        """检查显示是否可用于带 OpenGL 支持的 GUI 模式。"""
+        # Windows 不需要 X11 检查，直接返回 True
+        if os.name == 'nt':  # Windows
+            return True
+            
         display = os.environ.get('DISPLAY')
         if not display:
             return False

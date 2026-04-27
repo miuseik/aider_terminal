@@ -18,6 +18,9 @@ import asyncio
 # 禁用 CUDA,使用 CPU (避免 NCCL 库问题)
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
+# 解决 PyTorch OpenMP 库冲突问题
+# os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 # 确保可以导入 telegrip 包
 sys.path.insert(0, os.path.dirname(__file__))
 
