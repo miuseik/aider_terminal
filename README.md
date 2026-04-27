@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "基础逻辑写好，还没开始调用";git push
+git add ./;git commit -m "删除多余站位文件-删除dispacher";git push
 ```
 
 ```bash

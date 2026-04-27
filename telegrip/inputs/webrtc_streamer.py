@@ -2,7 +2,7 @@
 import asyncio
 import json
 from aiortc import RTCPeerConnection, RTCSessionDescription
-from aiortc.contrib.media import MediaPlayer
+from drivers.camera_driver import CameraDriver
 
 
 class WebRTCStreamer:
@@ -12,8 +12,15 @@ class WebRTCStreamer:
         self.ws_client = ws_client
         self.video_source = video_source
         self.pc = None
-        self.player = None
         self.is_streaming = False
+        
+        # 初始化摄像头驱动
+        self.camera_driver = CameraDriver({
+            'camera_id': video_source,
+            'width': 1920,
+            'height': 1080,
+            'fps': 30
+        })
 
     async def start_streaming(self):
         """开始视频推流"""
@@ -22,12 +29,13 @@ class WebRTCStreamer:
             return
         
         try:
-            # 打开摄像头
-            self.player = MediaPlayer(self.video_source, format="v4l2", options={
-                "video_size": "1920x1080",
-                "framerate": "30"
-            })
-            print(f"✅ 摄像头已打开: {self.video_source}")
+            # 通过 CameraDriver 打开摄像头
+            if not self.camera_driver.connect():
+                print(f"❌ 无法打开摄像头: {self.video_source}")
+                return
+            
+            # 获取 MediaPlayer 并添加视频轨道
+            player = self.camera_driver.get_player()
             
             # 创建 PeerConnection
             self.pc = RTCPeerConnection()
@@ -57,7 +65,7 @@ class WebRTCStreamer:
             ]
             self.pc.iceCandidatePoolSize=10
             # 添加视频轨道
-            self.pc.addTrack(self.player.video)
+            self.pc.addTrack(player.video)
             
             # 处理 ICE 候选
             @self.pc.on("icecandidate")
@@ -131,12 +139,8 @@ class WebRTCStreamer:
         """停止视频推流"""
         self.is_streaming = False
         
-        if self.player:
-            try:
-                self.player.video.stop()
-            except Exception:
-                pass
-            self.player = None
+        # 关闭摄像头驱动
+        self.camera_driver.disconnect()
 
         if self.pc:
             try:

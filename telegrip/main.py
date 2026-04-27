@@ -631,10 +631,10 @@ class TelegripSystem:
             # Connect to Aider Server via WebSocket client
             await self.vr_ws_client.connect()
             
-            # 启动 WebRTC 视频推流
-            if getattr(self.config, 'enable_webrtc', False):
-                logger.info("📹 启动 WebRTC 视频推流...")
-                await self.webrtc_streamer.start_streaming()
+            # WebRTC 视频推流改为按需启动(前端请求时才开启)
+            # if getattr(self.config, 'enable_webrtc', False):
+            #     logger.info("📹 启动 WebRTC 视频推流...")
+            #     await self.webrtc_streamer.start_streaming()
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()
@@ -676,10 +676,10 @@ class TelegripSystem:
             # Connect to Aider Server via WebSocket client
             await self.vr_ws_client.connect()
             
-            # 启动 WebRTC 视频推流
-            if getattr(self.config, 'enable_webrtc', False):
-                logger.info("📹 启动 WebRTC 视频推流...")
-                await self.webrtc_streamer.start_streaming()
+            # WebRTC 视频推流改为按需启动(前端请求时才开启)
+            # if getattr(self.config, 'enable_webrtc', False):
+            #     logger.info("📹 启动 WebRTC 视频推流...")
+            #     await self.webrtc_streamer.start_streaming()
 
             # Start web keyboard handler
             await self.web_keyboard_handler.start()

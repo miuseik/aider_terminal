@@ -20,7 +20,6 @@ from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_IND
 from .core.robot_interface import RobotInterface
 from controller.motor_controller import MotorController
 from router.api_router import APICommandRouter
-from dispatcher.action_dispatcher import ActionDispatcher  # 新增:动作分发器
 # PyBulletVisualizer will be imported on demand
 from .inputs.base import ControlGoal, ControlMode
 from .core.wheels import body_to_wheel_raw
@@ -84,7 +83,6 @@ class ControlLoop:
         self.robot_interface = None  # 机器人硬件接口(连接真机)
         self.motor_controller = None  # 电机控制器
         self.api_router = None  # API命令路由器
-        self.action_dispatcher = None  # 动作分发器(新增!)
         self.visualizer = None  # PyBullet 可视化器(仿真环境)
         self.web_keyboard_handler = None  # Web 键盘处理器引用
         
@@ -152,18 +150,9 @@ class ControlLoop:
                 
                 # 初始化API命令路由器
                 self.api_router = APICommandRouter(
-                    motor_controller=self.motor_controller,
-                    action_dispatcher=self.action_dispatcher  # 传入ActionDispatcher
+                    motor_controller=self.motor_controller
                 )
                 logger.info("✅ API command router initialized")
-                
-                # 初始化动作分发器(新增!)
-                # ActionDispatcher负责统一分发控制指令到仿真和真机
-                self.action_dispatcher = ActionDispatcher(
-                    config=self.config.__dict__,  # 转换为字典
-                    visualizer=self.visualizer
-                )
-                logger.info("✅ Action dispatcher initialized")
         except Exception as e:
             error_msg = f"Robot interface setup failed with exception: {e}"
             logger.error(error_msg)
@@ -624,30 +613,8 @@ class ControlLoop:
             self._update_mobile_base(vr_data)
         else:
             print(f"🎮 Using keyboard base control, skipping VR joystick")
-        
-        # 3. 构造完整的 AlohaMini Action 字典
-        action_dict = self._build_alohamini_action()
-        
-        # 4. 调试打印：查看生成的完整指令 (每 20 帧打印一次，防止刷屏)
-        if hasattr(self, '_frame_count'):
-            self._frame_count += 1
-        else:
-            self._frame_count = 0
-        
-        if self._frame_count % 20 == 0 and action_dict:
-            logger.info(f"📦 Action: lift.height_mm={action_dict.get('lift.height_mm')}, base_vel_y={action_dict.get('base.back_wheel.vel')}")
-        
-        # 5. 更新仿真中的底盘位置
-        if self.visualizer and self.config.aloha_enabled:
-            sim_action = {
-                "lift.height_mm": action_dict.get("lift.height_mm", 0),
-                "base.vx": self.base_velocity_target["x"],
-                "base.vy": self.base_velocity_target["y"],
-                "base.vtheta": self.base_velocity_target["theta"],
-            }
-            self.visualizer.update_mobile_base_simulation(sim_action)
-        
-        # 6. 更新左臂(仅在连接或纯仿真模式下)
+
+        # 4. 更新左臂(仅在连接或纯仿真模式下)
         if (self.left_arm.mode == ControlMode.POSITION_CONTROL and 
             self.left_arm.target_position is not None):
             # 检查机械臂是否连接或处于无机器人模式
@@ -697,25 +664,40 @@ class ControlLoop:
             else:
                 logger.debug(f"Skipping right arm update: connected={arm_connected}, enable_robot={self.config.enable_robot}")
 
-        # === 通过 ActionDispatcher 分发指令 ===
-        if self.action_dispatcher:
-            # 构造完整 Action 字典
-            action_dict = self._build_alohamini_action()
-            
-            # 分发到仿真(ActionDispatcher内部处理)
-            self.action_dispatcher.dispatch_action(action_dict)
-        
+
         # === 发送指令到真机 ===
         # send_command()负责将robot_interface的角度数组发送到真机硬件
         if self.robot_interface.is_connected and self.robot_interface.is_engaged:
             self.robot_interface.send_command()
+        
+        # === 同步状态到 robot_interface (用于 status 接口) ===
+        if self.robot_interface:
+            # 更新底盘状态
+            self.robot_interface.base_velocity_target = {
+                "x": self.base_velocity_target["x"],
+                "y": self.base_velocity_target["y"],
+                "theta": self.base_velocity_target["theta"]
+            }
+            
+            # 更新升降轴状态 (aloha_height 单位是米,转换为毫米)
+            self.robot_interface.lift_height_mm = int(self.aloha_height * 1000)
     
     def _update_visualization(self):
         """更新 PyBullet 可视化。"""
         if not self.visualizer:
             return
         
-        # 使用机器人硬件的实际角度更新两个机械臂的姿态
+        # 1. 更新仿真中的底盘位置
+        if self.config.aloha_enabled:
+            sim_action = {
+                "lift.height_mm": int(self.aloha_height * 1000),
+                "base.vx": self.base_velocity_target["x"],
+                "base.vy": self.base_velocity_target["y"],
+                "base.vtheta": self.base_velocity_target["theta"],
+            }
+            self.visualizer.update_mobile_base_simulation(sim_action)
+        
+        # 2. 使用机器人硬件的实际角度更新两个机械臂的姿态
         # 在无机器人模式下,get_arm_angles 返回仿真角度
         left_angles = self.robot_interface.get_actual_arm_angles("left")
         right_angles = self.robot_interface.get_actual_arm_angles("right")
@@ -800,12 +782,44 @@ class ControlLoop:
     @property
     def status(self) -> Dict:
         """获取当前控制循环状态。"""
-        return {
+        # 基础状态
+        status = {
             "running": self.is_running,
             "left_arm_mode": self.left_arm.mode.value,
             "right_arm_mode": self.right_arm.mode.value,
-            "robot_connected": self.robot_interface.is_connected if self.robot_interface else False,
-            "left_arm_connected": self.robot_interface.get_arm_connection_status("left") if self.robot_interface else False,
-            "right_arm_connected": self.robot_interface.get_arm_connection_status("right") if self.robot_interface else False,
             "visualizer_connected": self.visualizer.is_connected if self.visualizer else False,
-        } 
+        }
+        
+        # 合并机器人硬件详细状态
+        if self.robot_interface:
+            status.update({
+                # 连接状态
+                "robot_connected": self.robot_interface.is_connected,
+                "left_arm_connected": self.robot_interface.left_arm_connected,
+                "right_arm_connected": self.robot_interface.right_arm_connected,
+                
+                # 机械臂角度
+                "left_arm_angles": self.robot_interface.left_arm_angles.tolist(),
+                "right_arm_angles": self.robot_interface.right_arm_angles.tolist(),
+                "joint_limits_min": self.robot_interface.joint_limits_min_deg.tolist(),
+                "joint_limits_max": self.robot_interface.joint_limits_max_deg.tolist(),
+                
+                # 底盘状态
+                "base_connected": self.robot_interface.base_connected,
+                "base_velocity_target": self.robot_interface.base_velocity_target,
+                
+                # 升降轴状态
+                "lift_connected": self.robot_interface.lift_connected,
+                "lift_height_mm": self.robot_interface.lift_height_mm
+            })
+        else:
+            # 机器人未初始化时的默认值
+            status.update({
+                "robot_connected": False,
+                "left_arm_connected": False,
+                "right_arm_connected": False,
+                "base_connected": False,
+                "lift_connected": False
+            })
+        
+        return status 

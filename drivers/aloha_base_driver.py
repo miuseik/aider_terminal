@@ -8,12 +8,11 @@ Aloha底盘驱动 - 控制3个轮子和升降轴
 
 import logging
 from typing import Dict, Optional
-from .base_driver import BaseDriver
 
 logger = logging.getLogger(__name__)
 
 
-class AlohaBaseDriver(BaseDriver):
+class AlohaBaseDriver:
     """Aloha底盘驱动"""
     
     def __init__(self, config):
@@ -26,7 +25,7 @@ class AlohaBaseDriver(BaseDriver):
                 - wheel_motor_ids: 轮子电机ID {left, back, right}
                 - lift_motor_id: 升降轴电机ID
         """
-        super().__init__(config)
+        self.config = config
         self.port = config.get('port', '/dev/ttyUSB2')
         self.wheel_motor_ids = config.get('wheel_motor_ids', {
             'left': 10,
@@ -34,6 +33,7 @@ class AlohaBaseDriver(BaseDriver):
             'right': 12
         })
         self.lift_motor_id = config.get('lift_motor_id', 13)
+        self.is_connected = False
     
     def connect(self) -> bool:
         """连接到底盘控制器"""

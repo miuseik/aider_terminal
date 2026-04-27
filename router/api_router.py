@@ -12,16 +12,14 @@ logger = logging.getLogger(__name__)
 class APICommandRouter:
     """API命令路由器 - 根据action字段路由到对应的处理方法"""
     
-    def __init__(self, motor_controller, action_dispatcher=None):
+    def __init__(self, motor_controller):
         """
         初始化API命令路由器
         
         Args:
             motor_controller: 电机控制器实例
-            action_dispatcher: 动作分发器实例(可选)
         """
         self.motor_controller = motor_controller
-        self.action_dispatcher = action_dispatcher
     
     def route(self, command: Dict[str, Any]) -> bool:
         """
@@ -262,17 +260,9 @@ class APICommandRouter:
         
         logger.info(f"💾 保存校准配置: {filepath}")
         
-        if not self.action_dispatcher or not hasattr(self.action_dispatcher, 'calibration_mgr'):
-            logger.warning("⚠️ 校准管理器未初始化")
-            return False
-        
-        success = self.action_dispatcher.calibration_mgr.save_calibration(filepath)
-        if success:
-            logger.info(f"✅ 校准配置已保存")
-        else:
-            logger.error(f"❌ 保存校准配置失败")
-        
-        return success
+        # TODO: 实现校准配置保存功能
+        logger.warning("⚠️ 校准配置保存功能待实现")
+        return False
     
     def _route_load_calibration(self, command: Dict[str, Any]) -> bool:
         """路由加载校准配置命令"""
@@ -280,14 +270,6 @@ class APICommandRouter:
         
         logger.info(f"📂 加载校准配置: {filepath}")
         
-        if not self.action_dispatcher or not hasattr(self.action_dispatcher, 'calibration_mgr'):
-            logger.warning("⚠️ 校准管理器未初始化")
-            return False
-        
-        success = self.action_dispatcher.calibration_mgr.load_calibration(filepath)
-        if success:
-            logger.info(f"✅ 校准配置已加载")
-        else:
-            logger.error(f"❌ 加载校准配置失败")
-        
-        return success
+        # TODO: 实现校准配置加载功能
+        logger.warning("⚠️ 校准配置加载功能待实现")
+        return False

@@ -13,7 +13,7 @@ import contextlib
 from typing import Optional, Dict, Tuple
 
 # New lerobot structure imports
-from lerobot.robots.so_follower.so_follower import SOFollower, SOFollowerRobotConfig
+from drivers.so_follower import SOFollower, SOFollowerRobotConfig
 
 from ..config import (
     TelegripConfig, NUM_JOINTS, JOINT_NAMES,
@@ -96,6 +96,14 @@ class RobotInterface:
         # 安全关机的初始位置
         self.initial_left_arm = np.array([0, -100, 100, 60, 0, 0])
         self.initial_right_arm = np.array([0, -100, 100, 60, 0, 0])
+        
+        # 底盘状态 (由 control_loop 更新)
+        self.base_connected = False
+        self.base_velocity_target = {"x": 0.0, "y": 0.0, "theta": 0.0}
+        
+        # 升降轴状态 (由 control_loop 更新)
+        self.lift_connected = False
+        self.lift_height_mm = 0  # 升降轴高度(毫米)
     
     def setup_robot_configs(self) -> Tuple[SOFollowerRobotConfig, SOFollowerRobotConfig]:
         """为两个机械臂创建机器人配置。"""
@@ -566,15 +574,4 @@ class RobotInterface:
             self.left_arm_connected = os.path.exists(self.config.follower_ports["left"])
             self.right_arm_connected = os.path.exists(self.config.follower_ports["right"])
     
-    @property
-    def status(self) -> Dict:
-        """获取机器人状态信息。"""
-        return {
-            "connected": self.is_connected,
-            "left_arm_connected": self.left_arm_connected,
-            "right_arm_connected": self.right_arm_connected,
-            "left_arm_angles": self.left_arm_angles.tolist(),
-            "right_arm_angles": self.right_arm_angles.tolist(),
-            "joint_limits_min": self.joint_limits_min_deg.tolist(),
-            "joint_limits_max": self.joint_limits_max_deg.tolist(),
-        } 
+ 
