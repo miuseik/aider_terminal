@@ -270,6 +270,8 @@ class TelegripSystem:
             self.tasks.append(command_processor_task)
 
             logger.info("系统重启成功完成")
+
+            # 如果请求则自动连接机器人（在重启后保留自动连接行为）
             if self.config.autoconnect and self.config.enable_robot:
                 logger.info("🔌 重启后自动连接机器人电机...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle
@@ -295,11 +297,7 @@ class TelegripSystem:
 
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.vr_ws_client.connect()
-            
-            # 设置全局 ws_client 引用(用于 API Router 发送结果)
-            from router.api_router import APICommandRouter
-            APICommandRouter.set_ws_client(self.vr_ws_client)
-            
+
             # WebRTC 视频推流改为按需启动(前端请求时才开启)
             # if getattr(self.config, 'enable_webrtc', False):
             #     logger.info("📹 启动 WebRTC 视频推流...")
@@ -317,6 +315,8 @@ class TelegripSystem:
             self.tasks.append(command_processor_task)
 
             logger.info("所有系统组件启动成功")
+
+            # 如果请求则自动连接机器人
             if self.config.autoconnect and self.config.enable_robot:
                 logger.info("🔌 自动连接机器人电机...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle

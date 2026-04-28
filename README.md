@@ -12,6 +12,13 @@ git checkout 。/
 ```bash
 ssh root@121.40.151.10
 ```
+```bash
+conda activate aider
+```
+```bash
+pip install -e .
+```
+
 ### 开发/测试模式
 
 **仅可视化**（无机器人硬件）：
