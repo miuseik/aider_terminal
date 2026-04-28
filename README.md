@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "删除了httpserver,翻译了部分注释";git push
+git add ./;git commit -m "新增舵机调试功能,未干预主程序";git push
 ```
 
 ```bash

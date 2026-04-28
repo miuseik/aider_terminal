@@ -2,7 +2,7 @@
 import asyncio
 import json
 from aiortc import RTCPeerConnection, RTCSessionDescription
-from drivers.camera_driver import CameraDriver
+from drivers.camera.camera_driver import CameraDriver
 
 
 class WebRTCStreamer:

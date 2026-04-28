@@ -188,7 +188,11 @@ GRIPPER_STEP = 10.0 # degrees
 # --- 设备端口 ---
 DEFAULT_FOLLOWER_PORTS = {
     "left": _config_data["robot"]["left_arm"]["port"],
-    "right": _config_data["robot"]["right_arm"]["port"]
+    "right": _config_data["robot"]["right_arm"]["port"],
+    "left_servo_type": _config_data["robot"]["left_arm"].get("servo_type", "st3215"),
+    "left_baudrate": _config_data["robot"]["left_arm"].get("baudrate", 1000000),
+    "right_servo_type": _config_data["robot"]["right_arm"].get("servo_type", "st3215"),
+    "right_baudrate": _config_data["robot"]["right_arm"].get("baudrate", 1000000)
 }
 
 @dataclass

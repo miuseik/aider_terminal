@@ -48,6 +48,7 @@ class APICommandRouter:
             
             # === 电机硬件控制 ===
             'set_motor_id': self._route_set_motor_id,
+            'edit_motor_id': self._route_set_motor_id,  # 别名，兼容前端调用
             'set_operation_mode': self._route_set_mode,
             'set_velocity': self._route_set_velocity,
             'set_torque': self._route_set_torque,
@@ -178,22 +179,83 @@ class APICommandRouter:
             return False
     
     def _route_set_motor_id(self, command: Dict[str, Any]) -> bool:
-        """路由设置电机ID命令"""
-        old_id = command.get('old_id')
-        new_id = command.get('new_id')
+        """路由设置电机ID命令（纯硬件操作）
         
-        if not all([old_id is not None, new_id is not None]):
+        支持两种调用方式：
+        1. 直接指定串口和舵机类型（推荐）：port, servo_type, old_id, new_id
+        2. 通过机械臂信息推断：arm, motor, current_id, new_id
+        """
+        # 方式1：直接指定串口和舵机类型
+        port = command.get('port')
+        servo_type = command.get('servo_type')
+        old_id = command.get('old_id') or command.get('current_id')
+        new_id = command.get('new_id')
+        baudrate = command.get('baudrate', 115200)
+        
+        # 方式2：通过机械臂信息推断（从配置中获取）
+        if not port or not servo_type:
+            arm = command.get('arm')
+            motor_name = command.get('motor')
+            
+            if arm and motor_name:
+                logger.info(f"🔧 通过机械臂信息推断配置: {arm}臂 {motor_name}")
+                
+                # 从 telegrip 配置中获取串口和舵机类型
+                try:
+                    from telegrip.config import config, get_config_data
+                    config_data = get_config_data()
+                    
+                    if arm == 'left':
+                        port = config.follower_ports.get('left', '/dev/ttyACM0')
+                        servo_type = config_data.get('robot', {}).get('left_arm', {}).get('servo_type', 'st3215')
+                        baudrate = config_data.get('robot', {}).get('left_arm', {}).get('baudrate', 1000000)
+                    elif arm == 'right':
+                        port = config.follower_ports.get('right', '/dev/ttyACM1')
+                        servo_type = config_data.get('robot', {}).get('right_arm', {}).get('servo_type', 'st3215')
+                        baudrate = config_data.get('robot', {}).get('right_arm', {}).get('baudrate', 1000000)
+                    else:
+                        logger.error(f"❌ 无效的机械臂: {arm}")
+                        return False
+                    
+                    logger.info(f"✅ 配置推断成功: port={port}, servo_type={servo_type}, baudrate={baudrate}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ 配置推断失败: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    return False
+            else:
+                logger.error("❌ set_motor_id 命令缺少必要参数")
+                logger.error(f"   方式1需要: port, servo_type, old_id/current_id, new_id")
+                logger.error(f"   方式2需要: arm, motor, current_id, new_id")
+                logger.error(f"   收到: {command}")
+                return False
+        
+        if not all([port, servo_type, old_id is not None, new_id is not None]):
             logger.error("❌ set_motor_id 命令缺少必要参数")
+            logger.error(f"   需要: port, servo_type, old_id/current_id, new_id")
+            logger.error(f"   收到: {command}")
             return False
         
-        logger.info(f"🔧 设置电机ID: {old_id} → {new_id}")
+        logger.info(f"🔧 设置电机ID: {port} ({servo_type}) ID {old_id} → {new_id}")
         
-        # TODO: 调用底层驱动设置ID
-        # if hasattr(self.motor_controller, 'driver'):
-        #     return self.motor_controller.driver.set_motor_id(old_id, new_id)
-        
-        logger.warning("⚠️ 设置电机ID功能待实现")
-        return False
+        # 调用 motor_controller 的设置ID方法（纯硬件操作）
+        if hasattr(self.motor_controller, 'set_motor_id'):
+            success = self.motor_controller.set_motor_id(
+                port=port,
+                servo_type=servo_type,
+                old_id=old_id,
+                new_id=new_id,
+                baudrate=baudrate
+            )
+            if success:
+                logger.info(f"✅ 电机ID设置成功: {port} {old_id} → {new_id}")
+            else:
+                logger.error(f"❌ 电机ID设置失败: {port} {old_id} → {new_id}")
+            return success
+        else:
+            logger.error("❌ motor_controller 没有 set_motor_id 方法")
+            return False
     
     def _route_set_mode(self, command: Dict[str, Any]) -> bool:
         """路由设置电机模式命令"""

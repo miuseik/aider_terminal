@@ -19,6 +19,8 @@ dependencies = [
     "pybullet",
     "scipy",
     "pyyaml",
+    "feetech-servo-sdk",  # ST3215总线舵机驱动SDK
+    # "el_a3_sdk",  # Robstride灵足电机驱动SDK (Linux only, 需要手动安装)
 ]
 
 requires-python = ">=3.8"

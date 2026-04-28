@@ -12,7 +12,7 @@ import contextlib
 from typing import Optional, Dict, Tuple
 
 # New lerobot structure imports
-from drivers.so_follower import SOFollower, SOFollowerRobotConfig
+from robots.so_follower import SOFollower, SOFollowerRobotConfig
 
 from ..config import (
     TelegripConfig, NUM_JOINTS, JOINT_NAMES,
