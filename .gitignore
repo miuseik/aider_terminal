@@ -48,6 +48,7 @@ pytest_cache/
 # Environments
 .env
 .venv
+.idea
 env/
 venv/
 ENV/
