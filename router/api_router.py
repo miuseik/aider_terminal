@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 class APICommandRouter:
     """API命令路由器 - 根据action字段路由到对应的处理方法"""
     
+    # 类级别的全局 ws_client 引用
+    _ws_client = None
+    
+    @classmethod
+    def set_ws_client(cls, ws_client):
+        """设置全局 WebSocket 客户端引用"""
+        cls._ws_client = ws_client
+    
     def __init__(self, motor_controller):
         """
         初始化API命令路由器
@@ -49,6 +57,7 @@ class APICommandRouter:
             # === 电机硬件控制 ===
             'set_motor_id': self._route_set_motor_id,
             'edit_motor_id': self._route_set_motor_id,  # 别名，兼容前端调用
+            'scan_servos': self._route_scan_servos,  # 扫描在线舵机
             'set_operation_mode': self._route_set_mode,
             'set_velocity': self._route_set_velocity,
             'set_torque': self._route_set_torque,
@@ -315,6 +324,55 @@ class APICommandRouter:
         
         logger.warning("⚠️ 设置电机力矩功能待实现")
         return False
+    
+    def _route_scan_servos(self, command: Dict[str, Any]) -> bool:
+        """路由扫描舵机命令"""
+        port = command.get('port', '/dev/ttyACM0')
+        servo_type = command.get('servo_type', 'st3215')
+        start_id = command.get('start_id', 1)
+        end_id = command.get('end_id', 20)
+        baudrate = command.get('baudrate', 1000000)
+        
+        logger.info(f"🔍 扫描舵机: {port} ({servo_type}) ID范围 {start_id}-{end_id}")
+        
+        # 调用 controller 的扫描方法
+        if hasattr(self.motor_controller, 'scan_servos'):
+            found_servos = self.motor_controller.scan_servos(
+                port=port,
+                servo_type=servo_type,
+                start_id=start_id,
+                end_id=end_id,
+                baudrate=baudrate
+            )
+            
+            logger.info(f"✅ 扫描完成，找到 {len(found_servos)} 个舵机")
+            
+            # 通过 WebSocket 返回结果给 server
+            self._send_scan_result(found_servos)
+            return True
+        else:
+            logger.error("❌ motor_controller 没有 scan_servos 方法")
+            return False
+    
+    def _send_scan_result(self, servos: list):
+        """发送扫描结果到 Server"""
+        try:
+            import json
+            result_message = {
+                'type': 'scan_servos_response',
+                'result': servos
+            }
+            logger.info(f"📤 准备发送扫描结果: {len(servos)} 个舵机")
+            
+            # 通过全局 ws_client 发送到 server
+            if APICommandRouter._ws_client and hasattr(APICommandRouter._ws_client, 'transport'):
+                from telegrip.inputs.socket.ws_protocol import encode_message
+                APICommandRouter._ws_client.transport.send_raw(encode_message(result_message))
+                logger.info(f"✅ 扫描结果已发送到 Server")
+            else:
+                logger.warning("⚠️ WebSocket client 未初始化，结果无法返回")
+        except Exception as e:
+            logger.error(f"❌ 发送扫描结果失败: {e}")
     
     def _route_save_calibration(self, command: Dict[str, Any]) -> bool:
         """路由保存校准配置命令"""

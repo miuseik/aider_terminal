@@ -3,6 +3,6 @@
 基于 feetech-servo-sdk 实现
 """
 
-from .st3215_driver import ST3215Driver, ServoMode
+from .st3215_driver import ST3215Driver
 
-__all__ = ['ST3215Driver', 'ServoMode']
+__all__ = ['ST3215Driver']

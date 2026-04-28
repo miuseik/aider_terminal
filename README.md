@@ -3,6 +3,9 @@ git add ./;git commit -m "新增舵机调试功能,未干预主程序";git push
 ```
 
 ```bash
+git pull
+```
+```bash
 git checkout 。/
 ```
 

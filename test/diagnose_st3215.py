@@ -16,7 +16,7 @@ def full_diagnosis():
     print("🔧 飞特 ST3215 全面诊断工具")
     print("=" * 70)
     
-    PORT = "COM10"
+    PORT = "/dev/ttyACM0"
     
     # 尝试所有常见波特率
     baudrates = [

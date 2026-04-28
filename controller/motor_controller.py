@@ -287,6 +287,74 @@ class MotorController:
             logger.error(traceback.format_exc())
             return False
     
+    def scan_servos(self, port: str, servo_type: str, start_id: int = 1, end_id: int = 20, baudrate: int = 1000000) -> list:
+        """
+        扫描指定范围内的在线舵机
+        
+        Args:
+            port: 串口号 (如 COM3, /dev/ttyUSB0)
+            servo_type: 舵机类型 ('lx16a' 或 'st3215')
+            start_id: 起始ID (默认1)
+            end_id: 结束ID (默认20)
+            baudrate: 波特率 (默认1000000)
+            
+        Returns:
+            list: 在线舵机列表 [{'id': 1, 'online': True}, ...]
+        """
+        found_servos = []
+        
+        try:
+            from drivers.bus_servo_driver import ServoType, create_servo_driver
+            
+            if servo_type.lower() == 'lx16a':
+                servo_type_enum = ServoType.LX16A
+            elif servo_type.lower() == 'st3215':
+                servo_type_enum = ServoType.ST3215
+            else:
+                logger.error(f"❌ 不支持的舵机类型: {servo_type}")
+                return []
+            
+            # 创建驱动实例
+            driver = create_servo_driver(
+                servo_type=servo_type_enum,
+                port=port,
+                baudrate=baudrate
+            )
+            
+            # 连接串口
+            if not driver.connect():
+                logger.error(f"❌ 无法连接到 {port}")
+                return []
+            
+            logger.info(f"🔍 开始扫描舵机: {port} ({servo_type}) ID范围 {start_id}-{end_id}")
+            
+            # 逐个Ping检测
+            for servo_id in range(start_id, end_id + 1):
+                if driver.ping(servo_id):
+                    found_servos.append({
+                        'id': servo_id,
+                        'online': True
+                    })
+                    logger.info(f"✅ 发现舵机 ID={servo_id}")
+                else:
+                    logger.debug(f"⚪ ID={servo_id} 离线")
+                
+                # 短暂延迟避免通信冲突
+                import time
+                time.sleep(0.02)
+            
+            # 断开连接
+            driver.disconnect()
+            
+            logger.info(f"✅ 扫描完成，找到 {len(found_servos)} 个在线舵机")
+            return found_servos
+                
+        except Exception as e:
+            logger.error(f"❌ 扫描舵机异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
+    
     def read_sensor_data(self, arm: str, motor_name: str) -> Optional[Dict[str, float]]:
         """
         读取电机传感器数据
