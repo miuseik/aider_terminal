@@ -17,9 +17,10 @@ logger = logging.getLogger(__name__)
 class VRWebSocketClient:
     """WebSocket 业务层 - 处理 VR 数据和 API 命令"""
     
-    def __init__(self, config, vr_handler):
+    def __init__(self, config, vr_handler, motor_router=None):
         self.config = config
         self.vr_handler = vr_handler
+        self.motor_router = motor_router
         self.transport = WSTransport(config)
         self.client_id = "terminal"  # Terminal 始终使用此 ID
         self.webrtc_streamer = None  # WebRTC 推流器
@@ -80,12 +81,14 @@ class VRWebSocketClient:
     
     async def handle_api_command(self, data: dict):
         """处理来自服务器的 API 命令。"""
-        action = data.get('action')
-        print(f"🎮 收到 API 命令: {action}")
+        category = data.get('category')
+        print(f"😃来活了",data)
         
-        # 转发到 vr_handler 进行处理
-        if hasattr(self.vr_handler, 'process_message'):
+        if category == 'motor':
+            print("处理 motor 数据", data)
+            self.motor_router.route(data)
+        elif hasattr(self.vr_handler, 'process_message'):
+            print("处理 键盘 数据", data)
             await self.vr_handler.process_message(json.dumps(data))
-            print(f"✅ 命令已转发到 vr_handler")
         else:
-            print(f"❌ vr_handler 没有 process_message 方法")
+            print(f"❌ 都 没有 这个 方法")

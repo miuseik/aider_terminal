@@ -114,18 +114,38 @@ class VRHandler(BaseInputProvider):
         
         elif action == 'enable_keyboard':
             print("🎮 键盘控制已启用")
+            await self.control_loop._handle_command({'action': 'enable_keyboard'})
         
         elif action == 'disable_keyboard':
             print("🎮 键盘控制已禁用")
+            await self.control_loop._handle_command({'action': 'disable_keyboard'})
         
         elif action == 'robot_connect':
             print("🔌 收到机器人连接命令")
+            await self.control_loop._handle_command({'action': 'robot_connect'})
         
         elif action == 'robot_disconnect':
             print("🔌 收到机器人断开命令")
+            await self.control_loop._handle_command({'action': 'robot_disconnect'})
         
         elif action == 'restart':
             print("🔄 收到重启命令")
+            # 调用主应用的软重启方法
+            self.control_loop.main_app.restart()
+            
+            # 设置超时保护：10秒后强制硬重启
+            import threading
+            import os
+            import sys
+            
+            def force_restart():
+                import time
+                time.sleep(10)
+                print("⚠️ 软重启超时，执行强制硬重启")
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            
+            restart_thread = threading.Thread(target=force_restart, daemon=True)
+            restart_thread.start()
         
         elif action == 'keypress':
             key = data.get('key')

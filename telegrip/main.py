@@ -95,7 +95,13 @@ class TelegripSystem:
         
         # 组件
         self.vr_handler = VRHandler(self.command_queue, config)
-        self.vr_ws_client = VRWebSocketClient(config, self.vr_handler)
+        
+        # 初始化 API 路由器
+        from router.motor_router import MotorRouter
+        self.motor_router = MotorRouter(control_loop=None)  # control_loop 稍后设置
+        
+        self.vr_ws_client = VRWebSocketClient(config, self.vr_handler, self.motor_router)
+        MotorRouter.set_ws_client(self.vr_ws_client)  # 设置 ws_client 引用
         
         # 初始化 WebRTC 推流器
         video_source = getattr(config, 'video_source', '/dev/video0')
@@ -104,11 +110,15 @@ class TelegripSystem:
         
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
+        
+        # 设置 control_loop 到 motor_router
+        self.motor_router.control_loop = self.control_loop
 
         # 设置交叉引用
         self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
         self.vr_handler.control_loop = self.control_loop  # ← 添加 control_loop 引用
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
+        self.control_loop.main_app = self  # ← 添加 main_app 引用
 
         # 为 ESC 键设置断开连接回调
         self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")
@@ -226,7 +236,13 @@ class TelegripSystem:
 
             # 创建新组件
             self.vr_handler = VRHandler(self.command_queue, self.config)
-            self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler)
+            
+            # 重新初始化 API 路由器
+            from router.motor_router import MotorRouter
+            self.motor_router = MotorRouter(control_loop=None)
+            
+            self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler, self.motor_router)
+            MotorRouter.set_ws_client(self.vr_ws_client)
             
             # 重新初始化 WebRTC 推流器
             video_source = getattr(self.config, 'video_source', '/dev/video0')
@@ -235,11 +251,15 @@ class TelegripSystem:
             
             self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
+            
+            # 设置 control_loop 到 motor_router
+            self.motor_router.control_loop = self.control_loop
 
             # 设置交叉引用
             self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
             self.vr_handler.control_loop = self.control_loop  # ← 添加 control_loop 引用
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
+            self.control_loop.main_app = self  # ← 添加 main_app 引用
 
             # 为 ESC 键设置断开连接回调
             self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")

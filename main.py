@@ -31,8 +31,8 @@ if __name__ == "__main__":
     if '--no-robot' not in sys.argv:
         sys.argv.append('--no-robot')
     # 默认使用 info 日志级别
-    if '--log-level' not in sys.argv:
-        sys.argv.extend(['--log-level', 'info'])
+    # if '--log-level' not in sys.argv:
+    #     sys.argv.extend(['--log-level', 'info'])
     # 默认使用 localhost 作为服务器地址
     if '--server-host' not in sys.argv:
         # sys.argv.extend(['--server-host', 'ws.houqicg.com'])

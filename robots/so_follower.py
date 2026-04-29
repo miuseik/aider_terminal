@@ -81,13 +81,13 @@ class SOFollower:
             action: 关节角度字典，如 {"shoulder_pan.pos": 45.0, ...}
         """
         if not self.is_connected:
-            logger.debug(f"{self.config.id}.send_action() 跳过 (未连接): {action}")
+            print(f"{self.config.id}.send_action() 跳过 (未连接)----------------: {action}")
             return
-        
         try:
+            print(f"📤 [{self.config.id}] 发送动作数据----------------: {action}")
             self.driver.send_action(action, time_ms=50)
         except Exception as e:
-            logger.error(f"{self.config.id} 发送指令失败: {e}")
+            logger.error(f"{self.config.id} 发送指令失败----------------: {e}")
     
     def get_observation(self) -> Dict[str, Any]:
         """

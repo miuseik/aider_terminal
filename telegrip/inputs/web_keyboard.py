@@ -148,7 +148,7 @@ class WebKeyboardHandler(BaseInputProvider):
                     pass
 
             except Exception as e:
-                logger.error(f"Failed to set web keyboard origin for {arm} arm: {e}")
+                logger.error(f"设置网页键盘原点失败 {arm}臂: {e}")
 
     def _update_key_activity(self, arm: str, is_movement_key: bool = True):
         """更新机械臂的最后按键活动时间。"""
@@ -163,7 +163,7 @@ class WebKeyboardHandler(BaseInputProvider):
 
         if not arm_state["position_control_active"]:
             arm_state["position_control_active"] = True
-            print(f"{arm.upper()} arm position control: AUTO-ACTIVATED (web)")
+            print(f"{arm.upper()}臂位置控制: 自动激活(网页)")
             self._send_mode_change_goal(arm)
             self._set_keyboard_origin(arm)
 
@@ -219,7 +219,7 @@ class WebKeyboardHandler(BaseInputProvider):
             # 左夹爪控制
             elif key == 'f':
                 self.left_arm_state["gripper_closed"] = not self.left_arm_state["gripper_closed"]
-                logger.info(f"LEFT gripper: {'CLOSED' if self.left_arm_state['gripper_closed'] else 'OPENED'} (web)")
+                logger.info(f"左夹爪: {'闭合' if self.left_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("left")
 
             # 右臂控制(UIOJKL)
@@ -271,34 +271,34 @@ class WebKeyboardHandler(BaseInputProvider):
             # 右夹爪控制
             elif key == ';':
                 self.right_arm_state["gripper_closed"] = not self.right_arm_state["gripper_closed"]
-                logger.info(f"RIGHT gripper: {'CLOSED' if self.right_arm_state['gripper_closed'] else 'OPENED'} (web)")
+                logger.info(f"右夹爪: {'闭合' if self.right_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("right")
 
             # 底盘控制(方向键 + 数字键 + V/B)
             elif key == 'arrowup':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_x"] = 0.5  # 前进
-                print(f"🎮 底盘控制: 前进 velocity_x=0.5")
+                print(f"🎮key 底盘控制: 前进 velocity_x=0.5")
             elif key == 'arrowdown':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_x"] = -0.5  # 后退
-                print(f"🎮 底盘控制: 后退 velocity_x=-0.5")
+                print(f"🎮key 底盘控制: 后退 velocity_x=-0.5")
             elif key == 'arrowleft':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_theta"] = 0.5  # 左转
-                print(f"🎮 底盘控制: 左转 velocity_theta=0.5")
+                print(f"🎮key 底盘控制: 左转 velocity_theta=0.5")
             elif key == 'arrowright':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_theta"] = -0.5  # 右转
-                print(f"🎮 底盘控制: 右转 velocity_theta=-0.5")
+                print(f"🎮key 底盘控制: 右转 velocity_theta=-0.5")
             elif key == '7':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_y"] = 0.3  # 左平移
-                print(f"🎮 底盘控制: 左平移 velocity_y=0.3")
+                print(f"🎮key 底盘控制: 左平移 velocity_y=0.3")
             elif key == '9':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_y"] = -0.3  # 右平移
-                print(f"🎮 底盘控制: 右平移 velocity_y=-0.3")
+                print(f"🎮key 底盘控制: 右平移 velocity_y=-0.3")
             elif key == 'v':
                 self.base_state["base_control_active"] = True
                 # 升降轴上升 - 发送高度增量命令
@@ -327,11 +327,11 @@ class WebKeyboardHandler(BaseInputProvider):
             # 特殊按键
             elif key == 'tab':
                 self.left_arm_state["position_control_active"] = not self.left_arm_state["position_control_active"]
-                logger.info(f"LEFT arm position control: {'ACTIVATED' if self.left_arm_state['position_control_active'] else 'DEACTIVATED'} (web)")
+                logger.info(f"左臂位置控制: {'激活' if self.left_arm_state['position_control_active'] else '停用'} (网页)")
                 self._send_mode_change_goal("left")
             elif key == 'enter':
                 self.right_arm_state["position_control_active"] = not self.right_arm_state["position_control_active"]
-                logger.info(f"RIGHT arm position control: {'ACTIVATED' if self.right_arm_state['position_control_active'] else 'DEACTIVATED'} (web)")
+                logger.info(f"右臂位置控制: {'激活' if self.right_arm_state['position_control_active'] else '停用'} (网页)")
                 self._send_mode_change_goal("right")
             elif key == 'esc':
                 logger.info("通过Web按下ESC - 断开机器人连接")
@@ -339,7 +339,7 @@ class WebKeyboardHandler(BaseInputProvider):
                     self.disconnect_callback()
 
         except Exception as e:
-            logger.error(f"Error handling web key press '{key}': {e}")
+            logger.error(f"处理网页按键按下 '{key}' 错误: {e}")
 
     def on_key_release(self, key: str):
         """处理来自Web UI的按键释放事件。"""
@@ -395,7 +395,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.base_state["base_control_active"] = False
 
         except Exception as e:
-            logger.error(f"Error handling web key release '{key}': {e}")
+            logger.error(f"处理网页按键释放 '{key}' 错误: {e}")
 
     def _check_if_all_keys_released(self, arm: str):
         """检查机械臂的所有移动按键是否已释放。"""
@@ -467,7 +467,7 @@ class WebKeyboardHandler(BaseInputProvider):
                             arm_state["delta_wrist_roll"] != 0 or
                             arm_state["delta_wrist_flex"] != 0):
 
-                            print(f"🎮 Sending {arm} arm control: offset={arm_state['current_offset']}")
+                            print(f"🎮key 发送{arm}臂控制: offset={arm_state['current_offset']}")
                             goal = ControlGoal(
                                 arm=arm,
                                 mode=ControlMode.POSITION_CONTROL,
@@ -483,7 +483,7 @@ class WebKeyboardHandler(BaseInputProvider):
 
                 # 处理底盘控制
                 if self.base_state["base_control_active"]:
-                    print(f"🎮 Sending base control: x={self.base_state['velocity_x']}, y={self.base_state['velocity_y']}, theta={self.base_state['velocity_theta']}")
+                    print(f"🎮key 发送底盘控制: x={self.base_state['velocity_x']}, y={self.base_state['velocity_y']}, theta={self.base_state['velocity_theta']}")
                     goal = ControlGoal(
                         arm="base",
                         mode=ControlMode.IDLE,
@@ -504,7 +504,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 await asyncio.sleep(0.05)
 
             except Exception as e:
-                logger.error(f"Error in web keyboard control loop: {e}")
+                logger.error(f"网页键盘控制循环错误: {e}")
                 await asyncio.sleep(0.1)
 
         print("Web键盘控制循环已停止")

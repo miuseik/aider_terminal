@@ -1,6 +1,6 @@
 """
-API命令路由器
-处理从Server接收的WebSocket API控制命令
+Motor命令路由器
+处理从Server接收的WebSocket Motor控制命令
 """
 
 import logging
@@ -9,7 +9,7 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 
-class APICommandRouter:
+class MotorRouter:
     """API命令路由器 - 根据action字段路由到对应的处理方法"""
     
     # 类级别的全局 ws_client 引用
@@ -20,14 +20,21 @@ class APICommandRouter:
         """设置全局 WebSocket 客户端引用"""
         cls._ws_client = ws_client
     
-    def __init__(self, motor_controller):
+    def __init__(self, control_loop=None):
         """
-        初始化API命令路由器
+        初始化Motor命令路由器
         
         Args:
-            motor_controller: 电机控制器实例
+            control_loop: ControlLoop 实例（从中动态获取 motor_controller）
         """
-        self.motor_controller = motor_controller
+        self.control_loop = control_loop
+    
+    @property
+    def motor_controller(self):
+        """动态获取 motor_controller"""
+        if self.control_loop and hasattr(self.control_loop, 'motor_controller'):
+            return self.control_loop.motor_controller
+        return None
     
     def route(self, command: Dict[str, Any]) -> bool:
         """
@@ -58,6 +65,7 @@ class APICommandRouter:
             'set_motor_id': self._route_set_motor_id,
             'edit_motor_id': self._route_set_motor_id,  # 别名，兼容前端调用
             'scan_servos': self._route_scan_servos,  # 扫描在线舵机
+            'list_ports': self._route_list_ports,  # 获取串口列表
             'set_operation_mode': self._route_set_mode,
             'set_velocity': self._route_set_velocity,
             'set_torque': self._route_set_torque,
@@ -333,7 +341,7 @@ class APICommandRouter:
         end_id = command.get('end_id', 20)
         baudrate = command.get('baudrate', 1000000)
         
-        logger.info(f"🔍 扫描舵机: {port} ({servo_type}) ID范围 {start_id}-{end_id}")
+        print(f"🔍 扫描舵机: {port} ({servo_type}) ID范围 {start_id}-{end_id}")
         
         # 调用 controller 的扫描方法
         if hasattr(self.motor_controller, 'scan_servos'):
@@ -345,16 +353,17 @@ class APICommandRouter:
                 baudrate=baudrate
             )
             
-            logger.info(f"✅ 扫描完成，找到 {len(found_servos)} 个舵机")
+            print(f"✅ 扫描完成，找到 {len(found_servos)} 个舵机")
             
-            # 通过 WebSocket 返回结果给 server
-            self._send_scan_result(found_servos)
+            # 通过 WebSocket 返回结果（异步）
+            import asyncio
+            asyncio.create_task(self._send_scan_result(found_servos))
             return True
         else:
-            logger.error("❌ motor_controller 没有 scan_servos 方法")
+            print("❌ motor_controller 没有 scan_servos 方法")
             return False
     
-    def _send_scan_result(self, servos: list):
+    async def _send_scan_result(self, servos: list):
         """发送扫描结果到 Server"""
         try:
             import json
@@ -365,14 +374,58 @@ class APICommandRouter:
             logger.info(f"📤 准备发送扫描结果: {len(servos)} 个舵机")
             
             # 通过全局 ws_client 发送到 server
-            if APICommandRouter._ws_client and hasattr(APICommandRouter._ws_client, 'transport'):
+            if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
-                APICommandRouter._ws_client.transport.send_raw(encode_message(result_message))
+                await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
                 logger.info(f"✅ 扫描结果已发送到 Server")
             else:
                 logger.warning("⚠️ WebSocket client 未初始化，结果无法返回")
         except Exception as e:
             logger.error(f"❌ 发送扫描结果失败: {e}")
+    
+    def _route_list_ports(self, command: Dict[str, Any]) -> bool:
+        """路由获取串口列表命令"""
+        logger.info("🔍 获取串口列表")
+        
+        try:
+            import serial.tools.list_ports
+            ports = serial.tools.list_ports.comports()
+            # 过滤出真实的 USB 串口设备
+            port_list = [
+                port.device for port in ports 
+                if 'USB' in port.device or 'ACM' in port.device or 'ttyUSB' in port.device or 'ttyACM' in port.device
+            ]
+            
+            logger.info(f"✅ 发现 {len(port_list)} 个串口: {port_list}")
+            
+            # 通过 WebSocket 返回结果（异步）
+            import asyncio
+            asyncio.create_task(self._send_ports_result(port_list))
+            return True
+        except Exception as e:
+            logger.error(f"❌ 获取串口列表失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    async def _send_ports_result(self, ports: list):
+        """发送串口列表结果到 Server"""
+        try:
+            result_message = {
+                'type': 'list_ports_response',
+                'ports': ports
+            }
+            logger.info(f"📤 准备发送串口列表: {len(ports)} 个端口")
+            
+            # 通过全局 ws_client 发送到 server
+            if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
+                from telegrip.inputs.socket.ws_protocol import encode_message
+                await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
+                logger.info(f"✅ 串口列表已发送到 Server")
+            else:
+                logger.warning("⚠️ WebSocket client 未初始化，结果无法返回")
+        except Exception as e:
+            logger.error(f"❌ 发送串口列表失败: {e}")
     
     def _route_save_calibration(self, command: Dict[str, Any]) -> bool:
         """路由保存校准配置命令"""

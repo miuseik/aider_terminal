@@ -5,7 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
-
+old忽略这个目录/
 # Distribution / packaging
 .Python
 build/
