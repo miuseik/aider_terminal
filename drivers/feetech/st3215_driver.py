@@ -108,16 +108,14 @@ class ST3215Driver:
         if not self.is_connected:
             return False
         try:
-            # 写入 goal_speed 寄存器 (地址46, 2字节)
-            self.controller.write_register(servo_id, 46, 2, abs(speed))
-            
-            # 设置方向（通过 goal_position 的高位）
-            if speed < 0:
-                self.controller.write_register(servo_id, 42, 2, 0x8000)  # 逆时针
+            # ST3215 速度寄存器格式：bit15=方向(0=顺,1=逆), bit0-14=速度值
+            if speed >= 0:
+                speed_value = speed & 0x7FFF  # 顺时针，清除方向位
             else:
-                self.controller.write_register(servo_id, 42, 2, 0)  # 顺时针
+                speed_value = (abs(speed) & 0x7FFF) | 0x8000  # 逆时针，设置方向位
             
-            return True
+            success, _ = self.controller.write_register(servo_id, 46, 2, speed_value)
+            return success
         except Exception as e:
             print(f"❌ 设置速度失败: {e}")
             return False
@@ -125,3 +123,56 @@ class ST3215Driver:
     def stop(self, servo_id: int) -> bool:
         """停止舵机（速度模式下）"""
         return self.set_speed(servo_id, 0)
+    
+    def sync_write_velocity(self, targets: dict) -> bool:
+        """
+        同步写入多个舵机的速度
+        
+        Args:
+            targets: {servo_id: speed} 字典，如 {8: 100, 9: -50, 10: 200}
+        """
+        if not self.is_connected:
+            return False
+        try:
+            for servo_id, speed in targets.items():
+                self.set_speed(servo_id, speed)
+            return True
+        except Exception as e:
+            print(f"❌ 同步写入速度失败: {e}")
+            return False
+    
+    def write_position(self, servo_id: int, position: int) -> bool:
+        """
+        直接写入位置（不指定时间，立即执行）
+        
+        Args:
+            servo_id: 舵机ID
+            position: 目标位置 (0-4095)
+        """
+        if not self.is_connected:
+            return False
+        try:
+            success, _ = self.controller.write_register(servo_id, 42, 2, position)
+            return success
+        except Exception as e:
+            print(f"❌ 写入位置失败: {e}")
+            return False
+    
+    def reset_servo(self, servo_id: int) -> bool:
+        """
+        重置舵机（恢复出厂设置，ID 变为 1）
+        
+        Args:
+            servo_id: 当前舵机ID
+        """
+        if not self.is_connected:
+            return False
+        try:
+            # 写入复位命令到寄存器 0x1E
+            success, _ = self.controller.write_register(servo_id, 0x1E, 1, 0x01)
+            if success:
+                print(f"✅ 舵机 ID={servo_id} 已重置，请重新上电")
+            return success
+        except Exception as e:
+            print(f"❌ 重置舵机失败: {e}")
+            return False

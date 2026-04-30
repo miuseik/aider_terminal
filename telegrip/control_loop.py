@@ -18,9 +18,9 @@ from typing import Dict, Optional
 
 from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX
 from .core.robot_interface import RobotInterface
+from .core.visualizer_controller import VisualizerController
 from controller.motor_controller import MotorController
 from router.motor_router import MotorRouter
-from robots.dispatcher import ControlDispatcher
 # PyBulletVisualizer will be imported on demand
 from .inputs.base import ControlGoal, ControlMode
 from .core.wheels import body_to_wheel_raw
@@ -87,6 +87,7 @@ class ControlLoop:
         self.visualizer = None  # PyBullet 可视化器(仿真环境)
         self.web_keyboard_handler = None  # Web 键盘处理器引用
         self.dispatcher = None  # 控制指令分发器
+        self.visualizer_controller = None  # 仿真可视化控制器
         
         # === 机械臂状态 ===
         self.left_arm = ArmState("left")   # 左臂状态
@@ -215,6 +216,10 @@ class ControlLoop:
         if self.web_keyboard_handler and self.robot_interface:
             self.web_keyboard_handler.set_robot_interface(self.robot_interface)
             logger.info("Set robot interface on web keyboard handler")
+        
+        # 初始化仿真可视化控制器
+        self.visualizer_controller = VisualizerController(visualizer=self.visualizer)
+        logger.info("✅ 仿真可视化控制器已初始化")
 
         return success
     
@@ -245,12 +250,8 @@ class ControlLoop:
                 # 步骤 1: 处理命令队列(接收 VR/键盘指令)
                 await self._process_commands()
                 
-                # 步骤 2-5: 更新机器人(解算 IK + 发送指令)
+                # 步骤 2-5: 更新机器人(解算 IK + 发送指令 + 更新仿真)
                 self._update_robot_safely()
-                
-                # 步骤 6: 更新 PyBullet 可视化
-                if self.visualizer:
-                    self._update_visualization()
                 
                 # 定期打印状态日志
                 self._periodic_logging()
@@ -566,33 +567,6 @@ class ControlLoop:
             new_height_mm = max(0.0, min(1.0, self.aloha_height + delta_h))
             self.aloha_height = new_height_mm
 
-    def _build_alohamini_action(self) -> dict:
-        """构造发送给 LeRobot/AlohaMini 的完整 Action 字典。"""
-        action = {}
-
-        # 1. 机械臂部分 (从 robot_interface 获取最新的 IK 结果)
-        if self.robot_interface:
-            for arm in ["left", "right"]:
-                angles = self.robot_interface.get_arm_angles(arm)
-                for i, name in enumerate(["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]):
-                    action[f"{arm}_arm.{name}.pos"] = angles[i]
-
-        # 2. 底盘部分 (调用运动学逆解)
-        wheel_speeds = body_to_wheel_raw(
-            self.base_velocity_target["x"],
-            self.base_velocity_target["y"],
-            self.base_velocity_target["theta"]
-        )
-        action["base.left_wheel.vel"] = wheel_speeds["base_left_wheel"]
-        action["base.back_wheel.vel"] = wheel_speeds["base_back_wheel"]
-        action["base.right_wheel.vel"] = wheel_speeds["base_right_wheel"]
-
-        # 3. 升降轴部分 (注意：aloha_height 内部单位是米，Action 需要毫米)
-        height_mm = int(self.aloha_height * 1000)
-        action["lift.height_mm"] = height_mm
-
-        return action
-
     def _update_robot_safely(self):
         """用当前控制目标更新机器人(带错误处理)。"""
         if not self.robot_interface:
@@ -676,12 +650,7 @@ class ControlLoop:
                 logger.debug(f"跳过右臂更新: connected={arm_connected}, enable_robot={self.config.enable_robot}")
 
 
-        # === 发送指令到真机 ===
-        # send_command()负责将robot_interface的角度数组发送到真机硬件
-        if self.robot_interface.is_connected and self.robot_interface.is_engaged:
-            self.robot_interface.send_command()
-
-        # === 同步状态到 robot_interface (用于 status 接口) ===
+        # === 同步状态到 robot_interface (用于 send_command 内部使用) ===
         if self.robot_interface:
             # 更新底盘状态
             self.robot_interface.base_velocity_target = {
@@ -692,86 +661,15 @@ class ControlLoop:
             
             # 更新升降轴状态 (aloha_height 单位是米,转换为毫米)
             self.robot_interface.lift_height_mm = int(self.aloha_height * 1000)
-
-    def _update_visualization(self):
-        """更新 PyBullet 可视化。"""
-        if not self.visualizer:
-            return
-
-        # 1. 更新仿真中的底盘位置
-        if self.config.aloha_enabled:
-            sim_action = {
-                "lift.height_mm": int(self.aloha_height * 1000),
-                "base.vx": self.base_velocity_target["x"],
-                "base.vy": self.base_velocity_target["y"],
-                "base.vtheta": self.base_velocity_target["theta"],
-            }
-            self.visualizer.update_mobile_base_simulation(sim_action)
-
-        # 2. 使用机器人硬件的实际角度更新两个机械臂的姿态
-        # 在无机器人模式下,get_arm_angles 返回仿真角度
-        left_angles = self.robot_interface.get_actual_arm_angles("left")
-        right_angles = self.robot_interface.get_actual_arm_angles("right")
-
-        # 【夹爪线性控制】从 VR 数据中提取 trigger 值,替换夹爪角度
-        # trigger: 0.0 → -90° (完全打开), 1.0 → 0° (完全闭合)
-        left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
-        right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
-
-        if left_trigger is not None and len(left_angles) > GRIPPER_INDEX:
-            left_angles[GRIPPER_INDEX] = -left_trigger * 90.0
-
-        if right_trigger is not None and len(right_angles) > GRIPPER_INDEX:
-            right_angles[GRIPPER_INDEX] = -right_trigger * 90.0
-
-        # 更新 SO100 机器人姿态
-        self.visualizer.update_robot_pose(left_angles, 'left')
-        self.visualizer.update_robot_pose(right_angles, 'right')
-
-        # 如果启用了 Aloha,将 SO100 IK 结果映射到 Aloha 双臂
-        if self.config.aloha_enabled and self.visualizer.aloha_id is not None:
-            self.visualizer.update_aloha_arm_pose(left_angles, 'left')
-            self.visualizer.update_aloha_arm_pose(right_angles, 'right')
-        
-        # 更新可视化标记点（底盘和机械臂姿态已由 Dispatcher 处理）
-        if self.left_arm.mode == ControlMode.POSITION_CONTROL:
-            if self.left_arm.target_position is not None:
-                # 显示当前末端执行器位置
-                current_pos = self.robot_interface.get_current_end_effector_position("left")
-                self.visualizer.update_marker_position("left_target", current_pos)
-                self.visualizer.update_coordinate_frame("left_target_frame", current_pos)
             
-            if self.left_arm.goal_position is not None:
-                # 显示目标位置
-                self.visualizer.update_marker_position("left_goal", self.left_arm.goal_position)
-                self.visualizer.update_coordinate_frame("left_goal_frame", self.left_arm.goal_position)
-        else:
-            # 非位置控制模式时隐藏标记点
-            self.visualizer.hide_marker("left_target")
-            self.visualizer.hide_marker("left_goal")
-            self.visualizer.hide_frame("left_target_frame")
-            self.visualizer.hide_frame("left_goal_frame")
+            # 更新仿真相关状态
+            self.robot_interface.vr_raw_data = self.vr_raw_data
+            self.robot_interface.left_arm_state = self.left_arm
+            self.robot_interface.right_arm_state = self.right_arm
+            self.robot_interface.visualizer = self.visualizer
         
-        if self.right_arm.mode == ControlMode.POSITION_CONTROL:
-            if self.right_arm.target_position is not None:
-                # 显示当前末端执行器位置
-                current_pos = self.robot_interface.get_current_end_effector_position("right")
-                self.visualizer.update_marker_position("right_target", current_pos)
-                self.visualizer.update_coordinate_frame("right_target_frame", current_pos)
-            
-            if self.right_arm.goal_position is not None:
-                # 显示目标位置
-                self.visualizer.update_marker_position("right_goal", self.right_arm.goal_position)
-                self.visualizer.update_coordinate_frame("right_goal_frame", self.right_arm.goal_position)
-        else:
-            # 非位置控制模式时隐藏标记点
-            self.visualizer.hide_marker("right_target")
-            self.visualizer.hide_marker("right_goal")
-            self.visualizer.hide_frame("right_target_frame")
-            self.visualizer.hide_frame("right_goal_frame")
-
-        # 推进仿真
-        self.visualizer.step_simulation()
+        # === 发送指令到真机并更新仿真 ===
+        self.robot_interface.send_command()
 
     def _periodic_logging(self):
         """定期记录状态信息。"""

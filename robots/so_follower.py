@@ -108,3 +108,8 @@ class SOFollower:
     def is_ready(self) -> bool:
         """检查是否就绪"""
         return self.is_connected
+    
+    @property
+    def bus(self):
+        """暴露底层驱动，用于直接控制底盘和升降轴"""
+        return self.driver

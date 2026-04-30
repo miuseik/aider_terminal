@@ -419,3 +419,52 @@ class MotorController:
             import traceback
             logger.error(traceback.format_exc())
             return None
+    
+    def set_servo_angle(self, port: str, servo_id: int, angle: float) -> bool:
+        """
+        设置单个舵机角度（直接控制底层驱动，不依赖 control_loop）
+        
+        Args:
+            port: 串口号
+            servo_id: 舵机ID
+            angle: 目标角度 (-180 ~ 180)
+            
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            # 如果驱动未初始化，临时创建一个
+            if not self.driver:
+                from drivers.bus_servo_driver import ServoType, create_servo_driver
+                logger.info(f"🔧 临时初始化 ST3215 驱动 @ {port}")
+                
+                self.driver = create_servo_driver(
+                    servo_type=ServoType.ST3215,
+                    port=port,
+                    baudrate=1000000
+                )
+                
+                if not self.driver.connect():
+                    logger.error(f"❌ 驱动连接失败: {port}")
+                    return False
+            
+            # 将角度转换为舵机位置 (ST3215: 0-4095 对应 -180°~180°)
+            # 公式: position = (angle + 180) / 360 * 4095
+            position = int((angle + 180.0) / 360.0 * 4095.0)
+            position = max(0, min(4095, position))  # 限制范围
+            
+            logger.info(f"🎯 设置舵机 ID={servo_id} 角度={angle}° → 位置={position}")
+            
+            # 调用底层驱动设置位置（0ms = 最大速度）
+            success = self.driver.set_position(int(servo_id), int(position), time_ms=0)
+            if success:
+                logger.info(f"✅ 舵机 {servo_id} 角度设置成功")
+            else:
+                logger.error(f"❌ 舵机 {servo_id} 角度设置失败")
+            return success
+            
+        except Exception as e:
+            logger.error(f"❌ 设置舵机角度异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False

@@ -1,5 +1,6 @@
 ```bash
-git add ./;git commit -m "新增舵机调试功能,未干预主程序";git push
+git add ./;git commit -m "舵机正常工作了，继续调试中...";git push
+
 ```
 
 ```bash

@@ -77,6 +77,17 @@ class MotorRouter:
             # === 校准管理 ===
             'save_calibration': self._route_save_calibration,
             'load_calibration': self._route_load_calibration,
+            
+            # === 配置查询 ===
+            'get_servo_ids': self._route_get_servo_ids,
+            
+            # === 舵机控制 ===
+            'set_servo_angle': self._route_set_servo_angle,
+            'reset_servo': self._route_reset_servo,
+            'set_servo_id': self._route_set_servo_id,
+            'set_position_mode': self._route_set_position_mode,
+            'set_speed_mode': self._route_set_speed_mode,
+            'set_servo_speed': self._route_set_servo_speed,
         }
         
         handler = route_map.get(action)
@@ -354,9 +365,14 @@ class MotorRouter:
             )
             
             print(f"✅ 扫描完成，找到 {len(found_servos)} 个舵机")
+            print(f"📋 舵机列表: {found_servos}")
             
             # 通过 WebSocket 返回结果（异步）
             import asyncio
+            print(f"📤 准备发送扫描结果到 Server...")
+            print(f"🔌 ws_client 状态: {MotorRouter._ws_client is not None}")
+            if MotorRouter._ws_client:
+                print(f"🔌 transport 状态: {hasattr(MotorRouter._ws_client, 'transport')}")
             asyncio.create_task(self._send_scan_result(found_servos))
             return True
         else:
@@ -371,17 +387,24 @@ class MotorRouter:
                 'type': 'scan_servos_response',
                 'result': servos
             }
-            logger.info(f"📤 准备发送扫描结果: {len(servos)} 个舵机")
+            print(f"📤 准备发送扫描结果: {len(servos)} 个舵机")
+            print(f"🔌 ws_client: {MotorRouter._ws_client}")
             
             # 通过全局 ws_client 发送到 server
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
+                print(f"📡 发送消息: {result_message}")
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 扫描结果已发送到 Server")
+                print(f"✅ 扫描结果已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化，结果无法返回")
+                print(f"⚠️ WebSocket client 未初始化，结果无法返回")
+                print(f"   _ws_client: {MotorRouter._ws_client}")
+                if MotorRouter._ws_client:
+                    print(f"   属性列表: {dir(MotorRouter._ws_client)}")
         except Exception as e:
-            logger.error(f"❌ 发送扫描结果失败: {e}")
+            print(f"❌ 发送扫描结果失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _route_list_ports(self, command: Dict[str, Any]) -> bool:
         """路由获取串口列表命令"""
@@ -446,3 +469,244 @@ class MotorRouter:
         # TODO: 实现校准配置加载功能
         logger.warning("⚠️ 校准配置加载功能待实现")
         return False
+    
+    def _route_get_servo_ids(self, command: Dict[str, Any]) -> bool:
+        """路由获取舵机 ID 配置命令"""
+        logger.info("🔧 收到获取舵机 ID 配置命令")
+        
+        # 从 robot_interface 获取配置
+        if self.control_loop and hasattr(self.control_loop, 'robot_interface'):
+            servo_config = self.control_loop.robot_interface.servo_ids
+            
+            # 通过 WebSocket 返回配置（异步）
+            import asyncio
+            asyncio.create_task(self._send_servo_ids_result(servo_config))
+            return True
+        else:
+            logger.warning("⚠️ Robot interface not initialized")
+            return False
+    
+    async def _send_servo_ids_result(self, servo_config: dict):
+        """发送舵机 ID 配置到 Server"""
+        try:
+            result_message = {
+                'type': 'servo_ids_response',
+                'data': servo_config
+            }
+            logger.info(f"📤 准备发送舵机 ID 配置")
+            
+            # 通过全局 ws_client 发送到 server
+            if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
+                from telegrip.inputs.socket.ws_protocol import encode_message
+                await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
+                logger.info(f"✅ 舵机 ID 配置已发送到 Server")
+            else:
+                logger.warning("⚠️ WebSocket client 未初始化，结果无法返回")
+        except Exception as e:
+            logger.error(f"❌ 发送舵机 ID 配置失败: {e}")
+    
+    def _route_set_servo_angle(self, command: Dict[str, Any]) -> bool:
+        """路由设置舵机角度命令"""
+        servo_id = command.get('servo_id')
+        angle = command.get('angle')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        logger.info(f"🎯 设置舵机 ID={servo_id} 角度={angle}° (端口: {port})")
+        
+        # 调用 motor_controller 设置舵机角度
+        if hasattr(self.motor_controller, 'set_servo_angle'):
+            success = self.motor_controller.set_servo_angle(
+                port=port,
+                servo_id=servo_id,
+                angle=angle
+            )
+            if success:
+                logger.info(f"✅ 舵机 {servo_id} 角度设置成功")
+                return True
+            else:
+                logger.error(f"❌ 舵机 {servo_id} 角度设置失败")
+                return False
+        else:
+            logger.warning("⚠️ motor_controller 没有 set_servo_angle 方法")
+            return False
+    
+    def _route_reset_servo(self, command: Dict[str, Any]) -> bool:
+        """路由重置舵机命令"""
+        servo_id = command.get('servo_id')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        logger.info(f"🔄 重置舵机 ID={servo_id} (端口: {port})")
+        
+        try:
+            from drivers.bus_servo_driver import ServoType, create_servo_driver
+            
+            # 临时创建驱动
+            driver = create_servo_driver(
+                servo_type=ServoType.ST3215,
+                port=port,
+                baudrate=1000000
+            )
+            
+            if not driver.connect():
+                logger.error(f"❌ 驱动连接失败: {port}")
+                return False
+            
+            # 调用重置方法
+            success = driver.reset_servo(servo_id)
+            driver.disconnect()
+            
+            if success:
+                logger.info(f"✅ 舵机 {servo_id} 重置成功，请断电重启")
+            else:
+                logger.error(f"❌ 舵机 {servo_id} 重置失败")
+            
+            return success
+        except Exception as e:
+            logger.error(f"❌ 重置舵机异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _route_set_servo_id(self, command: Dict[str, Any]) -> bool:
+        """路由设置舵机ID命令"""
+        old_id = command.get('old_id')
+        new_id = command.get('new_id')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        logger.info(f"🔢 修改舵机 ID: {old_id} → {new_id} (端口: {port})")
+        
+        try:
+            from drivers.bus_servo_driver import ServoType, create_servo_driver
+            
+            # 临时创建驱动
+            driver = create_servo_driver(
+                servo_type=ServoType.ST3215,
+                port=port,
+                baudrate=1000000
+            )
+            
+            if not driver.connect():
+                logger.error(f"❌ 驱动连接失败: {port}")
+                return False
+            
+            # 调用设置ID方法
+            success = driver.set_id(old_id, new_id)
+            driver.disconnect()
+            
+            if success:
+                logger.info(f"✅ 舵机 ID 从 {old_id} 改为 {new_id}，请断电重启")
+            else:
+                logger.error(f"❌ 舵机 ID 修改失败")
+            
+            return success
+        except Exception as e:
+            logger.error(f"❌ 设置舵机ID异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _route_set_position_mode(self, command: Dict[str, Any]) -> bool:
+        """路由设置位置模式命令"""
+        servo_id = command.get('servo_id')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        logger.info(f"📍 设置舵机 ID={servo_id} 为位置模式 (端口: {port})")
+        
+        try:
+            from drivers.bus_servo_driver import ServoType, create_servo_driver
+            
+            driver = create_servo_driver(
+                servo_type=ServoType.ST3215,
+                port=port,
+                baudrate=1000000
+            )
+            
+            if not driver.connect():
+                logger.error(f"❌ 驱动连接失败: {port}")
+                return False
+            
+            success = driver.set_position_mode(servo_id)
+            driver.disconnect()
+            
+            if success:
+                logger.info(f"✅ 舵机 {servo_id} 已切换到位置模式")
+            else:
+                logger.error(f"❌ 舵机 {servo_id} 模式切换失败")
+            
+            return success
+        except Exception as e:
+            logger.error(f"❌ 设置位置模式异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _route_set_speed_mode(self, command: Dict[str, Any]) -> bool:
+        """路由设置速度模式命令"""
+        servo_id = command.get('servo_id')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        logger.info(f"⚡ 设置舵机 ID={servo_id} 为速度模式 (端口: {port})")
+        
+        try:
+            from drivers.bus_servo_driver import ServoType, create_servo_driver
+            
+            driver = create_servo_driver(
+                servo_type=ServoType.ST3215,
+                port=port,
+                baudrate=1000000
+            )
+            
+            if not driver.connect():
+                logger.error(f"❌ 驱动连接失败: {port}")
+                return False
+            
+            success = driver.set_velocity_mode(servo_id)
+            driver.disconnect()
+            
+            if success:
+                logger.info(f"✅ 舵机 {servo_id} 已切换到速度模式")
+            else:
+                logger.error(f"❌ 舵机 {servo_id} 模式切换失败")
+            
+            return success
+        except Exception as e:
+            logger.error(f"❌ 设置速度模式异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _route_set_servo_speed(self, command: Dict[str, Any]) -> bool:
+        """路由设置舵机速度命令"""
+        servo_id = command.get('servo_id')
+        speed = command.get('speed')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        logger.info(f"🚀 设置舵机 ID={servo_id} 速度={speed} (端口: {port})")
+        
+        try:
+            from drivers.bus_servo_driver import ServoType, create_servo_driver
+            
+            driver = create_servo_driver(
+                servo_type=ServoType.ST3215,
+                port=port,
+                baudrate=1000000
+            )
+            
+            if not driver.connect():
+                logger.error(f"❌ 驱动连接失败: {port}")
+                return False
+            
+            success = driver.set_speed(servo_id, int(speed))
+            driver.disconnect()
+            
+            if success:
+                logger.info(f"✅ 舵机 {servo_id} 速度设置为 {speed}")
+            else:
+                logger.error(f"❌ 舵机 {servo_id} 速度设置失败")
+            
+            return success
+        except Exception as e:
+            logger.error(f"❌ 设置舵机速度异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
