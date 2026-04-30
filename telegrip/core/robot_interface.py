@@ -72,8 +72,20 @@ class RobotInterface:
         self.left_arm_connected = False
         self.right_arm_connected = False
         
-        # 加载舵机 ID 配置
-        self.servo_ids = self._load_servo_ids_config()
+        # 舵机 ID 配置（由 Server 下发，先使用默认值）
+        self.servo_ids = {
+            'left_bus': {
+                'port': '/dev/ttyUSB0',
+                'left_arm': {'shoulder_pan': 1, 'shoulder_lift': 2, 'elbow_flex': 3, 'wrist_flex': 4, 'wrist_roll': 5, 'gripper': 6},
+                'base': {'left_wheel': 8, 'back_wheel': 9, 'right_wheel': 10},
+                'lift_axis': 11,
+                'neck': 12
+            },
+            'right_bus': {
+                'port': '/dev/ttyUSB1',
+                'right_arm': {'shoulder_pan': 13, 'shoulder_lift': 14, 'elbow_flex': 15, 'wrist_flex': 16, 'wrist_roll': 17, 'gripper': 18}
+            }
+        }
         
         # 底盘和升降轴状态
         self.base_motors = [
@@ -123,26 +135,27 @@ class RobotInterface:
         self.right_arm_state = None  # 右臂状态对象
         self.visualizer = None  # PyBullet 可视化器
     
-    def _load_servo_ids_config(self) -> dict:
-        """加载舵机 ID 配置文件"""
-        config_path = Path(__file__).parent.parent.parent / 'config' / 'servo_ids.yaml'
+    def set_servo_ids_config(self, config: dict):
+        """设置舵机 ID 配置（从 Server 获取）"""
+        if not config:
+            logger.warning("⚠️ 收到空的舵机配置")
+            return False
+        
+        self.servo_ids = config
+        
+        # 更新底盘和升降轴引用
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f)
+            self.base_motors = [
+                self.servo_ids['left_bus']['base']['left_wheel'],
+                self.servo_ids['left_bus']['base']['back_wheel'],
+                self.servo_ids['left_bus']['base']['right_wheel']
+            ]
+            self.lift_motor = self.servo_ids['left_bus']['lift_axis']
+            logger.info(f"✅ 舵机配置已更新: {len(self.servo_ids)} 个总线")
+            return True
         except Exception as e:
-            logger.warning(f"无法加载舵机 ID 配置: {e}，使用默认值")
-            return {
-                'left_bus': {
-                    'port': '/dev/ttyUSB0',
-                    'left_arm': {'shoulder_pan': 1, 'shoulder_lift': 2, 'elbow_flex': 3, 'wrist_flex': 4, 'wrist_roll': 5, 'gripper': 6},
-                    'base': {'left_wheel': 8, 'back_wheel': 9, 'right_wheel': 10},
-                    'lift_axis': 11
-                },
-                'right_bus': {
-                    'port': '/dev/ttyUSB1',
-                    'right_arm': {'shoulder_pan': 1, 'shoulder_lift': 2, 'elbow_flex': 3, 'wrist_flex': 4, 'wrist_roll': 5, 'gripper': 6}
-                }
-            }
+            logger.error(f"❌ 解析舵机配置失败: {e}")
+            return False
 
     def setup_robot_configs(self) -> Tuple[SOFollowerRobotConfig, SOFollowerRobotConfig]:
         """为两个机械臂创建机器人配置。"""
@@ -222,6 +235,13 @@ class RobotInterface:
                 # 初始化关节状态
                 self._read_initial_state()
                 logger.info(f"🤖 机器人接口已连接: 左臂={self.left_arm_connected}, 右臂={self.right_arm_connected}")
+                
+                # 从 Server 获取最新舵机配置
+                from router.server_api_client import ServerAPIClient
+                api_client = ServerAPIClient()
+                config = api_client.get_servo_ids_config()
+                if config:
+                    self.set_servo_ids_config(config)
             else:
                 logger.error("❌ 无法连接任何机械臂")
 

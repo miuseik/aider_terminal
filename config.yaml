@@ -21,6 +21,7 @@ network:
   host_ip: 0.0.0.0
   websocket_port: 8442
   server_host: ws.houqicg.com
+  server_port: 8442
   enable_webrtc: true  # 启用 WebRTC 视频推流
   video_source: /dev/video0  # 摄像头设备路径
 paths:
