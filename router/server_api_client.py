@@ -21,25 +21,17 @@ class ServerAPIClient:
         if config_path is None:
             config_path = Path(__file__).parent.parent / 'config.yaml'
         
-        self.server_host = 'localhost'
-        self.server_port = 8000
+        # 默认值（如果 config.yaml 和命令行都没有指定）
+        self.server_host = 'ws.houqicg.com'  # WebSocket 地址
+        self.api_host = 'www.houqicg.com'     # API 地址
+        self.server_port = 8442
         self._load_server_config(config_path)
     
     def _load_server_config(self, config_path: Path):
-        """从 config.yaml 加载 Server 地址"""
-        try:
-            if config_path.exists():
-                import yaml
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    terminal_config = yaml.safe_load(f)
-                    network_config = terminal_config.get('network', {})
-                    self.server_host = network_config.get('server_host', 'localhost')
-                    self.server_port = network_config.get('server_port', 8000)
-                logger.info(f"📡 Server 地址: {self.server_host}:{self.server_port}")
-            else:
-                logger.warning(f"⚠️ 配置文件不存在: {config_path}，使用默认地址")
-        except Exception as e:
-            logger.error(f"❌ 加载 Server 配置失败: {e}")
+        """从 config.yaml 加载 Server 地址（已废弃，使用代码默认值）"""
+        # config.yaml 中的网络配置已注释，统一使用代码中的默认值
+        # 如需自定义，请使用命令行参数：--env-dev 或 --server-host/--api-host
+        logger.info(f"📡 使用默认地址 - WebSocket: {self.server_host}:{self.server_port}, API: {self.api_host}:{self.server_port}")
     
     def get_servo_ids_config(self) -> Optional[Dict]:
         """从 Server 获取舵机配置
@@ -50,7 +42,8 @@ class ServerAPIClient:
         try:
             import requests
             
-            url = f"http://{self.server_host}:{self.server_port}/api/get-servo-ids"
+            url = f"http://{self.api_host}:{self.server_port}/api/get-servo-ids"
+            print(f"🔍 从 Server 获取舵机配置: {url}")
             logger.info(f"🔍 从 Server 获取舵机配置: {url}")
             
             response = requests.post(url, timeout=5)

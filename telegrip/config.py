@@ -202,7 +202,8 @@ class TelegripConfig:
     # 网络设置
     websocket_port: int = WEBSOCKET_PORT
     host_ip: str = HOST_IP
-    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")  # Aider Server 地址
+    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")  # WebSocket Server 地址
+    api_host: str = os.getenv("TELEGRIP_API_HOST", "www.houqicg.com")  # API Server 地址
     enable_webrtc: bool = True  # 启用 WebRTC 视频推流
     video_source: str = "/dev/video0"  # 摄像头设备路径
     

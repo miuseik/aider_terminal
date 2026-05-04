@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "获取终端信息";git push
+git add ./;git commit -m "配置了环境";git push
 
 ```
 
@@ -50,6 +50,12 @@ python -m telegrip.main --no-viz
 **自动连接机器人**（跳过手动连接步骤）：
 ```bash
 python -m telegrip.main --autoconnect
+```
+```bash
+python main.py
+```
+```bash
+python main.py --env-dev
 ```
 # telegrip - SO100 机械臂遥操作系统
 

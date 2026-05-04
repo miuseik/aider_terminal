@@ -33,10 +33,20 @@ if __name__ == "__main__":
     # 默认使用 info 日志级别
     # if '--log-level' not in sys.argv:
     #     sys.argv.extend(['--log-level', 'info'])
-    # 默认使用 localhost 作为服务器地址
-    if '--server-host' not in sys.argv:
-        # sys.argv.extend(['--server-host', 'ws.houqicg.com'])
-        sys.argv.extend(['--server-host', 'localhost'])
+    
+    # 默认服务器地址配置
+    if '--env-dev' in sys.argv:
+        # 开发环境：使用本地地址
+        if '--server-host' not in sys.argv:
+            sys.argv.extend(['--server-host', 'localhost'])
+        if '--api-host' not in sys.argv:
+            sys.argv.extend(['--api-host', 'localhost'])
+    else:
+        # 生产环境（默认）：使用远程地址
+        if '--server-host' not in sys.argv:
+            sys.argv.extend(['--server-host', 'ws.houqicg.com'])
+        if '--api-host' not in sys.argv:
+            sys.argv.extend(['--api-host', 'www.houqicg.com'])
 
     # 运行异步主函数
     asyncio.run(main())

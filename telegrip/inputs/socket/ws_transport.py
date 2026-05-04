@@ -47,7 +47,7 @@ class WSTransport:
             )
             self.is_connected = True
             logger.info(f"✅ 已连接到服务器")
-            print(f"✅ WebSocket 客户端连接成功")
+            print(f"✅ WebSocket 客户端连接成功: {ws_url}")
             
             # 启动消息接收任务
             asyncio.create_task(self._receive_loop())
