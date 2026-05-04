@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "还差分发到舵机的功能_舵机驱动已经写好";git push
+git add ./;git commit -m "获取终端信息";git push
 
 ```
 

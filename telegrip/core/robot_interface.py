@@ -636,8 +636,8 @@ class RobotInterface:
             "base.left_wheel.vel": wheel_speeds["base_left_wheel"],
             "base.back_wheel.vel": wheel_speeds["base_back_wheel"],
             "base.right_wheel.vel": wheel_speeds["base_right_wheel"],
-            # 升降轴高度（米 → 毫米）
-            "lift.height_mm": int(self.lift_height_mm),
+            # 升降轴速度（毫米/秒）
+            "lift.velocity_mm_s": self.lift_velocity_target,
         }
 
         return action
@@ -684,14 +684,13 @@ class RobotInterface:
             except Exception as e:
                 logger.error(f"发送底盘指令错误: {e}")
                 
-        # 4. 发送升降轴指令
+        # 4. 发送升降轴指令（速度控制）
         if self.lift_connected and self.left_robot:
             try:
                 lift_id = self.servo_ids['left_bus']['lift_axis']
-                # 将毫米转换为舵机位置 (需要根据实际机械结构计算)
-                # 假设: 1mm = 10脉冲 (需要根据螺距调整)
-                lift_position = int(action["lift.height_mm"] * 10)
-                self.left_robot.bus.write_position(lift_id, lift_position)
+                # 直接发送速度值（毫米/秒）
+                lift_velocity = int(action["lift.velocity_mm_s"])
+                self.left_robot.bus.write_velocity(lift_id, lift_velocity)
             except Exception as e:
                 logger.error(f"发送升降轴指令错误: {e}")
 

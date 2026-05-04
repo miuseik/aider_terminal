@@ -169,6 +169,7 @@ class MotorRouter:
                 command.get('port', '/dev/ttyACM0')
             ),
             'get_servo_info': lambda: self._handle_get_servo_info(command),
+            'get_network_info': lambda: self._handle_get_network_info(),
             'ping_servo': lambda: self._route_ping_servo(command),
             'calibrate_servo_zero': lambda: self._route_calibrate_servo_zero(command),
         }
@@ -444,3 +445,34 @@ class MotorRouter:
                 logger.warning("⚠️ WebSocket client 未初始化")
         except Exception as e:
             logger.error(f"❌ 发送舵机 ID 配置失败: {e}")
+
+    def _handle_get_network_info(self) -> bool:
+        """处理获取网络信息命令"""
+        try:
+            from utils.network_utils import get_network_info
+            info = get_network_info()
+            logger.info(f"🌐 获取网络信息: {info}")
+            
+            import asyncio
+            asyncio.create_task(self._send_network_info(info))
+            return True
+        except Exception as e:
+            logger.error(f"❌ 获取网络信息失败: {e}")
+            return False
+
+    async def _send_network_info(self, info: dict):
+        """发送网络信息到 Server"""
+        try:
+            result_message = {
+                'type': 'network_info_response',
+                **info
+            }
+            
+            if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
+                from telegrip.inputs.socket.ws_protocol import encode_message
+                await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
+                logger.info(f"✅ 网络信息已发送到 Server")
+            else:
+                logger.warning("⚠️ WebSocket client 未初始化")
+        except Exception as e:
+            logger.error(f"❌ 发送网络信息失败: {e}")
