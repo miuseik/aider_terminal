@@ -81,13 +81,23 @@ class SOFollower:
             action: 关节角度字典，如 {"shoulder_pan.pos": 45.0, ...}
         """
         if not self.is_connected:
-            print(f"{self.config.id}.send_action() 跳过 (未连接)----------------: {action}")
+            print(f"⚠️ [{self.config.id}] 未连接，跳过发送动作")
+            print(f"   数据: {action}")
             return
+        
         try:
-            print(f"📤 [{self.config.id}] 发送动作数据----------------: {action}")
-            self.driver.send_action(action, time_ms=50)
+            # Print 发送的动作数据
+            print(f"📤 [{self.config.id}] 发送手臂动作 → {len(action)}个关节, Port={self.config.port}")
+            for joint_name, angle in action.items():
+                print(f"   ├─ {joint_name}: {angle}°")
+            
+            # 调用底层驱动的 send_action（如果存在）
+            if hasattr(self.driver, 'send_action'):
+                self.driver.send_action(action, time_ms=50)
+            else:
+                print(f"   ⚠️ 驱动不支持 send_action 方法，跳过实际发送")
         except Exception as e:
-            logger.error(f"{self.config.id} 发送指令失败----------------: {e}")
+            print(f"❌ [{self.config.id}] 发送指令失败: {e}")
     
     def get_observation(self) -> Dict[str, Any]:
         """

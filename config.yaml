@@ -26,6 +26,11 @@ network:
   # server_port: 8442
   enable_webrtc: true  # 启用 WebRTC 视频推流
   video_source: /dev/video0  # 摄像头设备路径
+  # 摄像头配置
+  camera_width: 1280  # 双目平衡模式宽度
+  camera_height: 480  # 双目平衡模式高度
+  camera_fps: 30      # 帧率
+  camera_fourcc: MJPG # 编码格式
 paths:
   urdf_path: URDF/SO100/urdf/so100.urdf
 robot:

@@ -104,8 +104,7 @@ class TelegripSystem:
         MotorRouter.set_ws_client(self.vr_ws_client)  # 设置 ws_client 引用
         
         # 初始化 WebRTC 推流器
-        video_source = getattr(config, 'video_source', '/dev/video0')
-        self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, video_source=video_source)
+        self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, config)
         self.vr_ws_client.webrtc_streamer = self.webrtc_streamer  # 关联到 ws_client
         
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
@@ -245,8 +244,7 @@ class TelegripSystem:
             MotorRouter.set_ws_client(self.vr_ws_client)
             
             # 重新初始化 WebRTC 推流器
-            video_source = getattr(self.config, 'video_source', '/dev/video0')
-            self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, video_source=video_source)
+            self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, self.config)
             self.vr_ws_client.webrtc_streamer = self.webrtc_streamer
             
             self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
@@ -544,18 +542,12 @@ async def main():
         os.environ['PYBULLET_SUPPRESS_CONSOLE_OUTPUT'] = '1'
         os.environ['PYBULLET_SUPPRESS_WARNINGS'] = '1'
     
-    if log_level <= logging.INFO:
-        # 详细模式 - 显示带时间戳的详细日志
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-    else:
-        # 安静模式 - 仅显示警告和错误，使用简单格式
-        logging.basicConfig(
-            level=log_level,
-            format='%(message)s'
-        )
+    # 统一使用详细的日志格式，确保所有 logger 输出都能看到
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True  # 强制重新配置，覆盖之前的设置
+    )
 
     # 抑制嘈杂的 websockets 库日志（对 WS 端口的无效 HTTP 请求）
     logging.getLogger('websockets').setLevel(logging.WARNING)

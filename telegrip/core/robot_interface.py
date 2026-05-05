@@ -644,11 +644,16 @@ class RobotInterface:
 
     def _send_to_hardware(self):
         """发送指令到真机硬件（双臂 + 底盘 + 升降轴）。"""
+        print("🤹送指令到真机硬件（双臂 + 底盘 + 升降轴）...")
+        print("🤹",self.left_robot)
+        print("🤹",self.right_robot)
+        print("🤹",self.left_robot)
+        print("🤹",self.left_robot)
         # 构建完整的动作字典
         action = self.build_robot_action()
 
         # 1. 发送左臂指令
-        if self.left_robot and self.left_arm_connected:
+        if self.left_robot:
             left_action_dict = {
                 "shoulder_pan.pos": float(action["left_arm_angles"][0]),
                 "shoulder_lift.pos": float(action["left_arm_angles"][1]),
@@ -660,7 +665,7 @@ class RobotInterface:
             self.left_robot.send_action(left_action_dict)
 
         # 2. 发送右臂指令
-        if self.right_robot and self.right_arm_connected:
+        if self.right_robot:
             right_action_dict = {
                 "shoulder_pan.pos": float(action["right_arm_angles"][0]),
                 "shoulder_lift.pos": float(action["right_arm_angles"][1]),
@@ -672,12 +677,12 @@ class RobotInterface:
             self.right_robot.send_action(right_action_dict)
 
         # 3. 发送底盘指令（三轮全向轮）
-        if self.base_connected and self.left_robot:
+        if self.left_robot:
             base_ids = self.servo_ids['left_bus']['base']
             base_wheel_goal_vel = {
-                base_ids['left_wheel']: int(action["base.left_wheel.vel"]),
-                base_ids['back_wheel']: int(action["base.back_wheel.vel"]),
-                base_ids['right_wheel']: int(action["base.right_wheel.vel"])
+                base_ids['left_wheel']['id']: int(action["base.left_wheel.vel"]),
+                base_ids['back_wheel']['id']: int(action["base.back_wheel.vel"]),
+                base_ids['right_wheel']['id']: int(action["base.right_wheel.vel"])
             }
             try:
                 self.left_robot.bus.sync_write_velocity(base_wheel_goal_vel)
@@ -685,9 +690,9 @@ class RobotInterface:
                 logger.error(f"发送底盘指令错误: {e}")
                 
         # 4. 发送升降轴指令（位置控制）
-        if self.lift_connected and self.left_robot:
+        if self.left_robot:
             try:
-                lift_id = self.servo_ids['left_bus']['lift_axis']
+                lift_id = self.servo_ids['left_bus']['lift_axis']['axis1']['id']
                 # 将毫米转换为舵机位置 (需要根据实际机械结构计算)
                 # 假设: 1mm = 10脉冲 (需要根据螺距调整)
                 lift_position = int(action["lift.height_mm"] * 10)

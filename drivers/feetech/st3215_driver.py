@@ -45,7 +45,12 @@ class ST3215Driver:
     def set_position(self, servo_id: int, position: int, time_ms: int = 500) -> bool:
         """设置目标位置"""
         if not self.is_connected:
+            print(f"⚠️ [ST3215] 未连接，跳过发送 - ID={servo_id}, Position={position}, Time={time_ms}ms")
             return False
+        
+        # Print 发送的指令（模拟模式）
+        print(f"📤 [ST3215] 发送位置指令 → ID={servo_id}, Position={position}, Time={time_ms}ms, Port={self.port}")
+        
         success, _ = self.controller.set_position(servo_id, position, time_ms)
         return success
     
@@ -67,6 +72,10 @@ class ST3215Driver:
         """便捷方法：角度转位置并移动"""
         # 角度转脉冲值 (0-360° -> 0-4095)
         position = int((angle / 360.0) * 4095)
+        
+        # Print 发送的指令
+        print(f"📤 [ST3215] 发送角度指令 → ID={servo_id}, Angle={angle}°, Position={position}, Time={time_ms}ms, Port={self.port}")
+        
         return self.set_position(servo_id, position, time_ms)
     
     def set_velocity_mode(self, servo_id: int) -> bool:
@@ -106,7 +115,13 @@ class ST3215Driver:
                    0=停止
         """
         if not self.is_connected:
+            print(f"⚠️ [ST3215] 未连接，跳过发送 - ID={servo_id}, Speed={speed}, Port={self.port}")
             return False
+        
+        # Print 发送的指令
+        direction = "顺时针" if speed >= 0 else "逆时针"
+        print(f"📤 [ST3215] 发送速度指令 → ID={servo_id}, Speed={speed} ({direction}), Port={self.port}")
+        
         try:
             # ST3215 速度寄存器格式：bit15=方向(0=顺,1=逆), bit0-14=速度值
             if speed >= 0:
@@ -132,7 +147,15 @@ class ST3215Driver:
             targets: {servo_id: speed} 字典，如 {8: 100, 9: -50, 10: 200}
         """
         if not self.is_connected:
+            print(f"⚠️ [ST3215] 未连接，跳过同步速度发送 - Targets={targets}, Port={self.port}")
             return False
+        
+        # Print 批量发送的指令
+        print(f"📤 [ST3215] 同步发送速度指令 → {len(targets)}个舵机, Port={self.port}")
+        for servo_id, speed in targets.items():
+            direction = "顺" if speed >= 0 else "逆"
+            print(f"   ├─ ID={servo_id}: Speed={speed} ({direction})")
+        
         try:
             for servo_id, speed in targets.items():
                 self.set_speed(servo_id, speed)
@@ -150,7 +173,12 @@ class ST3215Driver:
             position: 目标位置 (0-4095)
         """
         if not self.is_connected:
+            print(f"⚠️ [ST3215] 未连接，跳过发送 - ID={servo_id}, Position={position}, Port={self.port}")
             return False
+        
+        # Print 发送的指令
+        print(f"📤 [ST3215] 直接写入位置 → ID={servo_id}, Position={position}, Port={self.port}")
+        
         try:
             success, _ = self.controller.write_register(servo_id, 42, 2, position)
             return success

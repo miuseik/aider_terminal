@@ -1,8 +1,8 @@
 """
 相机驱动模块
-基于 aiortc MediaPlayer 封装
+OpenCVCameraDriver: 基于 OpenCV 的摄像头驱动（支持 WebRTC 推流）
 """
 
-from .camera_driver import CameraDriver
+from .opencv_camera_driver import OpenCVCameraDriver
 
-__all__ = ['CameraDriver']
+__all__ = ['OpenCVCameraDriver']

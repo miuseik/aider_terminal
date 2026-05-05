@@ -145,22 +145,24 @@ driver.disconnect()
 ### Camera 相机
 
 ```python
-from drivers.camera import CameraDriver
+from drivers.camera import OpenCVCameraDriver
 
 # 配置摄像头
 config = {
-    'camera_id': 0,
-    'width': 1920,
-    'height': 1080,
-    'fps': 30
+    'index_or_path': '/dev/video0',
+    'width': 1280,
+    'height': 480,
+    'fps': 30,
+    'fourcc': 'MJPG'
 }
 
 # 创建并连接
-camera = CameraDriver(config)
+camera = OpenCVCameraDriver(config)
 camera.connect()
 
-# 获取 MediaPlayer（用于 WebRTC）
-player = camera.get_player()
+# 读取帧
+frame = camera.read()        # 同步读取
+frame = camera.read_latest() # 异步读取
 
 # 断开连接
 camera.disconnect()
