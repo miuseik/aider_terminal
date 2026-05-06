@@ -131,24 +131,24 @@ class TelegripSystem:
         """添加控制命令到队列进行处理。"""
         try:
             command = {"action": action}
-            logger.info(f"🔌 Queueing control command: {command}")
+            print(f"🔌 Queueing control command: {command}")
             self.control_commands_queue.put_nowait(command)
-            logger.info(f"🔌 Command queued successfully")
+            print(f"🔌 Command queued successfully")
         except queue.Full:
-            logger.warning(f"Control commands queue is full, dropping command: {action}")
+            print(f"Control commands queue is full, dropping command: {action}")
         except Exception as e:
-            logger.error(f"🔌 Error queuing command: {e}")
+            print(f"🔌 Error queuing command: {e}")
     
     def add_keypress_command(self, command: dict):
         """添加按键命令到队列进行处理。"""
         try:
-            logger.info(f"🎮 Queueing keypress command: {command}")
+            print(f"🎮 Queueing keypress command: {command}")
             self.control_commands_queue.put_nowait(command)
-            logger.info(f"🎮 Keypress command queued successfully")
+            print(f"🎮 Keypress command queued successfully")
         except queue.Full:
-            logger.warning(f"Control commands queue is full, dropping keypress command: {command}")
+            print(f"Control commands queue is full, dropping keypress command: {command}")
         except Exception as e:
-            logger.error(f"🎮 Error queuing keypress command: {e}")
+            print(f"🎮 Error queuing keypress command: {e}")
     
     async def process_control_commands(self):
         """处理来自线程安全队列的控制命令。"""
@@ -168,22 +168,22 @@ class TelegripSystem:
                     await self.control_loop._handle_command(command)
                     
         except Exception as e:
-            logger.error(f"处理控制命令时出错: {e}")
+            print(f"处理控制命令时出错: {e}")
     
     def restart(self):
         """重启遥操作系统。"""
         def do_restart():
             try:
-                logger.info("正在启动系统重启...")
+                print("正在启动系统重启...")
                 # 使用存储的主事件循环引用来调度软重启
                 if self.main_loop and not self.main_loop.is_closed():
                     future = asyncio.run_coroutine_threadsafe(self._soft_restart_sequence(), self.main_loop)
                     # 等待重启完成
                     future.result(timeout=30.0)
                 else:
-                    logger.error("主事件循环不可用，无法重启")
+                    print("主事件循环不可用，无法重启")
             except Exception as e:
-                logger.error(f"重启过程中出错: {e}")
+                print(f"重启过程中出错: {e}")
         
         # 在单独的线程中运行重启以避免阻塞 HTTP 响应
         restart_thread = threading.Thread(target=do_restart, daemon=True)
@@ -192,7 +192,7 @@ class TelegripSystem:
     async def _soft_restart_sequence(self):
         """通过重新初始化组件执行软重启，而不退出进程。"""
         try:
-            logger.info("开始软重启序列...")
+            print("开始软重启序列...")
             
             # 等待片刻让 HTTP 响应发送
             await asyncio.sleep(1)
@@ -209,7 +209,7 @@ class TelegripSystem:
                         timeout=5.0
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("部分任务未在超时时间内完成")
+                    print("部分任务未在超时时间内完成")
             
             # 按相反顺序停止组件
             await self.control_loop.stop()
@@ -224,7 +224,7 @@ class TelegripSystem:
             # 从文件重新加载配置但保留命令行覆盖
             from .config import get_config_data
             file_config = get_config_data()
-            logger.info("已从文件重新加载配置")
+            print("已从文件重新加载配置")
 
             # 保留现有的配置对象以保持命令行参数
             # 只更新配置文件中可能已更改的特定值
@@ -273,7 +273,7 @@ class TelegripSystem:
             
             # WebRTC 视频推流改为按需启动(前端请求时才开启)
             # if getattr(self.config, 'enable_webrtc', False):
-            #     logger.info("📹 启动 WebRTC 视频推流...")
+            #     print("📹 启动 WebRTC 视频推流...")
             #     await self.webrtc_streamer.start_streaming()
 
             # 启动 Web 键盘处理器
@@ -287,16 +287,16 @@ class TelegripSystem:
             command_processor_task = asyncio.create_task(self._run_command_processor())
             self.tasks.append(command_processor_task)
 
-            logger.info("系统重启成功完成")
+            print("系统重启成功完成")
 
             # 如果请求则自动连接机器人（在重启后保留自动连接行为）
             if self.config.autoconnect and self.config.enable_robot:
-                logger.info("🔌 重启后自动连接机器人电机...")
+                print("🔌 重启后自动连接机器人电机...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle
                 self.add_control_command("robot_connect")
             
         except Exception as e:
-            logger.error(f"软重启序列期间出错: {e}")
+            print(f"软重启序列期间出错: {e}")
             raise
     
     async def start(self):
@@ -318,7 +318,7 @@ class TelegripSystem:
 
             # WebRTC 视频推流改为按需启动(前端请求时才开启)
             # if getattr(self.config, 'enable_webrtc', False):
-            #     logger.info("📹 启动 WebRTC 视频推流...")
+            #     print("📹 启动 WebRTC 视频推流...")
             #     await self.webrtc_streamer.start_streaming()
 
             # 启动 Web 键盘处理器
@@ -332,11 +332,11 @@ class TelegripSystem:
             command_processor_task = asyncio.create_task(self._run_command_processor())
             self.tasks.append(command_processor_task)
 
-            logger.info("所有系统组件启动成功")
+            print("所有系统组件启动成功")
 
             # 如果请求则自动连接机器人
             if self.config.autoconnect and self.config.enable_robot:
-                logger.info("🔌 自动连接机器人电机...")
+                print("🔌 自动连接机器人电机...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle
                 self.add_control_command("robot_connect")
             
@@ -358,20 +358,20 @@ class TelegripSystem:
                         # 正常关闭
                         break
                 except Exception as e:
-                    logger.error(f"主任务循环中出错: {e}")
+                    print(f"主任务循环中出错: {e}")
                     break
             
         except OSError as e:
             if e.errno == 98:  # 地址已被占用
-                logger.error(f"启动遥操作系统时出错: {e}")
-                logger.error(f"要查找并终止使用该端口的进程，请运行:")
-                logger.error(f"  kill -9 $(lsof -t -i:{self.config.websocket_port})")
+                print(f"启动遥操作系统时出错: {e}")
+                print(f"要查找并终止使用该端口的进程，请运行:")
+                print(f"  kill -9 $(lsof -t -i:{self.config.websocket_port})")
             else:
-                logger.error(f"启动遥操作系统时出错: {e}")
+                print(f"启动遥操作系统时出错: {e}")
             await self.stop()
             raise
         except Exception as e:
-            logger.error(f"启动遥操作系统时出错: {e}")
+            print(f"启动遥操作系统时出错: {e}")
             await self.stop()
             raise
     
@@ -383,30 +383,30 @@ class TelegripSystem:
     
     async def stop(self):
         """停止所有系统组件。"""
-        logger.info("正在关闭遥操作系统...")
+        print("正在关闭遥操作系统...")
         self.is_running = False
 
         # 首先停止 VR 服务器以关闭 websocket 连接（解除任何等待的处理程序的阻塞）
         try:
             await asyncio.wait_for(self.vr_ws_client.disconnect(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("VR WebSocket 客户端断开超时")
+            print("VR WebSocket 客户端断开超时")
         except Exception as e:
-            logger.warning(f"断开 VR WebSocket 客户端时出错: {e}")
+            print(f"断开 VR WebSocket 客户端时出错: {e}")
         
         # 停止 WebRTC 推流
         if self.webrtc_streamer:
             try:
                 await self.webrtc_streamer.stop_streaming()
             except Exception as e:
-                logger.warning(f"停止 WebRTC 推流器时出错: {e}")
+                print(f"停止 WebRTC 推流器时出错: {e}")
 
         try:
             await asyncio.wait_for(self.vr_handler.stop(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("VR 处理器停止超时")
+            print("VR 处理器停止超时")
         except Exception as e:
-            logger.warning(f"停止 VR 处理器时出错: {e}")
+            print(f"停止 VR 处理器时出错: {e}")
 
         # 取消所有任务
         for task in self.tasks:
@@ -420,31 +420,31 @@ class TelegripSystem:
                     timeout=2.0
                 )
             except asyncio.TimeoutError:
-                logger.warning("部分任务未在超时时间内完成")
+                print("部分任务未在超时时间内完成")
 
         # 停止剩余组件
         try:
             await asyncio.wait_for(self.control_loop.stop(), timeout=3.0)
         except asyncio.TimeoutError:
-            logger.warning("控制循环停止超时")
+            print("控制循环停止超时")
         except Exception as e:
-            logger.warning(f"停止控制循环时出错: {e}")
+            print(f"停止控制循环时出错: {e}")
 
         try:
             await asyncio.wait_for(self.web_keyboard_handler.stop(), timeout=1.0)
         except asyncio.TimeoutError:
-            logger.warning("Web 键盘处理器停止超时")
+            print("Web 键盘处理器停止超时")
         except Exception as e:
-            logger.warning(f"停止 Web 键盘处理器时出错: {e}")
+            print(f"停止 Web 键盘处理器时出错: {e}")
 
-        logger.info("遥操作系统关闭完成")
+        print("遥操作系统关闭完成")
 
 
 def create_signal_handler(system: 'TelegripSystem', loop: asyncio.AbstractEventLoop):
     """创建一个正确停止系统的信号处理器。"""
     def signal_handler(signum, frame):
         """处理关闭信号。"""
-        logger.info(f"收到信号 {signum}")
+        print(f"收到信号 {signum}")
         system.is_running = False
         # 从事件循环中取消所有任务
         for task in system.tasks:
@@ -558,15 +558,15 @@ async def main():
 
     # 记录配置（仅在 INFO 级别或更详细时）
     if log_level <= logging.INFO:
-        logger.info("使用以下配置启动:")
-        logger.info(f"  机器人: {'启用' if config.enable_robot else '禁用'}")
-        logger.info(f"  PyBullet: {'启用' if config.enable_pybullet else '禁用'}")
-        logger.info(f"  无头模式: {'启用' if not config.enable_pybullet_gui and config.enable_pybullet else '禁用'}")
-        logger.info(f"  VR: {'启用' if config.enable_vr else '禁用'}")
-        logger.info(f"  键盘: {'启用' if config.enable_keyboard else '禁用'}")
-        logger.info(f"  自动连接: {'启用' if config.autoconnect else '禁用'}")
-        logger.info(f"  WebSocket 端口: {config.websocket_port}")
-        logger.info(f"  机器人端口: {config.follower_ports}")
+        print("使用以下配置启动:")
+        print(f"  机器人: {'启用' if config.enable_robot else '禁用'}")
+        print(f"  PyBullet: {'启用' if config.enable_pybullet else '禁用'}")
+        print(f"  无头模式: {'启用' if not config.enable_pybullet_gui and config.enable_pybullet else '禁用'}")
+        print(f"  VR: {'启用' if config.enable_vr else '禁用'}")
+        print(f"  键盘: {'启用' if config.enable_keyboard else '禁用'}")
+        print(f"  自动连接: {'启用' if config.autoconnect else '禁用'}")
+        print(f"  WebSocket 端口: {config.websocket_port}")
+        print(f"  机器人端口: {config.follower_ports}")
     else:
         # 显示干净的启动消息
         print(f"🤖 telegrip 启动中...")
@@ -586,16 +586,16 @@ async def main():
         await system.start()
     except (KeyboardInterrupt, SystemExit):
         if log_level <= logging.INFO:
-            logger.info("收到中断信号")
+            print("收到中断信号")
         else:
             print("\n🛑 正在关闭...")
     except asyncio.CancelledError:
         # 处理取消错误（通常来自重启场景）
         if log_level <= logging.INFO:
-            logger.info("系统任务已取消")
+            print("系统任务已取消")
     except Exception as e:
         if log_level <= logging.INFO:
-            logger.error(f"系统错误: {e}")
+            print(f"系统错误: {e}")
         else:
             print(f"❌ 错误: {e}")
     finally:
@@ -631,7 +631,7 @@ def main_cli():
         # 处理重启场景中的取消错误
         pass
     except Exception as e:
-        logger.error(f"致命错误: {e}")
+        print(f"致命错误: {e}")
         sys.exit(1)
 
 

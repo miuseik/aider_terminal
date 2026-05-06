@@ -107,18 +107,18 @@ class PyBulletVisualizer:
                 timeout=5
             )
             if result.returncode != 0:
-                logger.debug("glxinfo failed - OpenGL not available")
+                print("glxinfo failed - OpenGL not available")
                 return False
 
             # Check for common failure indicators in glxinfo output
             output = result.stdout.decode('utf-8', errors='ignore') + result.stderr.decode('utf-8', errors='ignore')
             if 'Error' in output or 'failed' in output.lower():
-                logger.debug("glxinfo reported errors - OpenGL context may not work")
+                print("glxinfo reported errors - OpenGL context may not work")
                 return False
 
             return True
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-            logger.debug(f"Display check failed: {e}")
+            print(f"Display check failed: {e}")
             return False
 
     def setup(self) -> bool:
@@ -129,7 +129,7 @@ class PyBulletVisualizer:
         # 在尝试 GUI 模式之前检查显示是否可用
         use_gui = self.use_gui
         if use_gui and not self._can_use_display():
-            logger.warning("No display available (X11 not connected), falling back to headless mode")
+            print("No display available (X11 not connected), falling back to headless mode")
             use_gui = False
 
         try:
@@ -148,16 +148,16 @@ class PyBulletVisualizer:
                 else:
                     self.physics_client = p.connect(p.DIRECT)
         except p.error as e:
-            logger.warning(f"Could not connect to PyBullet: {e}")
+            print(f"Could not connect to PyBullet: {e}")
             try:
                 if should_suppress_output:
                     with suppress_stdout_stderr():
                         self.physics_client = p.connect(p.DIRECT)
                 else:
                     self.physics_client = p.connect(p.DIRECT)
-                    logger.info("Fallback to DIRECT mode")
+                    print("Fallback to DIRECT mode")
             except p.error:
-                logger.error("Failed to connect to PyBullet")
+                print("Failed to connect to PyBullet")
                 return False
         
         if self.physics_client < 0:
@@ -185,7 +185,7 @@ class PyBulletVisualizer:
         
         # 加载机器人 URDF
         if not os.path.exists(self.urdf_path):
-            logger.error(f"URDF file not found: {self.urdf_path}")
+            print(f"URDF file not found: {self.urdf_path}")
             return False
         
         try:
@@ -195,7 +195,7 @@ class PyBulletVisualizer:
             else:
                 self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
         except p.error as e:
-            logger.error(f"Failed to load URDF: {e}")
+            print(f"Failed to load URDF: {e}")
             return False
         
         # 在 X 方向 40cm 处加载右侧机器人
@@ -206,7 +206,7 @@ class PyBulletVisualizer:
             else:
                 self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
         except p.error as e:
-            logger.error(f"Failed to load right robot URDF: {e}")
+            print(f"Failed to load right robot URDF: {e}")
             return False
         
         # === 加载 Aloha 移动底盘 URDF 模型 ===
@@ -235,14 +235,14 @@ class PyBulletVisualizer:
                 
                 # 5. 如果日志级别允许(INFO 及以上),打印成功消息
                 if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                    logger.info("Aloha chassis loaded successfully")
+                    print("Aloha chassis loaded successfully")
                     
             except p.error as e:
                 # 6. 捕获 PyBullet 加载错误(如 URDF 格式问题)
-                logger.warning(f"Failed to load Aloha URDF: {e}")
+                print(f"Failed to load Aloha URDF: {e}")
         else:
             # 7. URDF 文件不存在,记录警告(不影响程序运行,只是看不到底盘模型)
-            logger.warning(f"Aloha URDF not found at: {aloha_urdf_path}")
+            print(f"Aloha URDF not found at: {aloha_urdf_path}")
         
         # === 将关节名称映射到 PyBullet 索引 ===
         if not self._map_joints():
@@ -263,7 +263,7 @@ class PyBulletVisualizer:
         
         self.is_connected = True
         if getattr(logging, self.log_level.upper()) <= logging.INFO:
-            logger.info("PyBullet visualization setup complete")
+            print("PyBullet visualization setup complete")
         return True
     
     def _map_joints(self) -> bool:
@@ -272,7 +272,7 @@ class PyBulletVisualizer:
         
         for arm_name, robot_id in self.robot_ids.items():
             if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                logger.info(f"Mapping joints for {arm_name} robot:")
+                print(f"Mapping joints for {arm_name} robot:")
             num_joints = p.getNumJoints(robot_id)
             p_name_to_index = {}
             
@@ -281,7 +281,7 @@ class PyBulletVisualizer:
                 joint_name = info[1].decode('UTF-8')
                 joint_type = info[2]
                 if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                    logger.info(f"  Index: {i}, Name: '{joint_name}', Type: {joint_type}")
+                    print(f"  Index: {i}, Name: '{joint_name}', Type: {joint_type}")
                 p_name_to_index[joint_name] = i
                 if joint_type != p.JOINT_FIXED:
                     p.setJointMotorControl2(robot_id, i, p.VELOCITY_CONTROL, force=0)
@@ -294,11 +294,11 @@ class PyBulletVisualizer:
                     self.joint_indices[arm_name][target_idx] = p_name_to_index[urdf_name]
                     mapped_count += 1
                     if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                        logger.info(f"  Mapped: '{internal_name}' -> '{urdf_name}' (Index {p_name_to_index[urdf_name]})")
+                        print(f"  Mapped: '{internal_name}' -> '{urdf_name}' (Index {p_name_to_index[urdf_name]})")
             
             if mapped_count < NUM_JOINTS:
                 missing = [name for i, name in enumerate(JOINT_NAMES) if self.joint_indices[arm_name][i] is None]
-                logger.error(f"Could not map all joints for {arm_name} robot. Missing: {missing}")
+                print(f"Could not map all joints for {arm_name} robot. Missing: {missing}")
                 success = False
         
         return success
@@ -316,12 +316,12 @@ class PyBulletVisualizer:
                 if link_name == END_EFFECTOR_LINK_NAME:
                     self.end_effector_link_indices[arm_name] = i
                     if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                        logger.info(f"Found end effector link '{END_EFFECTOR_LINK_NAME}' for {arm_name} robot at index {i}")
+                        print(f"Found end effector link '{END_EFFECTOR_LINK_NAME}' for {arm_name} robot at index {i}")
                     found = True
                     break
             
             if not found:
-                logger.error(f"Could not find end effector link '{END_EFFECTOR_LINK_NAME}' for {arm_name} robot")
+                print(f"Could not find end effector link '{END_EFFECTOR_LINK_NAME}' for {arm_name} robot")
                 success = False
         
         return success
@@ -329,7 +329,7 @@ class PyBulletVisualizer:
     def _read_joint_limits(self):
         """从 URDF 读取关节限位（使用左侧机器人作为参考）。"""
         if getattr(logging, self.log_level.upper()) <= logging.INFO:
-            logger.info("Reading URDF joint limits:")
+            print("Reading URDF joint limits:")
         for i in range(NUM_JOINTS):
             pb_index = self.joint_indices['left'][i]
             joint_name = JOINT_NAMES[i]
@@ -340,10 +340,10 @@ class PyBulletVisualizer:
                     self.joint_limits_min_deg[i] = math.degrees(lower)
                     self.joint_limits_max_deg[i] = math.degrees(upper)
                     if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                        logger.info(f"  {joint_name}: {self.joint_limits_min_deg[i]:.1f}° to {self.joint_limits_max_deg[i]:.1f}°")
+                        print(f"  {joint_name}: {self.joint_limits_min_deg[i]:.1f}° to {self.joint_limits_max_deg[i]:.1f}°")
                 else:
                     if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                        logger.info(f"  {joint_name}: No limits found, using defaults")
+                        print(f"  {joint_name}: No limits found, using defaults")
     
     def _create_markers(self):
         """创建可视化标记点。"""
@@ -391,7 +391,7 @@ class PyBulletVisualizer:
         )
         
         if getattr(logging, self.log_level.upper()) <= logging.INFO:
-            logger.info(f"Camera positioned behind robot at distance={camera_distance}, yaw={camera_yaw}°, pitch={camera_pitch}°")
+            print(f"Camera positioned behind robot at distance={camera_distance}, yaw={camera_yaw}°, pitch={camera_pitch}°")
     
     def update_robot_pose(self, joint_angles_deg: np.ndarray, arm: str = 'left'):
         """更新指定机械臂在可视化中的关节位置。"""
@@ -585,7 +585,7 @@ class PyBulletVisualizer:
             p.disconnect(self.physics_client)
             self.is_connected = False
             if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                logger.info("PyBullet disconnected")
+                print("PyBullet disconnected")
     
     @property
     def get_joint_limits(self) -> Tuple[np.ndarray, np.ndarray]:

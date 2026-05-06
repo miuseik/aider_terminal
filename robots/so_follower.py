@@ -41,10 +41,10 @@ class SOFollower:
         # 根据配置创建舵机驱动
         if config.servo_type.lower() == "lx16a":
             servo_type = ServoType.LX16A
-            logger.info(f"🔧 创建 LX-16A 舵机驱动 (端口: {config.port})")
+            print(f"🔧 创建 LX-16A 舵机驱动 (端口: {config.port})")
         else:
             servo_type = ServoType.ST3215
-            logger.info(f"🔧 创建 ST3215 舵机驱动 (端口: {config.port})")
+            print(f"🔧 创建 ST3215 舵机驱动 (端口: {config.port})")
         
         self.driver = create_servo_driver(
             servo_type=servo_type,
@@ -58,12 +58,12 @@ class SOFollower:
             success = self.driver.connect()
             if success:
                 self.is_connected = True
-                logger.info(f"✅ {self.config.id} 连接成功")
+                print(f"✅ {self.config.id} 连接成功")
             else:
-                logger.error(f"❌ {self.config.id} 连接失败")
+                print(f"❌ {self.config.id} 连接失败")
             return success
         except Exception as e:
-            logger.error(f"❌ {self.config.id} 连接异常: {e}")
+            print(f"❌ {self.config.id} 连接异常: {e}")
             return False
     
     def disconnect(self):
@@ -71,7 +71,7 @@ class SOFollower:
         if self.driver:
             self.driver.disconnect()
         self.is_connected = False
-        logger.info(f"🔌 {self.config.id} 已断开")
+        print(f"🔌 {self.config.id} 已断开")
     
     def send_action(self, action: Dict[str, float]):
         """
@@ -112,7 +112,7 @@ class SOFollower:
         try:
             return self.driver.get_observation()
         except Exception as e:
-            logger.error(f"{self.config.id} 读取状态失败: {e}")
+            print(f"{self.config.id} 读取状态失败: {e}")
             return {}
     
     def is_ready(self) -> bool:

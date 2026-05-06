@@ -27,7 +27,7 @@ class ServoDetector:
         if baudrates is None:
             baudrates = [115200, 1000000, 9600, 57600]
         
-        logger.info(f"🔍 开始在 {port} 上探测舵机...")
+        print(f"🔍 开始在 {port} 上探测舵机...")
         
         # 尝试 LewanSoul LX-16A
         lx16a_result = self._try_lx16a(port, baudrates)
@@ -39,7 +39,7 @@ class ServoDetector:
         if st3215_result:
             return st3215_result
         
-        logger.warning(f"⚠️ 在 {port} 上未检测到已知型号的舵机")
+        print(f"⚠️ 在 {port} 上未检测到已知型号的舵机")
         return None
     
     def _try_lx16a(self, port: str, baudrates: list) -> Optional[Dict]:
@@ -48,7 +48,7 @@ class ServoDetector:
             from drivers.Hiwonder.lx16a_driver import LX16ADriver
             
             for baudrate in baudrates:
-                logger.debug(f"  尝试 LX-16A @ {baudrate}...")
+                print(f"  尝试 LX-16A @ {baudrate}...")
                 
                 driver = LX16ADriver(port=port, baudrate=baudrate, timeout=0.5)
                 
@@ -61,11 +61,11 @@ class ServoDetector:
                         # 读取数据验证
                         position = driver.get_position(servo_id)
                         if position is not None:
-                            logger.info(f"✅ 检测到 Hiwonder LX-16A")
-                            logger.info(f"   端口: {port}")
-                            logger.info(f"   波特率: {baudrate}")
-                            logger.info(f"   ID: {servo_id}")
-                            logger.info(f"   当前位置: {position:.1f}°")
+                            print(f"✅ 检测到 Hiwonder LX-16A")
+                            print(f"   端口: {port}")
+                            print(f"   波特率: {baudrate}")
+                            print(f"   ID: {servo_id}")
+                            print(f"   当前位置: {position:.1f}°")
                             
                             result = {
                                 'brand': 'Hiwonder',
@@ -83,7 +83,7 @@ class ServoDetector:
                 time.sleep(0.1)
         
         except Exception as e:
-            logger.debug(f"LX-16A 探测失败: {e}")
+            print(f"LX-16A 探测失败: {e}")
         
         return None
     
@@ -93,7 +93,7 @@ class ServoDetector:
             from drivers.Feetech.st3215_driver import ST3215Driver
             
             for baudrate in baudrates:
-                logger.debug(f"  尝试 ST3215 @ {baudrate}...")
+                print(f"  尝试 ST3215 @ {baudrate}...")
                 
                 driver = ST3215Driver(port=port, baudrate=baudrate)
                 
@@ -106,11 +106,11 @@ class ServoDetector:
                         # 读取数据验证
                         position = driver.get_position(servo_id)
                         if position is not None:
-                            logger.info(f"✅ 检测到 Feetech ST3215")
-                            logger.info(f"   端口: {port}")
-                            logger.info(f"   波特率: {baudrate}")
-                            logger.info(f"   ID: {servo_id}")
-                            logger.info(f"   当前位置: {position:.1f}°")
+                            print(f"✅ 检测到 Feetech ST3215")
+                            print(f"   端口: {port}")
+                            print(f"   波特率: {baudrate}")
+                            print(f"   ID: {servo_id}")
+                            print(f"   当前位置: {position:.1f}°")
                             
                             result = {
                                 'brand': 'Feetech',
@@ -128,7 +128,7 @@ class ServoDetector:
                 time.sleep(0.1)
         
         except Exception as e:
-            logger.debug(f"ST3215 探测失败: {e}")
+            print(f"ST3215 探测失败: {e}")
         
         return None
     
@@ -153,9 +153,9 @@ class ServoDetector:
             if result:
                 detected.append(result)
         
-        logger.info(f"\n📊 扫描完成，共发现 {len(detected)} 个舵机")
+        print(f"\n📊 扫描完成，共发现 {len(detected)} 个舵机")
         for servo in detected:
-            logger.info(f"  - {servo['brand']} {servo['model']} @ {servo['port']} "
+            print(f"  - {servo['brand']} {servo['model']} @ {servo['port']} "
                        f"(ID:{servo['id']}, {servo['baudrate']}bps)")
         
         return detected

@@ -135,7 +135,7 @@ class ControlLoop:
             if not self.robot_interface.connect():
                 # 真机连接失败
                 error_msg = "Robot interface failed to connect"
-                logger.error(error_msg)
+                print(error_msg)
                 setup_errors.append(error_msg)
                 # 如果配置中启用了真机机器人,连接失败则标记setup失败
                 # 如果只使用仿真(enable_robot=False),连接失败不影响setup
@@ -149,16 +149,16 @@ class ControlLoop:
                 # 3. 读取实际关节角度(get_actual_arm_angles)
                 # 初始化电机控制器
                 self.motor_controller = MotorController(robot_interface=self.robot_interface)
-                logger.info("✅ 电机控制器已初始化")
+                print("✅ 电机控制器已初始化")
                 
                 # 初始化API命令路由器
                 self.motor_router = MotorRouter(
                     control_loop=self
                 )
-                logger.info("✅ API命令路由器已初始化")
+                print("✅ API命令路由器已初始化")
         except Exception as e:
             error_msg = f"Robot interface setup failed with exception: {e}"
-            logger.error(error_msg)
+            print(error_msg)
             setup_errors.append(error_msg)
             if self.config.enable_robot:
                 success = False
@@ -179,7 +179,7 @@ class ControlLoop:
                 # 启动 PyBullet 仿真环境
                 if not self.visualizer.setup():
                     error_msg = "PyBullet visualizer setup failed"
-                    logger.error(error_msg)
+                    print(error_msg)
                     setup_errors.append(error_msg)
                     self.visualizer = None
                 else:
@@ -199,27 +199,27 @@ class ControlLoop:
                     # 如果启用了 Aloha,设置初始高度
                     if self.config.aloha_enabled and self.visualizer.aloha_id is not None:
                         self.visualizer.set_aloha_height(self.config.aloha_initial_height)
-                        logger.info(f"Aloha底盘已初始化，高度: {self.config.aloha_initial_height}m")
+                        print(f"Aloha底盘已初始化，高度: {self.config.aloha_initial_height}m")
             except Exception as e:
                 error_msg = f"PyBullet visualizer setup failed with exception: {e}"
-                logger.error(error_msg)
+                print(error_msg)
                 setup_errors.append(error_msg)
                 self.visualizer = None
         
         # 报告所有设置问题
         if setup_errors:
-            logger.error("设置失败，错误如下：")
+            print("设置失败，错误如下：")
             for i, error in enumerate(setup_errors, 1):
-                logger.error(f"  {i}. {error}")
+                print(f"  {i}. {error}")
         
         # 在 Web 键盘处理器上设置机器人接口,使其能获取当前位置
         if self.web_keyboard_handler and self.robot_interface:
             self.web_keyboard_handler.set_robot_interface(self.robot_interface)
-            logger.info("Set robot interface on web keyboard handler")
+            print("Set robot interface on web keyboard handler")
         
         # 初始化仿真可视化控制器
         self.visualizer_controller = VisualizerController(visualizer=self.visualizer)
-        logger.info("✅ 仿真可视化控制器已初始化")
+        print("✅ 仿真可视化控制器已初始化")
 
         return success
     
@@ -235,11 +235,11 @@ class ControlLoop:
         6. 更新 PyBullet 可视化
         """
         if not self.setup():
-            logger.error("控制循环设置失败")
+            print("控制循环设置失败")
             return
         
         self.is_running = True
-        logger.info("控制循环已启动")
+        print("控制循环已启动")
         
         # 用当前机器人位置初始化机械臂状态
         self._initialize_arm_states()
@@ -260,10 +260,10 @@ class ControlLoop:
                 await asyncio.sleep(self.config.send_interval)
                 
             except Exception as e:
-                logger.error(f"控制循环错误: {e}")
+                print(f"控制循环错误: {e}")
                 await asyncio.sleep(0.1)  # 出错后短暂暂停
         
-        logger.info("控制循环已停止")
+        print("控制循环已停止")
     
     async def stop(self):
         """停止控制循环。"""
@@ -272,7 +272,7 @@ class ControlLoop:
         # 清理 - 先断开机器人 (返回 home 位置并禁用力矩)
         if self.robot_interface:
             if self.robot_interface.is_engaged:
-                logger.info("🛑 关闭前断开机器人...")
+                print("🛑 关闭前断开机器人...")
                 self.robot_interface.disengage()
             self.robot_interface.disconnect()
 
@@ -302,8 +302,8 @@ class ControlLoop:
             self.left_arm.current_wrist_flex = left_angles[WRIST_FLEX_INDEX]
             self.right_arm.current_wrist_flex = right_angles[WRIST_FLEX_INDEX]
             
-            logger.info(f"左臂初始位置: {left_pos.round(3)}")
-            logger.info(f"右臂初始位置: {right_pos.round(3)}")
+            print(f"左臂初始位置: {left_pos.round(3)}")
+            print(f"右臂初始位置: {right_pos.round(3)}")
     
     async def _process_commands(self):
         """处理命令队列中的命令。"""
@@ -313,38 +313,38 @@ class ControlLoop:
                 goal = self.command_queue.get_nowait()
                 await self._execute_goal(goal)
         except Exception as e:
-            logger.error(f"处理命令错误: {e}")
+            print(f"处理命令错误: {e}")
             import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            print(f"Traceback: {traceback.format_exc()}")
     
     async def _handle_command(self, command):
         """处理单个命令。"""
         action = command.get('action', '')
-        logger.info(f"🔌 处理控制命令: {action}")
+        print(f"🔌 处理控制命令，action: {action}")
         
         if action == 'enable_keyboard':
             if self.web_keyboard_handler:
                 await self.web_keyboard_handler.start()
-                logger.info("🎮loop 通过API启用键盘控制")
+                print("🎮loop 通过API启用键盘控制")
         elif action == 'disable_keyboard':
             if self.web_keyboard_handler:
                 await self.web_keyboard_handler.stop()
-                logger.info("🎮loop 通过API禁用键盘控制")
+                print("🎮loop 通过API禁用键盘控制")
         elif action == 'web_keypress':
             # 处理网页按键事件
             key = command.get('key')
             event = command.get('event')  # 'press' or 'release'
 
             if self.web_keyboard_handler and self.web_keyboard_handler.is_enabled:
-                logger.debug(f"🌐 处理网页按键: {key}_{event}")
+                print(f"🌐 处理网页按键: {key}_{event}")
                 if event == 'press':
                     self.web_keyboard_handler.on_key_press(key)
                 elif event == 'release':
                     self.web_keyboard_handler.on_key_release(key)
             else:
-                logger.warning("🎮loop Web键盘处理器未启用")
+                print("🎮loop Web键盘处理器未启用")
         elif action == 'robot_connect':
-            print("🔌 处理机器人连接命令robot_connect")
+            print(f"🔌 处理机器人连接命令,当前连接状态是: {self.robot_interface.is_connected}")
             if self.robot_interface:
                 # 如果未连接，先建立连接
                 if not self.robot_interface.is_connected:
@@ -365,16 +365,16 @@ class ControlLoop:
             else:
                 print(f"无法使能机器人: 接口={self.robot_interface is not None}, 连接={self.robot_interface.is_connected if self.robot_interface else False}")
         elif action == 'robot_disconnect':
-            logger.info("🔌 处理机器人断开命令")
+            print("🔌 处理机器人断开命令")
             if self.robot_interface:
-                logger.info(f"🔌 机器人接口可用")
+                print(f"🔌 机器人接口可用")
                 success = self.robot_interface.disengage()
                 if success:
-                    logger.info("🔌 通过API禁能机器人电机")
+                    print("🔌 通过API禁能机器人电机")
                     # 机器人断开时将机械臂状态重置为 IDLE
                     self.left_arm.reset()
                     self.right_arm.reset()
-                    logger.info("🔓 双臂：机器人断开后停用位置控制")
+                    print("🔓 双臂：机器人断开后停用位置控制")
                     
                     # 隐藏可视化标记点
                     if self.visualizer:
@@ -384,20 +384,20 @@ class ControlLoop:
                             self.visualizer.hide_marker(f"{arm}_target")
                             self.visualizer.hide_frame(f"{arm}_target_frame")
                 else:
-                    logger.error("❌ 禁能机器人电机失败")
+                    print("❌ 禁能机器人电机失败")
             else:
-                logger.warning("无法禁能机器人：无机器人接口")
+                print("无法禁能机器人：无机器人接口")
         elif action.startswith('control_') or action == 'calibrate_motor':
             # API控制命令,交给路由器处理
             if not self.api_router:
-                logger.warning("⚠️ API命令路由器未初始化")
+                print("⚠️ API命令路由器未初始化")
                 return
             
             success = self.api_router.route(command)
             if not success:
-                logger.error(f"❌ 处理API命令失败: {action}")
+                print(f"❌ 处理API命令失败: {action}")
         else:
-            logger.warning(f"未知命令: {action}")
+            print(f"未知命令: {action}")
 
     async def _execute_goal(self, goal: ControlGoal):
         """执行控制目标。"""
@@ -408,7 +408,7 @@ class ControlLoop:
             self.aloha_height = max(0.0, min(0.7854, self.aloha_height + height_delta))
             if self.visualizer:
                 self.visualizer.set_aloha_height(self.aloha_height)
-                logger.debug(f"⬆️ Aloha升降轴调整: {self.aloha_height:.3f}m (增量: {height_delta:.3f})")
+                print(f"⬆️ Aloha升降轴调整: {self.aloha_height:.3f}m (增量: {height_delta:.3f})")
             return
         
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm
@@ -428,7 +428,7 @@ class ControlLoop:
                 arm_state.origin_wrist_roll_angle = current_angles[WRIST_ROLL_INDEX]
                 arm_state.origin_wrist_flex_angle = current_angles[WRIST_FLEX_INDEX]
                 
-                logger.info(f"🔄 {goal.arm.upper()}臂: 目标位置重置为当前机器人位置（空闲超时）")
+                print(f"🔄 {goal.arm.upper()}臂: 目标位置重置为当前机器人位置（空闲超时）")
             return
         
         # 处理模式变化(仅在指定模式时)
@@ -450,7 +450,7 @@ class ControlLoop:
                     arm_state.origin_wrist_roll_angle = current_angles[WRIST_ROLL_INDEX]
                     arm_state.origin_wrist_flex_angle = current_angles[WRIST_FLEX_INDEX]
                 
-                logger.info(f"🔒 {goal.arm.upper()}握把激活 - 控制{goal.arm}臂（目标重置为当前位置）")
+                print(f"🔒 {goal.arm.upper()}握把激活 - 控制{goal.arm}臂（目标重置为当前位置）")
                 
             elif goal.mode == ControlMode.IDLE:
                 # 停用位置控制
@@ -461,7 +461,7 @@ class ControlLoop:
                     self.visualizer.hide_marker(f"{goal.arm}_goal")
                     self.visualizer.hide_frame(f"{goal.arm}_goal_frame")
                 
-                logger.info(f"🔓 {goal.arm.upper()}臂: 位置控制已停用")
+                print(f"🔓 {goal.arm.upper()}臂: 位置控制已停用")
         
         # 处理位置控制 - VR 和键盘现在工作方式相同(相对于原点的绝对偏移)
         if goal.target_position is not None and arm_state.mode == ControlMode.POSITION_CONTROL:
@@ -575,7 +575,7 @@ class ControlLoop:
         try:
             self._update_robot()
         except Exception as e:
-            logger.error(f"更新机器人错误: {e}")
+            print(f"更新机器人错误: {e}")
             # 不关闭,继续运行 - 机器人接口会处理连接问题
     
     def _update_robot(self):
@@ -622,7 +622,7 @@ class ControlLoop:
                 if left_trigger is not None:
                     self.robot_interface.left_arm_angles[GRIPPER_INDEX] = -left_trigger * 90.0
             else:
-                logger.debug(f"跳过左臂更新: connected={arm_connected}, enable_robot={self.config.enable_robot}")
+                print(f"跳过左臂更新: connected={arm_connected}, enable_robot={self.config.enable_robot}")
 
         # 更新右臂(仅在连接或纯仿真模式下)
         if (self.right_arm.mode == ControlMode.POSITION_CONTROL and 
@@ -647,7 +647,7 @@ class ControlLoop:
                 if right_trigger is not None:
                     self.robot_interface.right_arm_angles[GRIPPER_INDEX] = -right_trigger * 90.0
             else:
-                logger.debug(f"跳过右臂更新: connected={arm_connected}, enable_robot={self.config.enable_robot}")
+                print(f"跳过右臂更新: connected={arm_connected}, enable_robot={self.config.enable_robot}")
 
 
         # === 同步状态到 robot_interface (用于 send_command 内部使用) ===
@@ -686,7 +686,7 @@ class ControlLoop:
             if active_arms and self.robot_interface:
                 left_angles = self.robot_interface.get_arm_angles("left")
                 right_angles = self.robot_interface.get_arm_angles("right")
-                logger.info(f"🤖 活跃控制: {', '.join(active_arms)} | 左: {left_angles.round(1)} | 右: {right_angles.round(1)}")
+                print(f"🤖 活跃控制: {', '.join(active_arms)} | 左: {left_angles.round(1)} | 右: {right_angles.round(1)}")
     
     @property
     def status(self) -> Dict:

@@ -209,7 +209,7 @@ def auto_detect_and_connect(self):
     left_result = detector.detect_on_port(self.config.follower_ports["left"])
     
     if left_result:
-        logger.info(f"自动检测到左臂: {left_result['brand']} {left_result['model']}")
+        print(f"自动检测到左臂: {left_result['brand']} {left_result['model']}")
         # 更新配置
         self.config.follower_ports["left_servo_type"] = left_result['model'].lower()
         self.config.follower_ports["left_baudrate"] = left_result['baudrate']

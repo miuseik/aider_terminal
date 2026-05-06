@@ -55,10 +55,10 @@ def generate_ssl_certificates(cert_path: str = "cert.pem", key_path: str = "key.
     
     # Check if certificates already exist
     if cert_abs_path.exists() and key_abs_path.exists():
-        logger.info(f"SSL certificates already exist: {cert_abs_path}, {key_abs_path}")
+        print(f"SSL certificates already exist: {cert_abs_path}, {key_abs_path}")
         return True
     
-    logger.info("SSL certificates not found, generating self-signed certificates...")
+    print("SSL certificates not found, generating self-signed certificates...")
     
     try:
         # Generate self-signed certificate using openssl
@@ -76,20 +76,20 @@ def generate_ssl_certificates(cert_path: str = "cert.pem", key_path: str = "key.
         os.chmod(key_abs_path, 0o600)
         os.chmod(cert_abs_path, 0o644)
         
-        logger.info(f"SSL certificates generated successfully: {cert_abs_path}, {key_abs_path}")
+        print(f"SSL certificates generated successfully: {cert_abs_path}, {key_abs_path}")
         return True
         
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to generate SSL certificates: {e}")
-        logger.error(f"Command output: {e.stderr}")
+        print(f"Failed to generate SSL certificates: {e}")
+        print(f"Command output: {e.stderr}")
         return False
     except FileNotFoundError:
-        logger.error("OpenSSL not found. Please install OpenSSL to generate certificates.")
-        logger.error("On Ubuntu/Debian: sudo apt-get install openssl")
-        logger.error("On macOS: brew install openssl")
+        print("OpenSSL not found. Please install OpenSSL to generate certificates.")
+        print("On Ubuntu/Debian: sudo apt-get install openssl")
+        print("On macOS: brew install openssl")
         return False
     except Exception as e:
-        logger.error(f"Unexpected error generating SSL certificates: {e}")
+        print(f"Unexpected error generating SSL certificates: {e}")
         return False
 
 def ensure_ssl_certificates(cert_path: str = "cert.pem", key_path: str = "key.pem") -> bool:
@@ -104,9 +104,9 @@ def ensure_ssl_certificates(cert_path: str = "cert.pem", key_path: str = "key.pe
         True if certificates are available, False if generation failed
     """
     if not generate_ssl_certificates(cert_path, key_path):
-        logger.error("Could not ensure SSL certificates are available")
-        logger.error("Manual certificate generation may be required:")
-        logger.error("openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes -subj \"/C=US/ST=Test/L=Test/O=Test/OU=Test/CN=localhost\"")
+        print("Could not ensure SSL certificates are available")
+        print("Manual certificate generation may be required:")
+        print("openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes -subj \"/C=US/ST=Test/L=Test/O=Test/OU=Test/CN=localhost\"")
         return False
     
     return True 

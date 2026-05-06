@@ -188,7 +188,7 @@ class ControlDispatcher:
                     self.robot_interface.send_command()
                     
         except Exception as e:
-            logger.error(f"发送指令到真机失败: {e}")
+            print(f"发送指令到真机失败: {e}")
     
     def _dispatch_to_simulation(self,
                                base_velocity: Dict[str, float],
@@ -227,7 +227,7 @@ class ControlDispatcher:
             self.visualizer.step_simulation()
             
         except Exception as e:
-            logger.error(f"发送指令到仿真失败: {e}")
+            print(f"发送指令到仿真失败: {e}")
     
     def set_robot_interface(self, robot_interface):
         """设置真机机器人接口"""

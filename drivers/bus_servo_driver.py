@@ -39,13 +39,13 @@ def create_servo_driver(servo_type: ServoType, port: str, baudrate: int = 115200
     if servo_type == ServoType.LX16A:
         # 委托给 Hiwonder LX-16A 驱动
         from drivers.Hiwonder.lx16a_driver import LX16ADriver
-        logger.info(f"📦 创建 LX-16A 驱动 (端口: {port}, 波特率: {baudrate})")
+        print(f"📦 创建 LX-16A 驱动 (端口: {port}, 波特率: {baudrate})")
         return LX16ADriver(port=port, baudrate=baudrate)
         
     elif servo_type == ServoType.ST3215:
         # 委托给 Feetech ST3215 驱动
         from drivers.feetech.st3215_driver import ST3215Driver
-        logger.info(f"📦 创建 ST3215 驱动 (端口: {port}, 波特率: {baudrate})")
+        print(f"📦 创建 ST3215 驱动 (端口: {port}, 波特率: {baudrate})")
         return ST3215Driver(port=port, baudrate=baudrate)
         
     else:

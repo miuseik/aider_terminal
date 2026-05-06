@@ -23,9 +23,6 @@ from ..config import (
 )
 from .kinematics import ForwardKinematics, IKSolver
 
-logger = logging.getLogger(__name__)
-
-
 @contextlib.contextmanager
 def suppress_stdout_stderr():
     """上下文管理器，在文件描述符级别抑制标准输出和错误输出。"""
@@ -67,33 +64,21 @@ class RobotInterface:
         self.right_robot = None
         self.is_connected = False
         self.is_engaged = False  # 电机使能状态
+        
+        # 初始化底层电机控制器（用于直接控制真机）
+        from controller.motor_controller import MotorController
+        self.motor_controller = MotorController()
 
         # 各机械臂连接状态
         self.left_arm_connected = False
         self.right_arm_connected = False
         
-        # 舵机 ID 配置（由 Server 下发，先使用默认值）
-        self.servo_ids = {
-            'left_bus': {
-                'port': '/dev/ttyUSB0',
-                'left_arm': {'shoulder_pan': 1, 'shoulder_lift': 2, 'elbow_flex': 3, 'wrist_flex': 4, 'wrist_roll': 5, 'gripper': 6},
-                'base': {'left_wheel': 8, 'back_wheel': 9, 'right_wheel': 10},
-                'lift_axis': 11,
-                'neck': 12
-            },
-            'right_bus': {
-                'port': '/dev/ttyUSB1',
-                'right_arm': {'shoulder_pan': 13, 'shoulder_lift': 14, 'elbow_flex': 15, 'wrist_flex': 16, 'wrist_roll': 17, 'gripper': 18}
-            }
-        }
+        # 舵机 ID 配置（由 Server 下发，初始为空）
+        self.servo_ids = {}
         
         # 底盘和升降轴状态
-        self.base_motors = [
-            self.servo_ids['left_bus']['base']['left_wheel'],
-            self.servo_ids['left_bus']['base']['back_wheel'],
-            self.servo_ids['left_bus']['base']['right_wheel']
-        ]
-        self.lift_motor = self.servo_ids['left_bus']['lift_axis']
+        self.base_motors = []
+        self.lift_motor = None
 
         # 关节状态
         self.left_arm_angles = np.zeros(NUM_JOINTS)
@@ -138,28 +123,36 @@ class RobotInterface:
     def set_servo_ids_config(self, config: dict):
         """设置舵机 ID 配置（从 Server 获取）"""
         if not config:
-            logger.warning("⚠️ 收到空的舵机配置")
+            print("⚠️ 收到空的舵机配置")
             return False
         
         self.servo_ids = config
         
-        # 更新底盘和升降轴引用
+        # 更新底盘和升降轴引用 (适配新的 base_lift_bus 结构)
         try:
-            self.base_motors = [
-                self.servo_ids['left_bus']['base']['left_wheel'],
-                self.servo_ids['left_bus']['base']['back_wheel'],
-                self.servo_ids['left_bus']['base']['right_wheel']
-            ]
-            self.lift_motor = self.servo_ids['left_bus']['lift_axis']
-            logger.info(f"✅ 舵机配置已更新: {len(self.servo_ids)} 个总线")
+            # 优先从 base_lift_bus 获取
+            base_config = config.get('base_lift_bus', {}).get('base', {})
+            lift_config = config.get('base_lift_bus', {}).get('lift_axis', {})
+            
+            if base_config:
+                self.base_motors = [
+                    base_config.get('front_wheel', {}).get('id'),
+                    base_config.get('left_wheel', {}).get('id'),
+                    base_config.get('right_wheel', {}).get('id')
+                ]
+            
+            if lift_config and 'axis1' in lift_config:
+                self.lift_motor = lift_config['axis1'].get('id')
+                
+            print(f"✅ 舵机配置已更新: {len(config)} 个总线配置")
             return True
         except Exception as e:
-            logger.error(f"❌ 解析舵机配置失败: {e}")
+            print(f"❌ 解析舵机配置失败: {e}")
             return False
 
     def setup_robot_configs(self) -> Tuple[SOFollowerRobotConfig, SOFollowerRobotConfig]:
         """为两个机械臂创建机器人配置。"""
-        logger.info(f"设置机器人配置，端口: {self.config.follower_ports}")
+        print(f"设置机器人配置，端口: {self.config.follower_ports}")
 
         left_config = SOFollowerRobotConfig(
             port=self.config.follower_ports["left"],
@@ -178,14 +171,13 @@ class RobotInterface:
         return left_config, right_config
 
     def connect(self) -> bool:
-        """连接机器人硬件。"""
+        print(f"开始连接机器人...：{self.is_connected}")
         if self.is_connected:
-            logger.info("机器人接口已连接")
+            print("机器人接口已连接")
             return True
 
         if not self.config.enable_robot:
-            logger.info("配置中禁用了机器人接口")
-            self.is_connected = True  # 测试时标记为“已连接”
+            print("配置中禁用了机器人接口")
             return True
 
         # 根据日志级别设置输出抑制
@@ -196,7 +188,7 @@ class RobotInterface:
         try:
             left_config, right_config = self.setup_robot_configs()
             if not should_suppress:
-                logger.info("正在连接机器人...")
+                print("正在连接机器人...")
 
             # 连接左臂
             try:
@@ -208,9 +200,9 @@ class RobotInterface:
                     self.left_robot = SOFollower(left_config)
                     self.left_robot.connect()
                 self.left_arm_connected = True
-                logger.info("✅ 左臂连接成功")
+                print("✅ 左臂连接成功")
             except Exception as e:
-                logger.error(f"❌ 左臂连接失败: {e}")
+                print(f"❌ 左臂连接失败: {e}")
                 self.left_arm_connected = False
 
             # 连接右臂  
@@ -223,32 +215,50 @@ class RobotInterface:
                     self.right_robot = SOFollower(right_config)
                     self.right_robot.connect()
                 self.right_arm_connected = True
-                logger.info("✅ 右臂连接成功")
+                print("✅ 右臂连接成功")
             except Exception as e:
-                logger.error(f"❌ 右臂连接失败: {e}")
+                print(f"❌ 右臂连接失败: {e}")
                 self.right_arm_connected = False
 
             # 至少一个机械臂连接成功即标记为已连接
             self.is_connected = self.left_arm_connected or self.right_arm_connected
 
             if self.is_connected:
-                # 初始化关节状态
-                self._read_initial_state()
-                logger.info(f"🤖 机器人接口已连接: 左臂={self.left_arm_connected}, 右臂={self.right_arm_connected}")
-                
-                # 从 Server 获取最新舵机配置
+                # 1. 从 Server 获取最新舵机配置 (优先执行)
                 from router.server_api_client import ServerAPIClient
-                api_client = ServerAPIClient()
+                api_client = ServerAPIClient()  # 自动从全局配置读取地址
                 config = api_client.get_servo_ids_config()
                 if config:
                     self.set_servo_ids_config(config)
+                    print("✅ 舵机配置已从 Server 同步")
+                    
+                    # 2. 初始化底层驱动 (根据配置中的端口)
+                    left_port = config.get('left_bus', {}).get('port')
+                    right_port = config.get('right_bus', {}).get('port')
+                    base_port = config.get('base_lift_bus', {}).get('port')
+                    
+                    # 目前假设双臂和底盘可能共用或分开端口，这里先尝试初始化主端口
+                    # 你的 MotorController 可能需要适配多端口逻辑，或者我们只初始化一个主驱动
+                    if left_port and not self.motor_controller.driver:
+                        self.motor_controller._initialize_driver({
+                            'servo_type': 'st3215', # 假设是 ST3215
+                            'port': left_port,
+                            'baudrate': 1000000
+                        })
+                        print(f"✅ 底层驱动已在 {left_port} 初始化")
+                else:
+                    print("⚠️ 未能从 Server 获取舵机配置，真机控制可能失效")
+
+                # 3. 初始化关节状态
+                self._read_initial_state()
+                print(f"🤖 机器人接口已连接: 左臂={self.left_arm_connected}, 右臂={self.right_arm_connected}")
             else:
-                logger.error("❌ 无法连接任何机械臂")
+                print("❌ 无法连接任何机械臂")
 
             return self.is_connected
 
         except Exception as e:
-            logger.error(f"❌ 机器人连接异常: {e}")
+            print(f"❌ 机器人连接异常: {e}")
             self.is_connected = False
             return False
 
@@ -267,7 +277,7 @@ class RobotInterface:
                         observation['wrist_roll.pos'],
                         observation['gripper.pos']
                     ])
-                    logger.info(f"左臂初始状态: {self.left_arm_angles.round(1)}")
+                    print(f"左臂初始状态: {self.left_arm_angles.round(1)}")
 
             if self.right_robot and self.right_arm_connected:
                 observation = self.right_robot.get_observation()
@@ -281,10 +291,10 @@ class RobotInterface:
                         observation['wrist_roll.pos'],
                         observation['gripper.pos']
                     ])
-                    logger.info(f"右臂初始状态: {self.right_arm_angles.round(1)}")
+                    print(f"右臂初始状态: {self.right_arm_angles.round(1)}")
 
         except Exception as e:
-            logger.error(f"读取初始状态错误: {e}")
+            print(f"读取初始状态错误: {e}")
 
     def setup_kinematics(self, physics_client, robot_ids: Dict, joint_indices: Dict,
                          end_effector_link_indices: Dict, joint_limits_min_deg: np.ndarray,
@@ -304,7 +314,7 @@ class RobotInterface:
                 joint_limits_min_deg, joint_limits_max_deg, arm_name=arm
             )
 
-        logger.info("两个机械臂的运动学解算器已初始化")
+        print("两个机械臂的运动学解算器已初始化")
 
     def get_current_end_effector_position(self, arm: str) -> np.ndarray:
         """获取指定机械臂的当前末端执行器位置。"""
@@ -355,7 +365,7 @@ class RobotInterface:
             for offset in [-360.0, 360.0]:
                 wrapped_angle = shoulder_pan_angle + offset
                 if min_limit <= wrapped_angle <= max_limit:
-                    logger.debug(f"将 shoulder_pan 从 {shoulder_pan_angle:.1f}° 环绕到 {wrapped_angle:.1f}°")
+                    print(f"将 shoulder_pan 从 {shoulder_pan_angle:.1f}° 环绕到 {wrapped_angle:.1f}°")
                     processed_angles[shoulder_pan_idx] = wrapped_angle
                     break
 
@@ -394,18 +404,19 @@ class RobotInterface:
 
     def engage(self) -> bool:
         """使能机器人电机(开始发送指令)。"""
+        print("🔌 使能机器人电机(开始发送指令)")
         if not self.is_connected:
-            logger.warning("无法使能机器人: 未连接")
+            print("无法使能机器人: 未连接")
             return False
 
         self.is_engaged = True
-        logger.info("🔌 机器人电机已使能 - 将发送指令")
+        print("🔌 机器人电机已使能 - 将发送指令")
         return True
 
     def disengage(self) -> bool:
         """禁能机器人电机(停止发送指令)。"""
         if not self.is_connected:
-            logger.info("机器人已断开")
+            print("机器人已断开")
             return True
 
         try:
@@ -416,11 +427,11 @@ class RobotInterface:
             self.disable_torque()
 
             self.is_engaged = False
-            logger.info("🔌 机器人电机已禁能 - 指令停止")
+            print("🔌 机器人电机已禁能 - 指令停止")
             return True
 
         except Exception as e:
-            logger.error(f"禁能机器人错误: {e}")
+            print(f"禁能机器人错误: {e}")
             return False
 
     def send_command(self) -> bool:
@@ -437,11 +448,11 @@ class RobotInterface:
             try:
                 self._send_to_hardware()
             except Exception as e:
-                logger.error(f"发送机器人指令错误: {e}")
+                print(f"发送机器人指令错误: {e}")
                 self.general_errors += 1
                 if self.general_errors > self.max_general_errors:
                     self.is_connected = False
-                    logger.error("❌ 机器人接口因重复错误而断开")
+                    print("❌ 机器人接口因重复错误而断开")
                 success = False
 
         # 2. 更新仿真（无论真机是否连接）
@@ -499,14 +510,14 @@ class RobotInterface:
                         observation['gripper.pos']
                     ])
         except Exception as e:
-            logger.debug(f"读取 {arm} 实际关节角度错误: {e}")
+            print(f"读取 {arm} 实际关节角度错误: {e}")
 
         # 如果无法读取实际角度，回退到指令角度
         return self.get_arm_angles(arm)
 
     def return_to_initial_position(self):
         """将两个机械臂返回到初始位置。"""
-        logger.info("⏪ 正在将机器人返回到初始位置...")
+        print("⏪ 正在将机器人返回到初始位置...")
 
         try:
             # 设置初始位置 - 无方向映射
@@ -518,9 +529,9 @@ class RobotInterface:
                 self.send_command
                 time.sleep(0.1)
 
-            logger.info("✅ 机器人已返回到初始位置")
+            print("✅ 机器人已返回到初始位置")
         except Exception as e:
-            logger.error(f"返回初始位置错误: {e}")
+            print(f"返回初始位置错误: {e}")
 
     def disable_torque(self, arm: str = None):
         """禁能机器人关节力矩。
@@ -534,51 +545,51 @@ class RobotInterface:
         try:
             if arm is None or arm == "left":
                 if self.left_robot and self.left_arm_connected:
-                    logger.info("正在禁能左臂力矩...")
+                    print("正在禁能左臂力矩...")
                     self.left_robot.bus.disable_torque()
 
             if arm is None or arm == "right":
                 if self.right_robot and self.right_arm_connected:
-                    logger.info("正在禁能右臂力矩...")
+                    print("正在禁能右臂力矩...")
                     self.right_robot.bus.disable_torque()
 
         except Exception as e:
-            logger.error(f"禁能力矩错误: {e}")
+            print(f"禁能力矩错误: {e}")
 
     def disconnect(self):
         """断开与机器人硬件的连接。"""
         if not self.is_connected:
             return
 
-        logger.info("正在断开机器人连接...")
+        print("正在断开机器人连接...")
 
         # 如果已使能，先返回初始位置
         if self.is_engaged:
             try:
                 self.return_to_initial_position()
             except Exception as e:
-                logger.error(f"返回初始位置错误: {e}")
+                print(f"返回初始位置错误: {e}")
 
         # 断开两个机械臂
         if self.left_robot:
             try:
                 self.left_robot.disconnect()
             except Exception as e:
-                logger.error(f"断开左臂错误: {e}")
+                print(f"断开左臂错误: {e}")
             self.left_robot = None
 
         if self.right_robot:
             try:
                 self.right_robot.disconnect()
             except Exception as e:
-                logger.error(f"断开右臂错误: {e}")
+                print(f"断开右臂错误: {e}")
             self.right_robot = None
 
         self.is_connected = False
         self.is_engaged = False
         self.left_arm_connected = False
         self.right_arm_connected = False
-        logger.info("🔌 机器人已断开")
+        print("🔌 机器人已断开")
 
     def get_arm_connection_status(self, arm: str) -> bool:
         """根据设备文件存在性获取特定机械臂的连接状态。"""
@@ -644,67 +655,61 @@ class RobotInterface:
 
     def _send_to_hardware(self):
         """发送指令到真机硬件（双臂 + 底盘 + 升降轴）。"""
-        print("🤹送指令到真机硬件（双臂 + 底盘 + 升降轴）...")
-        print("🤹",self.left_robot)
-        print("🤹",self.right_robot)
-        print("🤹",self.left_robot)
-        print("🤹",self.left_robot)
         # 构建完整的动作字典
         action = self.build_robot_action()
 
-        # 1. 发送左臂指令
-        if self.left_robot:
-            left_action_dict = {
-                "shoulder_pan.pos": float(action["left_arm_angles"][0]),
-                "shoulder_lift.pos": float(action["left_arm_angles"][1]),
-                "elbow_flex.pos": float(action["left_arm_angles"][2]),
-                "wrist_flex.pos": float(action["left_arm_angles"][3]),
-                "wrist_roll.pos": float(action["left_arm_angles"][4]),
-                "gripper.pos": float(action["left_arm_angles"][5])
-            }
-            self.left_robot.send_action(left_action_dict)
+        # 确保驱动已初始化
+        if not self.motor_controller or not self.motor_controller.driver:
+            print("⚠️ 底层驱动未初始化，跳过真机控制")
+            return
 
-        # 2. 发送右臂指令
-        if self.right_robot:
-            right_action_dict = {
-                "shoulder_pan.pos": float(action["right_arm_angles"][0]),
-                "shoulder_lift.pos": float(action["right_arm_angles"][1]),
-                "elbow_flex.pos": float(action["right_arm_angles"][2]),
-                "wrist_flex.pos": float(action["right_arm_angles"][3]),
-                "wrist_roll.pos": float(action["right_arm_angles"][4]),
-                "gripper.pos": float(action["right_arm_angles"][5])
-            }
-            self.right_robot.send_action(right_action_dict)
+        driver = self.motor_controller.driver
 
-        # 3. 发送底盘指令（三轮全向轮）
-        if self.left_robot:
-            base_ids = self.servo_ids['left_bus']['base']
-            base_wheel_goal_vel = {
-                base_ids['left_wheel']['id']: int(action["base.left_wheel.vel"]),
-                base_ids['back_wheel']['id']: int(action["base.back_wheel.vel"]),
-                base_ids['right_wheel']['id']: int(action["base.right_wheel.vel"])
-            }
-            try:
-                self.left_robot.bus.sync_write_velocity(base_wheel_goal_vel)
-            except Exception as e:
-                logger.error(f"发送底盘指令错误: {e}")
-                
-        # 4. 发送升降轴指令（位置控制）
-        if self.left_robot:
-            try:
-                lift_id = self.servo_ids['left_bus']['lift_axis']['axis1']['id']
-                # 将毫米转换为舵机位置 (需要根据实际机械结构计算)
-                # 假设: 1mm = 10脉冲 (需要根据螺距调整)
-                lift_position = int(action["lift.height_mm"] * 10)
-                self.left_robot.bus.write_position(lift_id, lift_position)
-            except Exception as e:
-                logger.error(f"发送升降轴指令错误: {e}")
+        # 1. 发送左臂指令 (动态遍历配置)
+        left_arm_config = self.servo_ids.get('left_bus', {}).get('left_arm', {})
+        left_angles = action.get("left_arm_angles", [])
+        
+        for i, (joint_name, joint_info) in enumerate(left_arm_config.items()):
+            if i < len(left_angles):
+                servo_id = joint_info['id']
+                angle = left_angles[i]
+                position = int((angle + 180) / 360 * 4095)
+                driver.set_position(servo_id, position, time_ms=50)
+                time.sleep(0.002)  # 2ms 延时，防止总线冲突
+
+        # 2. 发送右臂指令 (动态遍历配置)
+        right_arm_config = self.servo_ids.get('right_bus', {}).get('right_arm', {})
+        right_angles = action.get("right_arm_angles", [])
+        
+        for i, (joint_name, joint_info) in enumerate(right_arm_config.items()):
+            if i < len(right_angles):
+                servo_id = joint_info['id']
+                angle = right_angles[i]
+                position = int((angle + 180) / 360 * 4095)
+                driver.set_position(servo_id, position, time_ms=50)
+                time.sleep(0.002)  # 2ms 延时
+
+        # 3. 发送底盘指令 (动态遍历配置)
+        base_config = self.servo_ids.get('base_lift_bus', {}).get('base', {})
+        for joint_name, joint_info in base_config.items():
+            vel_key = f"base.{joint_name}.vel"
+            if vel_key in action:
+                vel = int(action[vel_key])
+                # 注意：这里需要根据实际驱动支持的模式调整（位置或速度）
+                # driver.set_velocity(joint_info['id'], vel)
+
+        # 4. 发送升降轴指令 (动态遍历配置)
+        lift_axis_config = self.servo_ids.get('base_lift_bus', {}).get('lift_axis', {})
+        for axis_name, axis_info in lift_axis_config.items():
+            lift_height = action.get("lift.height_mm", 0)
+            position = int(lift_height * 10)
+            driver.set_position(axis_info['id'], position, time_ms=0)
 
 
     def _update_simulation(self):
         """更新仿真可视化（使用 build_robot_action 统一构建的数据）。"""
         if not self.visualizer:
-            logger.debug("⚠️ visualizer 未初始化，跳过仿真更新")
+            print("⚠️ visualizer 未初始化，跳过仿真更新")
             return
 
         # 1. 构建完整的机器人动作（包含夹爪映射）

@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "摄像头还曾opencv了";git push
+git add ./;git commit -m "电机驱动有问题";git push
 ```
 
 ```bash
@@ -11,6 +11,9 @@ git checkout 。/
 
 ```bash
 ssh root@121.40.151.10
+```
+```bash
+ssh root@192.168.1.104
 ```
 ```bash
 conda activate aider

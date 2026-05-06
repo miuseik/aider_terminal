@@ -92,7 +92,7 @@ class IKSolver:
         
         # Check if reference poses are enabled
         if not USE_REFERENCE_POSES:
-            logger.info("Reference poses disabled in configuration")
+            print("Reference poses disabled in configuration")
             return reference_poses
         
         try:
@@ -110,14 +110,14 @@ class IKSolver:
                         pose_rad = np.deg2rad(pose_array)
                         reference_poses.append(pose_rad)
                     
-                    logger.info(f"为 {self.arm_name} 机械臂加载了 {len(reference_poses)} 个参考位姿")
+                    print(f"为 {self.arm_name} 机械臂加载了 {len(reference_poses)} 个参考位姿")
                 else:
-                    logger.info(f"未找到 {self.arm_name} 机械臂的参考位姿")
+                    print(f"未找到 {self.arm_name} 机械臂的参考位姿")
             else:
-                logger.info("未找到参考位姿文件。请使用 read_pose.py 记录参考位姿。")
+                print("未找到参考位姿文件。请使用 read_pose.py 记录参考位姿。")
                 
         except Exception as e:
-            logger.warning(f"Failed to load reference poses: {e}")
+            print(f"Failed to load reference poses: {e}")
         
         return reference_poses
     
@@ -159,7 +159,7 @@ class IKSolver:
             return total_cost
             
         except Exception as e:
-            logger.warning(f"Error evaluating IK solution: {e}")
+            print(f"Error evaluating IK solution: {e}")
             return float('inf')
     
     def solve(self, target_position: np.ndarray, target_orientation_quat: Optional[np.ndarray], 
@@ -312,7 +312,7 @@ class IKSolver:
                     break
                     
             except Exception as e:
-                logger.debug(f"IK failed with {source_name} rest pose: {e}")
+                print(f"IK failed with {source_name} rest pose: {e}")
                 # 即使出错也始终恢复状态
                 set_robot_to_current_state()
                 continue
@@ -330,7 +330,7 @@ class IKSolver:
         if (best_reference_source is not None and current_actual_error is not None):
             position_improvement = current_actual_error - best_reference_position_error
             if position_improvement > IK_HYSTERESIS_THRESHOLD:  # 位置精度需要提高 5cm
-                logger.info(f"IK: 使用 {best_reference_source}（显著的位置改进：{position_improvement:.4f}m > {IK_HYSTERESIS_THRESHOLD}m）")
+                print(f"IK: 使用 {best_reference_source}（显著的位置改进：{position_improvement:.4f}m > {IK_HYSTERESIS_THRESHOLD}m）")
                 final_solution = best_reference_solution
                 final_error = best_reference_error
                 final_source = best_reference_source
@@ -339,7 +339,7 @@ class IKSolver:
             final_angles = np.rad2deg(final_solution)
             return final_angles
         else:
-            logger.warning("所有 IK 尝试均失败，返回当前角度")
+            print("所有 IK 尝试均失败，返回当前角度")
             return current_angles_deg[:NUM_IK_JOINTS]
 
 

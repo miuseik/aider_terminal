@@ -55,7 +55,7 @@ class CalibrationManager:
             # 1. 读取当前位置作为零点
             current_pos = self.motor_controller.driver.read_position(motor_id)
             if current_pos is None:
-                logger.error(f"❌ 无法读取电机{motor_id} 当前位置")
+                print(f"❌ 无法读取电机{motor_id} 当前位置")
                 return False
             
             # 2. 创建校准配置
@@ -77,19 +77,19 @@ class CalibrationManager:
             )
             
             if not success:
-                logger.error(f"❌ 写入电机{motor_id} 校准参数失败")
+                print(f"❌ 写入电机{motor_id} 校准参数失败")
                 return False
             
             # 4. 保存到内存
             self.calibrations[motor_name] = calibration
             
-            logger.info(f"✅ 电机{motor_name}(ID:{motor_id}) 校准完成:")
-            logger.info(f"   - 零点偏移: {calibration.homing_offset}°")
-            logger.info(f"   - 范围: [{calibration.range_min}, {calibration.range_max}]°")
+            print(f"✅ 电机{motor_name}(ID:{motor_id}) 校准完成:")
+            print(f"   - 零点偏移: {calibration.homing_offset}°")
+            print(f"   - 范围: [{calibration.range_min}, {calibration.range_max}]°")
             
             return True
         except Exception as e:
-            logger.error(f"❌ 校准电机{motor_name} 失败: {e}")
+            print(f"❌ 校准电机{motor_name} 失败: {e}")
             return False
     
     def save_calibration(self, filepath: str = "calibration.json") -> bool:
@@ -113,12 +113,12 @@ class CalibrationManager:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(calib_dict, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"💾 校准配置已保存: {filepath}")
-            logger.info(f"   - 共{len(self.calibrations)}个电机")
+            print(f"💾 校准配置已保存: {filepath}")
+            print(f"   - 共{len(self.calibrations)}个电机")
             
             return True
         except Exception as e:
-            logger.error(f"❌ 保存校准配置失败: {e}")
+            print(f"❌ 保存校准配置失败: {e}")
             return False
     
     def load_calibration(self, filepath: str = "calibration.json") -> bool:
@@ -142,15 +142,15 @@ class CalibrationManager:
                 for name, calib in calib_dict.items()
             }
             
-            logger.info(f"📂 校准配置已加载: {filepath}")
-            logger.info(f"   - 共{len(self.calibrations)}个电机")
+            print(f"📂 校准配置已加载: {filepath}")
+            print(f"   - 共{len(self.calibrations)}个电机")
             
             return True
         except FileNotFoundError:
-            logger.warning(f"⚠️ 校准文件不存在: {filepath}")
+            print(f"⚠️ 校准文件不存在: {filepath}")
             return False
         except Exception as e:
-            logger.error(f"❌ 加载校准配置失败: {e}")
+            print(f"❌ 加载校准配置失败: {e}")
             return False
     
     def apply_calibration(self, motor_name: str) -> bool:
@@ -164,7 +164,7 @@ class CalibrationManager:
             bool: 是否成功
         """
         if motor_name not in self.calibrations:
-            logger.warning(f"⚠️ 未找到电机{motor_name} 的校准配置")
+            print(f"⚠️ 未找到电机{motor_name} 的校准配置")
             return False
         
         calibration = self.calibrations[motor_name]
@@ -180,11 +180,11 @@ class CalibrationManager:
             )
             
             if success:
-                logger.info(f"✅ 电机{motor_name} 校准配置已应用")
+                print(f"✅ 电机{motor_name} 校准配置已应用")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 应用校准配置失败: {e}")
+            print(f"❌ 应用校准配置失败: {e}")
             return False
     
     def get_calibration(self, motor_name: str) -> Optional[MotorCalibration]:

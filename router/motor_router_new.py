@@ -44,7 +44,7 @@ class MotorRouter:
         action = command.get('action', '')
         
         if not action:
-            logger.warning("⚠️ 命令缺少action字段")
+            print("⚠️ 命令缺少action字段")
             return False
         
         # 路由表: action → 处理方法
@@ -112,7 +112,7 @@ class MotorRouter:
         if handler:
             return handler()
         else:
-            logger.warning(f"⚠️ 未知的命令: {action}")
+            print(f"⚠️ 未知的命令: {action}")
             return False
     
     def _handle_get_servo_info(self, command: Dict[str, Any]) -> bool:
@@ -141,8 +141,8 @@ class MotorRouter:
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 舵机信息已发送到 Server")
+                print(f"✅ 舵机信息已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化")
+                print("⚠️ WebSocket client 未初始化")
         except Exception as e:
-            logger.error(f"❌ 发送舵机信息失败: {e}")
+            print(f"❌ 发送舵机信息失败: {e}")

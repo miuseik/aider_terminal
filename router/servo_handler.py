@@ -15,7 +15,7 @@ class ServoHandler:
     @staticmethod
     def set_angle(motor_controller, servo_id: int, angle: float, port: str = '/dev/ttyACM0') -> bool:
         """设置舵机角度"""
-        logger.info(f"🎯 设置舵机 ID={servo_id} 角度={angle}° (端口: {port})")
+        print(f"🎯 设置舵机 ID={servo_id} 角度={angle}° (端口: {port})")
         
         if hasattr(motor_controller, 'set_servo_angle'):
             success = motor_controller.set_servo_angle(
@@ -24,18 +24,18 @@ class ServoHandler:
                 angle=angle
             )
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 角度设置成功")
+                print(f"✅ 舵机 {servo_id} 角度设置成功")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 角度设置失败")
+                print(f"❌ 舵机 {servo_id} 角度设置失败")
             return success
         else:
-            logger.warning("⚠️ motor_controller 没有 set_servo_angle 方法")
+            print("⚠️ motor_controller 没有 set_servo_angle 方法")
             return False
     
     @staticmethod
     def reset(servo_id: int, port: str = '/dev/ttyACM0') -> bool:
         """重置舵机"""
-        logger.info(f"🔄 重置舵机 ID={servo_id} (端口: {port})")
+        print(f"🔄 重置舵机 ID={servo_id} (端口: {port})")
         
         try:
             driver = create_servo_driver(
@@ -45,28 +45,28 @@ class ServoHandler:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.reset_servo(servo_id)
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 重置成功，请断电重启")
+                print(f"✅ 舵机 {servo_id} 重置成功，请断电重启")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 重置失败")
+                print(f"❌ 舵机 {servo_id} 重置失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 重置舵机异常: {e}")
+            print(f"❌ 重置舵机异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     @staticmethod
     def set_id(old_id: int, new_id: int, port: str = '/dev/ttyACM0') -> bool:
         """修改舵机ID"""
-        logger.info(f"🔢 修改舵机 ID: {old_id} → {new_id} (端口: {port})")
+        print(f"🔢 修改舵机 ID: {old_id} → {new_id} (端口: {port})")
         
         try:
             driver = create_servo_driver(
@@ -76,28 +76,28 @@ class ServoHandler:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.set_id(old_id, new_id)
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 ID 从 {old_id} 改为 {new_id}，请断电重启")
+                print(f"✅ 舵机 ID 从 {old_id} 改为 {new_id}，请断电重启")
             else:
-                logger.error(f"❌ 舵机 ID 修改失败")
+                print(f"❌ 舵机 ID 修改失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置舵机ID异常: {e}")
+            print(f"❌ 设置舵机ID异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     @staticmethod
     def set_position_mode(servo_id: int, port: str = '/dev/ttyACM0') -> bool:
         """设置为位置模式"""
-        logger.info(f"📍 设置舵机 ID={servo_id} 为位置模式 (端口: {port})")
+        print(f"📍 设置舵机 ID={servo_id} 为位置模式 (端口: {port})")
         
         try:
             driver = create_servo_driver(
@@ -107,28 +107,28 @@ class ServoHandler:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.set_position_mode(servo_id)
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 已切换到位置模式")
+                print(f"✅ 舵机 {servo_id} 已切换到位置模式")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 模式切换失败")
+                print(f"❌ 舵机 {servo_id} 模式切换失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置位置模式异常: {e}")
+            print(f"❌ 设置位置模式异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     @staticmethod
     def set_speed_mode(servo_id: int, port: str = '/dev/ttyACM0') -> bool:
         """设置为速度模式"""
-        logger.info(f"⚡ 设置舵机 ID={servo_id} 为速度模式 (端口: {port})")
+        print(f"⚡ 设置舵机 ID={servo_id} 为速度模式 (端口: {port})")
         
         try:
             driver = create_servo_driver(
@@ -138,28 +138,28 @@ class ServoHandler:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.set_velocity_mode(servo_id)
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 已切换到速度模式")
+                print(f"✅ 舵机 {servo_id} 已切换到速度模式")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 模式切换失败")
+                print(f"❌ 舵机 {servo_id} 模式切换失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置速度模式异常: {e}")
+            print(f"❌ 设置速度模式异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     @staticmethod
     def set_speed(servo_id: int, speed: int, port: str = '/dev/ttyACM0') -> bool:
         """设置舵机速度"""
-        logger.info(f"🚀 设置舵机 ID={servo_id} 速度={speed} (端口: {port})")
+        print(f"🚀 设置舵机 ID={servo_id} 速度={speed} (端口: {port})")
         
         try:
             driver = create_servo_driver(
@@ -169,28 +169,28 @@ class ServoHandler:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.set_speed(servo_id, int(speed))
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 速度设置为 {speed}")
+                print(f"✅ 舵机 {servo_id} 速度设置为 {speed}")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 速度设置失败")
+                print(f"❌ 舵机 {servo_id} 速度设置失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置舵机速度异常: {e}")
+            print(f"❌ 设置舵机速度异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     @staticmethod
     def get_info(servo_id: int, port: str = '/dev/ttyACM0') -> Optional[Dict[str, Any]]:
         """获取舵机信息"""
-        logger.info(f"📊 获取舵机 ID={servo_id} 信息 (端口: {port})")
+        print(f"📊 获取舵机 ID={servo_id} 信息 (端口: {port})")
         
         try:
             driver = create_servo_driver(
@@ -200,7 +200,7 @@ class ServoHandler:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return None
             
             # 读取舵机寄存器
@@ -245,11 +245,11 @@ class ServoHandler:
                 "torque_enabled": torque == 1
             }
             
-            logger.info(f"✅ 舵机 {servo_id} 信息: {info_data}")
+            print(f"✅ 舵机 {servo_id} 信息: {info_data}")
             return info_data
             
         except Exception as e:
-            logger.error(f"❌ 获取舵机信息异常: {e}")
+            print(f"❌ 获取舵机信息异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return None

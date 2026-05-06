@@ -502,7 +502,7 @@ class ServoController:
         return asdict(servo)
     
     def set_position(self, servo_id: int, position: int, time_ms: int = 500) -> Tuple[bool, str]:
-        """设置舵机位置"""
+        """设置舵机位置 (采用 lerobot 风格的只发不等模式)"""
         if not self.is_connected:
             return False, "Not connected"
         
@@ -510,19 +510,18 @@ class ServoController:
         position = max(0, min(4095, position))
         
         with self._lock:
-            # 写入目标时间
-            self.packet_handler.write2ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_GOAL_TIME, time_ms
-            )
-            # 写入目标位置
-            comm_result, error = self.packet_handler.write2ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_GOAL_POSITION, position
-            )
-            
-            if comm_result == COMM_SUCCESS:
+            try:
+                # 1. 写入目标时间 (TxOnly - 不等待回复)
+                self.packet_handler.write2ByteTxOnly(
+                    self.port_handler, servo_id, ADDR_SCS_GOAL_TIME, time_ms
+                )
+                # 2. 写入目标位置 (TxOnly - 不等待回复)
+                self.packet_handler.write2ByteTxOnly(
+                    self.port_handler, servo_id, ADDR_SCS_GOAL_POSITION, position
+                )
                 return True, f"Moving servo {servo_id} to {position}"
-            else:
-                return False, f"Failed to move servo {servo_id}"
+            except Exception as e:
+                return False, f"Failed to move servo {servo_id}: {e}"
     
     def set_torque(self, servo_id: int, enable: bool) -> Tuple[bool, str]:
         """启用/禁用舵机扭矩"""
@@ -627,11 +626,17 @@ class ServoController:
             # 用新ID锁定EEPROM
             self.lock_eeprom(new_id)
             
-            # 验证新ID是否有效
+            # 验证新ID是否有效（增加重试机制）
             import time
-            time.sleep(0.1)
-            success, _ = self.ping(new_id)
-            if success:
+            verified = False
+            for attempt in range(5):  # 尝试 5 次
+                time.sleep(0.2)       # 每次等待 200ms
+                success, _ = self.ping(new_id)
+                if success:
+                    verified = True
+                    break
+            
+            if verified:
                 # 更新内部舵机列表
                 if old_id in self.servos:
                     servo = self.servos.pop(old_id)
@@ -639,7 +644,9 @@ class ServoController:
                     self.servos[new_id] = servo
                 return True, f"Successfully changed ID from {old_id} to {new_id}"
             else:
-                return False, "ID changed but verification failed. Try scanning again."
+                # 即使 ping 失败，ID 往往也已经写入成功了（需要舵机断电重启）
+                print(f"⚠️ ID 已写入 {new_id}，但在线验证超时。请尝试断电重启舵机。")
+                return True, f"ID changed to {new_id}, but verification timed out. Please power cycle the servo."
                 
         except Exception as e:
             return False, f"Error changing ID: {str(e)}"

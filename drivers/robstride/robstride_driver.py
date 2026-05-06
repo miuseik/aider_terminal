@@ -61,8 +61,8 @@ class RobstrideDriver:
         :param motor_ids: 电机ID列表
         """
         if not SDK_AVAILABLE:
-            logger.error("❌ el_a3_sdk 未安装，无法使用 Robstride 驱动")
-            logger.error("   请安装: cd /path/to/EDULITE_A3/el_a3_sdk && pip install -e .")
+            print("❌ el_a3_sdk 未安装，无法使用 Robstride 驱动")
+            print("   请安装: cd /path/to/EDULITE_A3/el_a3_sdk && pip install -e .")
             raise ImportError("el_a3_sdk not available")
         
         self.can_name = can_name
@@ -76,16 +76,16 @@ class RobstrideDriver:
             self.driver = OfficialDriver(can_name=self.can_name)
             
             if not self.driver.connect():
-                logger.error(f"❌ 无法连接 CAN 接口 {self.can_name}")
+                print(f"❌ 无法连接 CAN 接口 {self.can_name}")
                 return False
             
             self.driver.start_receive_thread()
             self.is_connected = True
-            logger.info(f"✅ Robstride 连接到 {self.can_name}")
+            print(f"✅ Robstride 连接到 {self.can_name}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Robstride 连接失败: {e}")
+            print(f"❌ Robstride 连接失败: {e}")
             return False
     
     def disconnect(self):
@@ -94,7 +94,7 @@ class RobstrideDriver:
             self.driver.stop_receive_thread()
             self.driver.disconnect()
             self.is_connected = False
-            logger.info("🔌 Robstride 已断开")
+            print("🔌 Robstride 已断开")
     
     # ==================== 功能1: 设置ID ====================
     
@@ -109,7 +109,7 @@ class RobstrideDriver:
         注意：此功能通过底层CAN协议实现，官方SDK未直接暴露
         """
         if not self.is_connected or not self.driver:
-            logger.error("驱动未连接")
+            print("驱动未连接")
             return False
         
         try:
@@ -120,14 +120,14 @@ class RobstrideDriver:
             success = self.driver._send_frame(can_id, data)
             
             if success:
-                logger.info(f"✅ 电机ID已从 {old_id} 设置为 {new_id}")
+                print(f"✅ 电机ID已从 {old_id} 设置为 {new_id}")
             else:
-                logger.error(f"❌ 设置ID失败")
+                print(f"❌ 设置ID失败")
             
             return success
             
         except Exception as e:
-            logger.error(f"❌ 设置ID异常: {e}")
+            print(f"❌ 设置ID异常: {e}")
             return False
     
     # ==================== 功能2: 设置模式 ====================
@@ -141,7 +141,7 @@ class RobstrideDriver:
         :return: 是否成功
         """
         if not self.is_connected or not self.driver:
-            logger.error("驱动未连接")
+            print("驱动未连接")
             return False
         
         try:
@@ -156,20 +156,20 @@ class RobstrideDriver:
             
             official_mode = official_mode_map.get(mode)
             if official_mode is None:
-                logger.error(f"无效的模式: {mode}")
+                print(f"无效的模式: {mode}")
                 return False
             
             success = self.driver.set_run_mode(motor_id, official_mode)
             
             if success:
-                logger.info(f"✅ 电机 {motor_id} 已设置为 {mode.name}")
+                print(f"✅ 电机 {motor_id} 已设置为 {mode.name}")
             else:
-                logger.error(f"❌ 设置模式失败")
+                print(f"❌ 设置模式失败")
             
             return success
             
         except Exception as e:
-            logger.error(f"❌ 设置模式异常: {e}")
+            print(f"❌ 设置模式异常: {e}")
             return False
     
     # ==================== 功能3: 控制转速或角度 ====================
@@ -184,7 +184,7 @@ class RobstrideDriver:
         :return: 是否成功
         """
         if not self.is_connected or not self.driver:
-            logger.error("驱动未连接")
+            print("驱动未连接")
             return False
         
         try:
@@ -198,14 +198,14 @@ class RobstrideDriver:
                 success = self.driver.set_position_pp(motor_id, position)
             
             if success:
-                logger.debug(f"电机 {motor_id} 移动到 {position:.3f} rad")
+                print(f"电机 {motor_id} 移动到 {position:.3f} rad")
             else:
-                logger.error(f"❌ 设置位置失败")
+                print(f"❌ 设置位置失败")
             
             return success
             
         except Exception as e:
-            logger.error(f"❌ 设置位置异常: {e}")
+            print(f"❌ 设置位置异常: {e}")
             return False
     
     def set_speed(self, motor_id: int, speed: float) -> bool:
@@ -217,7 +217,7 @@ class RobstrideDriver:
         :return: 是否成功
         """
         if not self.is_connected or not self.driver:
-            logger.error("驱动未连接")
+            print("驱动未连接")
             return False
         
         try:
@@ -228,14 +228,14 @@ class RobstrideDriver:
             success = self.driver.write_parameter(motor_id, ParamIndex.SPD_REF, speed)
             
             if success:
-                logger.debug(f"电机 {motor_id} 速度设置为 {speed:.3f} rad/s")
+                print(f"电机 {motor_id} 速度设置为 {speed:.3f} rad/s")
             else:
-                logger.error(f"❌ 设置速度失败")
+                print(f"❌ 设置速度失败")
             
             return success
             
         except Exception as e:
-            logger.error(f"❌ 设置速度异常: {e}")
+            print(f"❌ 设置速度异常: {e}")
             return False
     
     def move_to_position(self, motor_id: int, position: float, time_ms: int = 0) -> bool:
@@ -269,7 +269,7 @@ class RobstrideDriver:
         :return: 状态字典 或 None
         """
         if not self.is_connected or not self.driver:
-            logger.error("驱动未连接")
+            print("驱动未连接")
             return None
         
         try:
@@ -283,15 +283,15 @@ class RobstrideDriver:
                     'torque': feedback.torque,          # Nm
                     'temperature': feedback.temperature, # °C
                 }
-                logger.debug(f"电机 {motor_id} 状态: pos={feedback.position:.3f}, "
+                print(f"电机 {motor_id} 状态: pos={feedback.position:.3f}, "
                            f"vel={feedback.velocity:.3f}, tor={feedback.torque:.3f}")
                 return observation
             else:
-                logger.warning(f"未收到电机 {motor_id} 的反馈")
+                print(f"未收到电机 {motor_id} 的反馈")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ 读取状态异常: {e}")
+            print(f"❌ 读取状态异常: {e}")
             return None
     
     def get_temperature(self, motor_id: int) -> Optional[float]:
@@ -353,5 +353,5 @@ class RobstrideDriver:
                 return f"{version.major}.{version.minor}.{version.patch}"
             return None
         except Exception as e:
-            logger.error(f"查询版本失败: {e}")
+            print(f"查询版本失败: {e}")
             return None

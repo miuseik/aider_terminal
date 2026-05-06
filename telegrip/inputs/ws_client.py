@@ -62,9 +62,9 @@ class VRWebSocketClient:
                 await self.vr_handler.process_message(raw_message)
             
         except json.JSONDecodeError:
-            logger.warning(f"⚠️ 收到非 JSON 消息")
+            print(f"⚠️ 收到非 JSON 消息")
         except Exception as e:
-            logger.error(f"❌ 处理消息错误: {e}")
+            print(f"❌ 处理消息错误: {e}")
     
     async def send_vr_data(self, vr_data: dict):
         """发送 VR 控制器数据到服务器。"""

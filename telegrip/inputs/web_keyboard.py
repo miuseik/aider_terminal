@@ -97,7 +97,7 @@ class WebKeyboardHandler(BaseInputProvider):
         # 启动控制循环
         self._control_task = asyncio.create_task(self._control_loop())
 
-        logger.info("Web键盘处理器已启动(无需X11)")
+        print("Web键盘处理器已启动(无需X11)")
 
     async def stop(self):
         """停止Web键盘处理器。"""
@@ -110,7 +110,7 @@ class WebKeyboardHandler(BaseInputProvider):
             except asyncio.CancelledError:
                 pass
 
-        logger.info("Web键盘处理器已停止")
+        print("Web键盘处理器已停止")
 
     def _set_keyboard_origin(self, arm: str):
         """设置键盘控制的原点位置(类似VR握把按下)。"""
@@ -130,7 +130,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 arm_state["current_wrist_roll_offset"] = 0.0
                 arm_state["current_wrist_flex_offset"] = 0.0
 
-                logger.info(f"🌐 {arm.upper()} arm web keyboard origin set at position: {current_position.round(3)}")
+                print(f"🌐 {arm.upper()} arm web keyboard origin set at position: {current_position.round(3)}")
 
                 # 发送重置信号到控制循环
                 reset_goal = ControlGoal(
@@ -148,7 +148,7 @@ class WebKeyboardHandler(BaseInputProvider):
                     pass
 
             except Exception as e:
-                logger.error(f"设置网页键盘原点失败 {arm}臂: {e}")
+                print(f"设置网页键盘原点失败 {arm}臂: {e}")
 
     def _update_key_activity(self, arm: str, is_movement_key: bool = True):
         """更新机械臂的最后按键活动时间。"""
@@ -219,7 +219,7 @@ class WebKeyboardHandler(BaseInputProvider):
             # 左夹爪控制
             elif key == 'f':
                 self.left_arm_state["gripper_closed"] = not self.left_arm_state["gripper_closed"]
-                logger.info(f"左夹爪: {'闭合' if self.left_arm_state['gripper_closed'] else '打开'} (网页)")
+                print(f"左夹爪: {'闭合' if self.left_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("left")
 
             # 右臂控制(UIOJKL)
@@ -271,7 +271,7 @@ class WebKeyboardHandler(BaseInputProvider):
             # 右夹爪控制
             elif key == ';':
                 self.right_arm_state["gripper_closed"] = not self.right_arm_state["gripper_closed"]
-                logger.info(f"右夹爪: {'闭合' if self.right_arm_state['gripper_closed'] else '打开'} (网页)")
+                print(f"右夹爪: {'闭合' if self.right_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("right")
 
             # 底盘控制(方向键 + 数字键 + V/B)
@@ -327,19 +327,19 @@ class WebKeyboardHandler(BaseInputProvider):
             # 特殊按键
             elif key == 'tab':
                 self.left_arm_state["position_control_active"] = not self.left_arm_state["position_control_active"]
-                logger.info(f"左臂位置控制: {'激活' if self.left_arm_state['position_control_active'] else '停用'} (网页)")
+                print(f"左臂位置控制: {'激活' if self.left_arm_state['position_control_active'] else '停用'} (网页)")
                 self._send_mode_change_goal("left")
             elif key == 'enter':
                 self.right_arm_state["position_control_active"] = not self.right_arm_state["position_control_active"]
-                logger.info(f"右臂位置控制: {'激活' if self.right_arm_state['position_control_active'] else '停用'} (网页)")
+                print(f"右臂位置控制: {'激活' if self.right_arm_state['position_control_active'] else '停用'} (网页)")
                 self._send_mode_change_goal("right")
             elif key == 'esc':
-                logger.info("通过Web按下ESC - 断开机器人连接")
+                print("通过Web按下ESC - 断开机器人连接")
                 if self.disconnect_callback:
                     self.disconnect_callback()
 
         except Exception as e:
-            logger.error(f"处理网页按键按下 '{key}' 错误: {e}")
+            print(f"处理网页按键按下 '{key}' 错误: {e}")
 
     def on_key_release(self, key: str):
         """处理来自Web UI的按键释放事件。"""
@@ -395,7 +395,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.base_state["base_control_active"] = False
 
         except Exception as e:
-            logger.error(f"处理网页按键释放 '{key}' 错误: {e}")
+            print(f"处理网页按键释放 '{key}' 错误: {e}")
 
     def _check_if_all_keys_released(self, arm: str):
         """检查机械臂的所有移动按键是否已释放。"""
@@ -504,7 +504,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 await asyncio.sleep(0.05)
 
             except Exception as e:
-                logger.error(f"网页键盘控制循环错误: {e}")
+                print(f"网页键盘控制循环错误: {e}")
                 await asyncio.sleep(0.1)
 
         print("Web键盘控制循环已停止")

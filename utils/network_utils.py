@@ -32,7 +32,7 @@ def get_wifi_ssid() -> str:
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     except Exception as e:
-        logger.debug(f"iwgetid 失败: {e}")
+        print(f"iwgetid 失败: {e}")
 
     # 方法 2: 尝试 nmcli (现代桌面版系统)
     try:
@@ -47,7 +47,7 @@ def get_wifi_ssid() -> str:
                 if line.startswith('yes:'):
                     return line.split(':', 1)[1]
     except Exception as e:
-        logger.debug(f"nmcli 失败: {e}")
+        print(f"nmcli 失败: {e}")
     
     # 方法 3: 尝试 iw (推荐，大多数 Linux 系统都有)
     try:
@@ -77,7 +77,7 @@ def get_wifi_ssid() -> str:
                                 if ssid:
                                     return ssid
     except Exception as e:
-        logger.debug(f"iw 失败: {e}")
+        print(f"iw 失败: {e}")
     
     # 方法 4: 尝试 iwconfig (旧系统)
     try:
@@ -92,9 +92,9 @@ def get_wifi_ssid() -> str:
             ssid = output.split('ESSID:"')[1].split('"')[0]
             return ssid if ssid else "Not Connected"
     except Exception as e:
-        logger.debug(f"iwconfig 失败: {e}")
+        print(f"iwconfig 失败: {e}")
     
-    logger.warning("所有 WiFi SSID 获取方法均失败")
+    print("所有 WiFi SSID 获取方法均失败")
     return "Not Connected"
 
 

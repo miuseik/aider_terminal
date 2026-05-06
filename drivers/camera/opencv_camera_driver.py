@@ -63,7 +63,7 @@ class OpenCVCameraDriver:
             270: cv2.ROTATE_90_COUNTERCLOCKWISE
         }
         
-        logger.info(f"📷 OpenCVCameraDriver 初始化: {self.index_or_path}")
+        print(f"📷 OpenCVCameraDriver 初始化: {self.index_or_path}")
     
     @staticmethod
     def find_cameras() -> list[dict]:
@@ -112,13 +112,13 @@ class OpenCVCameraDriver:
                     }
                     
                     found_cameras.append(camera_info)
-                    logger.debug(f"发现摄像头: {camera_info}")
+                    print(f"发现摄像头: {camera_info}")
                     cap.release()
             except Exception as e:
-                logger.debug(f"检测设备 {target} 失败: {e}")
+                print(f"检测设备 {target} 失败: {e}")
                 continue
         
-        logger.info(f"✅ 检测到 {len(found_cameras)} 个摄像头")
+        print(f"✅ 检测到 {len(found_cameras)} 个摄像头")
         return found_cameras
     
     def connect(self) -> bool:
@@ -136,7 +136,7 @@ class OpenCVCameraDriver:
             self.videocapture = cv2.VideoCapture(self.index_or_path)
             
             if not self.videocapture.isOpened():
-                logger.error(f"❌ 无法打开摄像头: {self.index_or_path}")
+                print(f"❌ 无法打开摄像头: {self.index_or_path}")
                 return False
             
             # 配置摄像头参数
@@ -147,11 +147,11 @@ class OpenCVCameraDriver:
                 self._warmup()
             
             self.is_connected = True
-            logger.info(f"✅ 摄像头已连接: {self.index_or_path} @ {self.width}x{self.height}@{self.fps}fps")
+            print(f"✅ 摄像头已连接: {self.index_or_path} @ {self.width}x{self.height}@{self.fps}fps")
             return True
             
         except Exception as e:
-            logger.error(f"❌ 连接摄像头失败: {e}")
+            print(f"❌ 连接摄像头失败: {e}")
             self.disconnect()
             return False
     
@@ -165,9 +165,9 @@ class OpenCVCameraDriver:
             fourcc_code = cv2.VideoWriter_fourcc(*self.fourcc)
             success = self.videocapture.set(cv2.CAP_PROP_FOURCC, fourcc_code)
             if success:
-                logger.debug(f"设置 FOURCC: {self.fourcc}")
+                print(f"设置 FOURCC: {self.fourcc}")
             else:
-                logger.warning(f"设置 FOURCC {self.fourcc} 失败，使用默认格式")
+                print(f"设置 FOURCC {self.fourcc} 失败，使用默认格式")
         
         # 设置分辨率
         self.videocapture.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
@@ -178,7 +178,7 @@ class OpenCVCameraDriver:
         actual_height = int(self.videocapture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
         if actual_width != self.width or actual_height != self.height:
-            logger.warning(
+            print(
                 f"分辨率不匹配: 请求 {self.width}x{self.height}, "
                 f"实际 {actual_width}x{actual_height}"
             )
@@ -189,11 +189,11 @@ class OpenCVCameraDriver:
         if self.fps:
             self.videocapture.set(cv2.CAP_PROP_FPS, float(self.fps))
             actual_fps = self.videocapture.get(cv2.CAP_PROP_FPS)
-            logger.debug(f"帧率: 请求 {self.fps}, 实际 {actual_fps}")
+            print(f"帧率: 请求 {self.fps}, 实际 {actual_fps}")
     
     def _warmup(self):
         """预热摄像头，丢弃初始几帧"""
-        logger.debug(f"预热摄像头 {self.warmup_s} 秒...")
+        print(f"预热摄像头 {self.warmup_s} 秒...")
         start_time = time.time()
         frame_count = 0
         
@@ -203,7 +203,7 @@ class OpenCVCameraDriver:
                 frame_count += 1
             time.sleep(0.01)
         
-        logger.debug(f"预热完成，捕获 {frame_count} 帧")
+        print(f"预热完成，捕获 {frame_count} 帧")
     
     def read(self) -> Optional[np.ndarray]:
         """
@@ -214,14 +214,14 @@ class OpenCVCameraDriver:
             失败返回 None
         """
         if not self.is_connected or self.videocapture is None:
-            logger.error("摄像头未连接")
+            print("摄像头未连接")
             return None
         
         try:
             ret, frame = self.videocapture.read()
             
             if not ret or frame is None:
-                logger.warning("读取帧失败")
+                print("读取帧失败")
                 return None
             
             # 后处理
@@ -229,7 +229,7 @@ class OpenCVCameraDriver:
             return frame
             
         except Exception as e:
-            logger.error(f"读取帧异常: {e}")
+            print(f"读取帧异常: {e}")
             return None
     
     def read_latest(self) -> Optional[np.ndarray]:
@@ -279,11 +279,11 @@ class OpenCVCameraDriver:
             try:
                 self.videocapture.release()
             except Exception as e:
-                logger.warning(f"释放摄像头资源失败: {e}")
+                print(f"释放摄像头资源失败: {e}")
             finally:
                 self.videocapture = None
                 self.is_connected = False
-                logger.info("🔌 摄像头已断开")
+                print("🔌 摄像头已断开")
     
     def get_info(self) -> dict:
         """

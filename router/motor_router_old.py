@@ -49,7 +49,7 @@ class MotorRouter:
         action = command.get('action', '')
         
         if not action:
-            logger.warning("⚠️ 命令缺少action字段")
+            print("⚠️ 命令缺少action字段")
             return False
         
         # 路由表: action → 处理方法
@@ -95,7 +95,7 @@ class MotorRouter:
         if handler:
             return handler(command)
         else:
-            logger.warning(f"⚠️ 未知的命令: {action}")
+            print(f"⚠️ 未知的命令: {action}")
             return False
     
     def _route_control_motor(self, command: Dict[str, Any]) -> bool:
@@ -105,18 +105,18 @@ class MotorRouter:
         angle = command.get('angle')
         
         if not all([arm, motor_name, angle is not None]):
-            logger.error("❌ control_motor 命令缺少必要参数")
+            print("❌ control_motor 命令缺少必要参数")
             return False
         
-        logger.info(f"🦾 控制电机: {arm}臂, {motor_name}, 角度={angle}°")
+        print(f"🦾 控制电机: {arm}臂, {motor_name}, 角度={angle}°")
         
         if not self.motor_controller:
-            logger.warning("⚠️ 电机控制器未初始化")
+            print("⚠️ 电机控制器未初始化")
             return False
         
         success = self.motor_controller.control_motor(arm, motor_name, float(angle))
         if not success:
-            logger.error(f"❌ 控制电机{motor_name}失败")
+            print(f"❌ 控制电机{motor_name}失败")
         
         return success
     
@@ -127,18 +127,18 @@ class MotorRouter:
         target_zero = command.get('target_zero', 0.0)
         
         if not all([arm, motor_name]):
-            logger.error("❌ calibrate_motor 命令缺少必要参数")
+            print("❌ calibrate_motor 命令缺少必要参数")
             return False
         
-        logger.info(f"🎯 校准电机: {arm}臂, {motor_name}, 目标零点={target_zero}°")
+        print(f"🎯 校准电机: {arm}臂, {motor_name}, 目标零点={target_zero}°")
         
         if not self.motor_controller:
-            logger.warning("⚠️ 电机控制器未初始化")
+            print("⚠️ 电机控制器未初始化")
             return False
         
         success = self.motor_controller.calibrate_motor(arm, motor_name, float(target_zero))
         if not success:
-            logger.error(f"❌ 校准电机{motor_name}失败")
+            print(f"❌ 校准电机{motor_name}失败")
         
         return success
     
@@ -148,18 +148,18 @@ class MotorRouter:
         speed = command.get('speed')
         
         if not all([wheel, speed is not None]):
-            logger.error("❌ control_chassis 命令缺少必要参数")
+            print("❌ control_chassis 命令缺少必要参数")
             return False
         
-        logger.info(f"🚗 控制底盘: {wheel}轮, 速度={speed}%")
+        print(f"🚗 控制底盘: {wheel}轮, 速度={speed}%")
         
         if not self.motor_controller:
-            logger.warning("⚠️ 电机控制器未初始化")
+            print("⚠️ 电机控制器未初始化")
             return False
         
         success = self.motor_controller.control_chassis(wheel, float(speed))
         if not success:
-            logger.error(f"❌ 控制{wheel}轮失败")
+            print(f"❌ 控制{wheel}轮失败")
         
         return success
     
@@ -168,18 +168,18 @@ class MotorRouter:
         speed = command.get('speed')
         
         if speed is None:
-            logger.error("❌ control_lift 命令缺少speed参数")
+            print("❌ control_lift 命令缺少speed参数")
             return False
         
-        logger.info(f"⬆️ 控制升降轴: 速度={speed}%")
+        print(f"⬆️ 控制升降轴: 速度={speed}%")
         
         if not self.motor_controller:
-            logger.warning("⚠️ 电机控制器未初始化")
+            print("⚠️ 电机控制器未初始化")
             return False
         
         success = self.motor_controller.control_lift(float(speed))
         if not success:
-            logger.error(f"❌ 控制升降轴失败")
+            print(f"❌ 控制升降轴失败")
         
         return success
     
@@ -189,22 +189,22 @@ class MotorRouter:
         motor_name = command.get('motor')
         
         if not all([arm, motor_name]):
-            logger.error("❌ read_sensor 命令缺少必要参数")
+            print("❌ read_sensor 命令缺少必要参数")
             return False
         
-        logger.info(f"📖 读取传感器: {arm}臂, {motor_name}")
+        print(f"📖 读取传感器: {arm}臂, {motor_name}")
         
         if not self.motor_controller:
-            logger.warning("⚠️ 电机控制器未初始化")
+            print("⚠️ 电机控制器未初始化")
             return False
         
         sensor_data = self.motor_controller.read_sensor_data(arm, motor_name)
         if sensor_data:
-            logger.info(f"✅ 传感器数据: {sensor_data}")
+            print(f"✅ 传感器数据: {sensor_data}")
             # TODO: 将数据返回给前端
             return True
         else:
-            logger.error(f"❌ 读取{motor_name}传感器失败")
+            print(f"❌ 读取{motor_name}传感器失败")
             return False
     
     def _route_set_motor_id(self, command: Dict[str, Any]) -> bool:
@@ -227,7 +227,7 @@ class MotorRouter:
             motor_name = command.get('motor')
             
             if arm and motor_name:
-                logger.info(f"🔧 通过机械臂信息推断配置: {arm}臂 {motor_name}")
+                print(f"🔧 通过机械臂信息推断配置: {arm}臂 {motor_name}")
                 
                 # 从 telegrip 配置中获取串口和舵机类型
                 try:
@@ -243,30 +243,30 @@ class MotorRouter:
                         servo_type = config_data.get('robot', {}).get('right_arm', {}).get('servo_type', 'st3215')
                         baudrate = config_data.get('robot', {}).get('right_arm', {}).get('baudrate', 1000000)
                     else:
-                        logger.error(f"❌ 无效的机械臂: {arm}")
+                        print(f"❌ 无效的机械臂: {arm}")
                         return False
                     
-                    logger.info(f"✅ 配置推断成功: port={port}, servo_type={servo_type}, baudrate={baudrate}")
+                    print(f"✅ 配置推断成功: port={port}, servo_type={servo_type}, baudrate={baudrate}")
                     
                 except Exception as e:
-                    logger.error(f"❌ 配置推断失败: {e}")
+                    print(f"❌ 配置推断失败: {e}")
                     import traceback
-                    logger.error(traceback.format_exc())
+                    print(traceback.format_exc())
                     return False
             else:
-                logger.error("❌ set_motor_id 命令缺少必要参数")
-                logger.error(f"   方式1需要: port, servo_type, old_id/current_id, new_id")
-                logger.error(f"   方式2需要: arm, motor, current_id, new_id")
-                logger.error(f"   收到: {command}")
+                print("❌ set_motor_id 命令缺少必要参数")
+                print(f"   方式1需要: port, servo_type, old_id/current_id, new_id")
+                print(f"   方式2需要: arm, motor, current_id, new_id")
+                print(f"   收到: {command}")
                 return False
         
         if not all([port, servo_type, old_id is not None, new_id is not None]):
-            logger.error("❌ set_motor_id 命令缺少必要参数")
-            logger.error(f"   需要: port, servo_type, old_id/current_id, new_id")
-            logger.error(f"   收到: {command}")
+            print("❌ set_motor_id 命令缺少必要参数")
+            print(f"   需要: port, servo_type, old_id/current_id, new_id")
+            print(f"   收到: {command}")
             return False
         
-        logger.info(f"🔧 设置电机ID: {port} ({servo_type}) ID {old_id} → {new_id}")
+        print(f"🔧 设置电机ID: {port} ({servo_type}) ID {old_id} → {new_id}")
         
         # 调用 motor_controller 的设置ID方法（纯硬件操作）
         if hasattr(self.motor_controller, 'set_motor_id'):
@@ -278,12 +278,12 @@ class MotorRouter:
                 baudrate=baudrate
             )
             if success:
-                logger.info(f"✅ 电机ID设置成功: {port} {old_id} → {new_id}")
+                print(f"✅ 电机ID设置成功: {port} {old_id} → {new_id}")
             else:
-                logger.error(f"❌ 电机ID设置失败: {port} {old_id} → {new_id}")
+                print(f"❌ 电机ID设置失败: {port} {old_id} → {new_id}")
             return success
         else:
-            logger.error("❌ motor_controller 没有 set_motor_id 方法")
+            print("❌ motor_controller 没有 set_motor_id 方法")
             return False
     
     def _route_set_mode(self, command: Dict[str, Any]) -> bool:
@@ -292,21 +292,21 @@ class MotorRouter:
         mode = command.get('mode')  # 'position' | 'velocity' | 'torque'
         
         if not all([motor_id is not None, mode]):
-            logger.error("❌ set_operation_mode 命令缺少必要参数")
+            print("❌ set_operation_mode 命令缺少必要参数")
             return False
         
         valid_modes = ['position', 'velocity', 'torque']
         if mode not in valid_modes:
-            logger.error(f"❌ 无效的模式: {mode}, 可选: {valid_modes}")
+            print(f"❌ 无效的模式: {mode}, 可选: {valid_modes}")
             return False
         
-        logger.info(f"🔧 设置电机{motor_id} 模式: {mode}")
+        print(f"🔧 设置电机{motor_id} 模式: {mode}")
         
         # TODO: 调用底层驱动设置模式
         # if hasattr(self.motor_controller, 'driver'):
         #     return self.motor_controller.driver.set_operation_mode(motor_id, mode)
         
-        logger.warning("⚠️ 设置电机模式功能待实现")
+        print("⚠️ 设置电机模式功能待实现")
         return False
     
     def _route_set_velocity(self, command: Dict[str, Any]) -> bool:
@@ -315,16 +315,16 @@ class MotorRouter:
         velocity = command.get('velocity')  # rpm
         
         if not all([motor_id is not None, velocity is not None]):
-            logger.error("❌ set_velocity 命令缺少必要参数")
+            print("❌ set_velocity 命令缺少必要参数")
             return False
         
-        logger.info(f"🔄 设置电机{motor_id} 转速: {velocity} rpm")
+        print(f"🔄 设置电机{motor_id} 转速: {velocity} rpm")
         
         # TODO: 调用底层驱动设置转速
         # if hasattr(self.motor_controller, 'driver'):
         #     return self.motor_controller.driver.set_velocity(motor_id, velocity)
         
-        logger.warning("⚠️ 设置电机转速功能待实现")
+        print("⚠️ 设置电机转速功能待实现")
         return False
     
     def _route_set_torque(self, command: Dict[str, Any]) -> bool:
@@ -333,16 +333,16 @@ class MotorRouter:
         torque = command.get('torque')  # 0-100%
         
         if not all([motor_id is not None, torque is not None]):
-            logger.error("❌ set_torque 命令缺少必要参数")
+            print("❌ set_torque 命令缺少必要参数")
             return False
         
-        logger.info(f"⚡ 设置电机{motor_id} 力矩: {torque}%")
+        print(f"⚡ 设置电机{motor_id} 力矩: {torque}%")
         
         # TODO: 调用底层驱动设置力矩
         # if hasattr(self.motor_controller, 'driver'):
         #     return self.motor_controller.driver.set_torque(motor_id, torque)
         
-        logger.warning("⚠️ 设置电机力矩功能待实现")
+        print("⚠️ 设置电机力矩功能待实现")
         return False
     
     def _route_scan_servos(self, command: Dict[str, Any]) -> bool:
@@ -409,7 +409,7 @@ class MotorRouter:
     
     def _route_list_ports(self, command: Dict[str, Any]) -> bool:
         """路由获取串口列表命令"""
-        logger.info("🔍 获取串口列表")
+        print("🔍 获取串口列表")
         
         try:
             import serial.tools.list_ports
@@ -420,16 +420,16 @@ class MotorRouter:
                 if 'USB' in port.device or 'ACM' in port.device or 'ttyUSB' in port.device or 'ttyACM' in port.device
             ]
             
-            logger.info(f"✅ 发现 {len(port_list)} 个串口: {port_list}")
+            print(f"✅ 发现 {len(port_list)} 个串口: {port_list}")
             
             # 通过 WebSocket 返回结果（异步）
             import asyncio
             asyncio.create_task(self._send_ports_result(port_list))
             return True
         except Exception as e:
-            logger.error(f"❌ 获取串口列表失败: {e}")
+            print(f"❌ 获取串口列表失败: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     async def _send_ports_result(self, ports: list):
@@ -439,41 +439,41 @@ class MotorRouter:
                 'type': 'list_ports_response',
                 'ports': ports
             }
-            logger.info(f"📤 准备发送串口列表: {len(ports)} 个端口")
+            print(f"📤 准备发送串口列表: {len(ports)} 个端口")
             
             # 通过全局 ws_client 发送到 server
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 串口列表已发送到 Server")
+                print(f"✅ 串口列表已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化，结果无法返回")
+                print("⚠️ WebSocket client 未初始化，结果无法返回")
         except Exception as e:
-            logger.error(f"❌ 发送串口列表失败: {e}")
+            print(f"❌ 发送串口列表失败: {e}")
     
     def _route_save_calibration(self, command: Dict[str, Any]) -> bool:
         """路由保存校准配置命令"""
         filepath = command.get('filepath', 'calibration.json')
         
-        logger.info(f"💾 保存校准配置: {filepath}")
+        print(f"💾 保存校准配置: {filepath}")
         
         # TODO: 实现校准配置保存功能
-        logger.warning("⚠️ 校准配置保存功能待实现")
+        print("⚠️ 校准配置保存功能待实现")
         return False
     
     def _route_load_calibration(self, command: Dict[str, Any]) -> bool:
         """路由加载校准配置命令"""
         filepath = command.get('filepath', 'calibration.json')
         
-        logger.info(f"📂 加载校准配置: {filepath}")
+        print(f"📂 加载校准配置: {filepath}")
         
         # TODO: 实现校准配置加载功能
-        logger.warning("⚠️ 校准配置加载功能待实现")
+        print("⚠️ 校准配置加载功能待实现")
         return False
     
     def _route_get_servo_ids(self, command: Dict[str, Any]) -> bool:
         """路由获取舵机 ID 配置命令"""
-        logger.info("🔧 收到获取舵机 ID 配置命令")
+        print("🔧 收到获取舵机 ID 配置命令")
         
         # 从 robot_interface 获取配置
         if self.control_loop and hasattr(self.control_loop, 'robot_interface'):
@@ -484,7 +484,7 @@ class MotorRouter:
             asyncio.create_task(self._send_servo_ids_result(servo_config))
             return True
         else:
-            logger.warning("⚠️ Robot interface not initialized")
+            print("⚠️ Robot interface not initialized")
             return False
     
     async def _send_servo_ids_result(self, servo_config: dict):
@@ -494,17 +494,17 @@ class MotorRouter:
                 'type': 'servo_ids_response',
                 'data': servo_config
             }
-            logger.info(f"📤 准备发送舵机 ID 配置")
+            print(f"📤 准备发送舵机 ID 配置")
             
             # 通过全局 ws_client 发送到 server
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 舵机 ID 配置已发送到 Server")
+                print(f"✅ 舵机 ID 配置已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化，结果无法返回")
+                print("⚠️ WebSocket client 未初始化，结果无法返回")
         except Exception as e:
-            logger.error(f"❌ 发送舵机 ID 配置失败: {e}")
+            print(f"❌ 发送舵机 ID 配置失败: {e}")
     
     def _route_set_servo_angle(self, command: Dict[str, Any]) -> bool:
         """路由设置舵机角度命令"""
@@ -512,7 +512,7 @@ class MotorRouter:
         angle = command.get('angle')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"🎯 设置舵机 ID={servo_id} 角度={angle}° (端口: {port})")
+        print(f"🎯 设置舵机 ID={servo_id} 角度={angle}° (端口: {port})")
         
         # 调用 motor_controller 设置舵机角度
         if hasattr(self.motor_controller, 'set_servo_angle'):
@@ -522,13 +522,13 @@ class MotorRouter:
                 angle=angle
             )
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 角度设置成功")
+                print(f"✅ 舵机 {servo_id} 角度设置成功")
                 return True
             else:
-                logger.error(f"❌ 舵机 {servo_id} 角度设置失败")
+                print(f"❌ 舵机 {servo_id} 角度设置失败")
                 return False
         else:
-            logger.warning("⚠️ motor_controller 没有 set_servo_angle 方法")
+            print("⚠️ motor_controller 没有 set_servo_angle 方法")
             return False
     
     def _route_reset_servo(self, command: Dict[str, Any]) -> bool:
@@ -536,7 +536,7 @@ class MotorRouter:
         servo_id = command.get('servo_id')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"🔄 重置舵机 ID={servo_id} (端口: {port})")
+        print(f"🔄 重置舵机 ID={servo_id} (端口: {port})")
         
         try:
             from drivers.bus_servo_driver import ServoType, create_servo_driver
@@ -549,7 +549,7 @@ class MotorRouter:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             # 调用重置方法
@@ -557,15 +557,15 @@ class MotorRouter:
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 重置成功，请断电重启")
+                print(f"✅ 舵机 {servo_id} 重置成功，请断电重启")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 重置失败")
+                print(f"❌ 舵机 {servo_id} 重置失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 重置舵机异常: {e}")
+            print(f"❌ 重置舵机异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     def _route_set_servo_id(self, command: Dict[str, Any]) -> bool:
@@ -574,7 +574,7 @@ class MotorRouter:
         new_id = command.get('new_id')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"🔢 修改舵机 ID: {old_id} → {new_id} (端口: {port})")
+        print(f"🔢 修改舵机 ID: {old_id} → {new_id} (端口: {port})")
         
         try:
             from drivers.bus_servo_driver import ServoType, create_servo_driver
@@ -587,7 +587,7 @@ class MotorRouter:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             # 调用设置ID方法
@@ -595,15 +595,15 @@ class MotorRouter:
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 ID 从 {old_id} 改为 {new_id}，请断电重启")
+                print(f"✅ 舵机 ID 从 {old_id} 改为 {new_id}，请断电重启")
             else:
-                logger.error(f"❌ 舵机 ID 修改失败")
+                print(f"❌ 舵机 ID 修改失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置舵机ID异常: {e}")
+            print(f"❌ 设置舵机ID异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     def _route_set_position_mode(self, command: Dict[str, Any]) -> bool:
@@ -611,7 +611,7 @@ class MotorRouter:
         servo_id = command.get('servo_id')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"📍 设置舵机 ID={servo_id} 为位置模式 (端口: {port})")
+        print(f"📍 设置舵机 ID={servo_id} 为位置模式 (端口: {port})")
         
         try:
             from drivers.bus_servo_driver import ServoType, create_servo_driver
@@ -623,22 +623,22 @@ class MotorRouter:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.set_position_mode(servo_id)
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 已切换到位置模式")
+                print(f"✅ 舵机 {servo_id} 已切换到位置模式")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 模式切换失败")
+                print(f"❌ 舵机 {servo_id} 模式切换失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置位置模式异常: {e}")
+            print(f"❌ 设置位置模式异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     def _route_set_speed_mode(self, command: Dict[str, Any]) -> bool:
@@ -646,7 +646,7 @@ class MotorRouter:
         servo_id = command.get('servo_id')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"⚡ 设置舵机 ID={servo_id} 为速度模式 (端口: {port})")
+        print(f"⚡ 设置舵机 ID={servo_id} 为速度模式 (端口: {port})")
         
         try:
             from drivers.bus_servo_driver import ServoType, create_servo_driver
@@ -658,22 +658,22 @@ class MotorRouter:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.set_velocity_mode(servo_id)
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 已切换到速度模式")
+                print(f"✅ 舵机 {servo_id} 已切换到速度模式")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 模式切换失败")
+                print(f"❌ 舵机 {servo_id} 模式切换失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置速度模式异常: {e}")
+            print(f"❌ 设置速度模式异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     def _route_set_servo_speed(self, command: Dict[str, Any]) -> bool:
@@ -682,7 +682,7 @@ class MotorRouter:
         speed = command.get('speed')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"🚀 设置舵机 ID={servo_id} 速度={speed} (端口: {port})")
+        print(f"🚀 设置舵机 ID={servo_id} 速度={speed} (端口: {port})")
         
         try:
             from drivers.bus_servo_driver import ServoType, create_servo_driver
@@ -694,22 +694,22 @@ class MotorRouter:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             success = driver.set_speed(servo_id, int(speed))
             driver.disconnect()
             
             if success:
-                logger.info(f"✅ 舵机 {servo_id} 速度设置为 {speed}")
+                print(f"✅ 舵机 {servo_id} 速度设置为 {speed}")
             else:
-                logger.error(f"❌ 舵机 {servo_id} 速度设置失败")
+                print(f"❌ 舵机 {servo_id} 速度设置失败")
             
             return success
         except Exception as e:
-            logger.error(f"❌ 设置舵机速度异常: {e}")
+            print(f"❌ 设置舵机速度异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     def _route_get_servo_info(self, command: Dict[str, Any]) -> bool:
@@ -717,7 +717,7 @@ class MotorRouter:
         servo_id = command.get('servo_id')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"📊 获取舵机 ID={servo_id} 信息 (端口: {port})")
+        print(f"📊 获取舵机 ID={servo_id} 信息 (端口: {port})")
         
         try:
             from drivers.bus_servo_driver import ServoType, create_servo_driver
@@ -729,7 +729,7 @@ class MotorRouter:
             )
             
             if not driver.connect():
-                logger.error(f"❌ 驱动连接失败: {port}")
+                print(f"❌ 驱动连接失败: {port}")
                 return False
             
             # 读取舵机寄存器
@@ -779,7 +779,7 @@ class MotorRouter:
                 "torque_enabled": torque == 1
             }
             
-            logger.info(f"✅ 舵机 {servo_id} 信息: {info_data}")
+            print(f"✅ 舵机 {servo_id} 信息: {info_data}")
             
             # 发送到 Server
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
@@ -791,7 +791,7 @@ class MotorRouter:
             
             return True
         except Exception as e:
-            logger.error(f"❌ 获取舵机信息异常: {e}")
+            print(f"❌ 获取舵机信息异常: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False

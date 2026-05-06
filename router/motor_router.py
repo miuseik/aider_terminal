@@ -44,7 +44,7 @@ class MotorRouter:
         
         # 如果 motor_controller 为 None，返回错误
         if motor_controller is None:
-            logger.error("❌ motor_controller 未初始化")
+            print("❌ motor_controller 未初始化")
             return None
         
         # 如果 handler 不存在或 motor_controller 已变化，重新创建
@@ -55,11 +55,12 @@ class MotorRouter:
     
     def _get_hardware_handler(self):
         """延迟获取 hardware_handler（每次检查 motor_controller 是否有效）"""
+        print("延迟获取 hardware_handler（每次检查 motor_controller 是否有效）")
         motor_controller = self._get_motor_controller()
         
         # 如果 motor_controller 为 None，返回错误
         if motor_controller is None:
-            logger.error("❌ motor_controller 未初始化")
+            print("❌ motor_controller 未初始化")
             return None
         
         # 如果 handler 不存在或 motor_controller 已变化，重新创建
@@ -72,6 +73,7 @@ class MotorRouter:
     def _safe_call(func, handler):
         """安全调用 handler 方法，如果 handler 为 None 则返回 False"""
         if handler is None:
+            print("❌ Handler 为 None，无法执行命令")
             return False
         return func(handler)
     
@@ -80,7 +82,7 @@ class MotorRouter:
         action = command.get('action', '')
         
         if not action:
-            logger.warning("⚠️ 命令缺少action字段")
+            print("⚠️ 命令缺少action字段")
             return False
         
         # 路由表: action → 处理方法
@@ -178,7 +180,7 @@ class MotorRouter:
         if handler:
             return handler()
         else:
-            logger.warning(f"⚠️ 未知的命令: {action}")
+            print(f"⚠️ 未知的命令: {action}")
             return False
     
     def _handle_get_servo_info(self, command: Dict[str, Any]) -> bool:
@@ -186,17 +188,17 @@ class MotorRouter:
         servo_id = command.get('servo_id')
         port = command.get('port', '/dev/ttyACM0')
         
-        logger.info(f"🔍 请求获取舵机信息: ID={servo_id}, Port={port}")
+        print(f"🔍 请求获取舵机信息: ID={servo_id}, Port={port}")
         info_data = self.servo_handler.get_info(servo_id, port)
         
         if info_data:
-            logger.info(f"✅ 成功获取舵机信息: {info_data}")
+            print(f"✅ 成功获取舵机信息: {info_data}")
             # 通过 WebSocket 返回结果
             import asyncio
             asyncio.create_task(self._send_servo_info(info_data))
             return True
         else:
-            logger.error(f"❌ 获取舵机信息失败: ID={servo_id}")
+            print(f"❌ 获取舵机信息失败: ID={servo_id}")
             return False
     
     async def _send_servo_info(self, info_data: Dict[str, Any]):
@@ -210,11 +212,11 @@ class MotorRouter:
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 舵机信息已发送到 Server")
+                print(f"✅ 舵机信息已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化")
+                print("⚠️ WebSocket client 未初始化")
         except Exception as e:
-            logger.error(f"❌ 发送舵机信息失败: {e}")
+            print(f"❌ 发送舵机信息失败: {e}")
     
     def _route_set_mode(self, command: Dict[str, Any]) -> bool:
         """路由设置电机模式命令"""
@@ -222,21 +224,21 @@ class MotorRouter:
         mode = command.get('mode')  # 'position' | 'velocity' | 'torque'
         
         if not all([motor_id is not None, mode]):
-            logger.error("❌ set_operation_mode 命令缺少必要参数")
+            print("❌ set_operation_mode 命令缺少必要参数")
             return False
         
         valid_modes = ['position', 'velocity', 'torque']
         if mode not in valid_modes:
-            logger.error(f"❌ 无效的模式: {mode}, 可选: {valid_modes}")
+            print(f"❌ 无效的模式: {mode}, 可选: {valid_modes}")
             return False
         
-        logger.info(f"🔧 设置电机{motor_id} 模式: {mode}")
+        print(f"🔧 设置电机{motor_id} 模式: {mode}")
         
         # TODO: 调用底层驱动设置模式
         # if hasattr(self.motor_controller, 'driver'):
         #     return self.motor_controller.driver.set_operation_mode(motor_id, mode)
         
-        logger.warning("⚠️ 设置电机模式功能待实现")
+        print("⚠️ 设置电机模式功能待实现")
         return False
     
     def _route_set_velocity(self, command: Dict[str, Any]) -> bool:
@@ -245,16 +247,16 @@ class MotorRouter:
         velocity = command.get('velocity')  # rpm
         
         if not all([motor_id is not None, velocity is not None]):
-            logger.error("❌ set_velocity 命令缺少必要参数")
+            print("❌ set_velocity 命令缺少必要参数")
             return False
         
-        logger.info(f"🔄 设置电机{motor_id} 转速: {velocity} rpm")
+        print(f"🔄 设置电机{motor_id} 转速: {velocity} rpm")
         
         # TODO: 调用底层驱动设置转速
         # if hasattr(self.motor_controller, 'driver'):
         #     return self.motor_controller.driver.set_velocity(motor_id, velocity)
         
-        logger.warning("⚠️ 设置电机转速功能待实现")
+        print("⚠️ 设置电机转速功能待实现")
         return False
     
     def _route_set_torque(self, command: Dict[str, Any]) -> bool:
@@ -263,41 +265,41 @@ class MotorRouter:
         torque = command.get('torque')  # 0-100%
         
         if not all([motor_id is not None, torque is not None]):
-            logger.error("❌ set_torque 命令缺少必要参数")
+            print("❌ set_torque 命令缺少必要参数")
             return False
         
-        logger.info(f"⚡ 设置电机{motor_id} 力矩: {torque}%")
+        print(f"⚡ 设置电机{motor_id} 力矩: {torque}%")
         
         # TODO: 调用底层驱动设置力矩
         # if hasattr(self.motor_controller, 'driver'):
         #     return self.motor_controller.driver.set_torque(motor_id, torque)
         
-        logger.warning("⚠️ 设置电机力矩功能待实现")
+        print("⚠️ 设置电机力矩功能待实现")
         return False
     
     def _route_save_calibration(self, command: Dict[str, Any]) -> bool:
         """路由保存校准配置命令"""
         filepath = command.get('filepath', 'calibration.json')
         
-        logger.info(f"💾 保存校准配置: {filepath}")
+        print(f"💾 保存校准配置: {filepath}")
         
         # TODO: 实现校准配置保存功能
-        logger.warning("⚠️ 校准配置保存功能待实现")
+        print("⚠️ 校准配置保存功能待实现")
         return False
     
     def _route_load_calibration(self, command: Dict[str, Any]) -> bool:
         """路由加载校准配置命令"""
         filepath = command.get('filepath', 'calibration.json')
         
-        logger.info(f"📂 加载校准配置: {filepath}")
+        print(f"📂 加载校准配置: {filepath}")
         
         # TODO: 实现校准配置加载功能
-        logger.warning("⚠️ 校准配置加载功能待实现")
+        print("⚠️ 校准配置加载功能待实现")
         return False
     
     def _route_reload_servo_config(self) -> bool:
         """重载舵机配置（从 Server 获取）"""
-        logger.info("🔄 收到重载舵机配置命令")
+        print("🔄 收到重载舵机配置命令")
         
         if self.control_loop and hasattr(self.control_loop, 'robot_interface'):
             from router.server_api_client import ServerAPIClient
@@ -308,21 +310,21 @@ class MotorRouter:
             if config:
                 success = self.control_loop.robot_interface.set_servo_ids_config(config)
                 if success:
-                    logger.info("✅ 舵机配置已重载")
+                    print("✅ 舵机配置已重载")
                     return True
                 else:
-                    logger.error("❌ 设置舵机配置失败")
+                    print("❌ 设置舵机配置失败")
                     return False
             else:
-                logger.error("❌ 从 Server 获取配置失败")
+                print("❌ 从 Server 获取配置失败")
                 return False
         else:
-            logger.warning("⚠️ Robot interface 未初始化")
+            print("⚠️ Robot interface 未初始化")
             return False
     
     def _route_get_servo_ids(self) -> bool:
         """获取舵机ID配置"""
-        logger.info("🔧 收到获取舵机 ID 配置命令")
+        print("🔧 收到获取舵机 ID 配置命令")
         
         if self.control_loop and hasattr(self.control_loop, 'robot_interface'):
             servo_config = self.control_loop.robot_interface.servo_ids
@@ -331,7 +333,7 @@ class MotorRouter:
             asyncio.create_task(self._send_servo_ids_result(servo_config))
             return True
         else:
-            logger.warning("⚠️ Robot interface not initialized")
+            print("⚠️ Robot interface not initialized")
             return False
     
     def _route_ping_servo(self, command: Dict[str, Any]) -> bool:
@@ -340,10 +342,10 @@ class MotorRouter:
         port = command.get('port', '/dev/ttyACM0')
         
         if not servo_id:
-            logger.error("❌ ping_servo 命令缺少 servo_id 参数")
+            print("❌ ping_servo 命令缺少 servo_id 参数")
             return False
         
-        logger.info(f"📡 Ping 舵机: ID={servo_id}, Port={port}")
+        print(f"📡 Ping 舵机: ID={servo_id}, Port={port}")
         
         # 异步执行摆动
         import asyncio
@@ -359,14 +361,14 @@ class MotorRouter:
             # 获取当前位置
             info_data = self.servo_handler.get_info(servo_id, port)
             if not info_data:
-                logger.error(f"❌ 无法获取舵机 {servo_id} 信息")
+                print(f"❌ 无法获取舵机 {servo_id} 信息")
                 return
             
             current_angle = info_data['angle']
             duration = 3.0  # 3 秒
             start_time = time.time()
             
-            logger.info(f"🔄 开始 Ping 舵机 {servo_id}，持续 {duration} 秒")
+            print(f"🔄 开始 Ping 舵机 {servo_id}，持续 {duration} 秒")
             
             while time.time() - start_time < duration:
                 elapsed = time.time() - start_time
@@ -394,10 +396,10 @@ class MotorRouter:
                 port
             )
             
-            logger.info(f"✅ Ping 完成：舵机 {servo_id}")
+            print(f"✅ Ping 完成：舵机 {servo_id}")
             
         except Exception as e:
-            logger.error(f"❌ Ping 舵机失败: {e}")
+            print(f"❌ Ping 舵机失败: {e}")
     
     def _route_calibrate_servo_zero(self, command: Dict[str, Any]) -> bool:
         """校准舵机零点（设置当前位置为 0 度）"""
@@ -405,28 +407,28 @@ class MotorRouter:
         port = command.get('port', '/dev/ttyACM0')
         
         if not servo_id:
-            logger.error("❌ calibrate_servo_zero 命令缺少 servo_id 参数")
+            print("❌ calibrate_servo_zero 命令缺少 servo_id 参数")
             return False
         
-        logger.info(f"⚙️ 校准舵机零点: ID={servo_id}, Port={port}")
+        print(f"⚙️ 校准舵机零点: ID={servo_id}, Port={port}")
         
         try:
             # 获取当前位置
             info_data = self.servo_handler.get_info(servo_id, port)
             if not info_data:
-                logger.error(f"❌ 无法获取舵机 {servo_id} 信息")
+                print(f"❌ 无法获取舵机 {servo_id} 信息")
                 return False
             
             current_angle = info_data['angle']
-            logger.info(f"📍 当前位置: {current_angle}°，设置为 0°")
+            print(f"📍 当前位置: {current_angle}°，设置为 0°")
             
             # TODO: 保存零点偏移到配置文件
             # 需要找到该舵机在配置中的位置，更新 zero_offset
-            logger.warning("⚠️ 舵机零点校准功能待实现（需要保存零点偏移到配置文件）")
+            print("⚠️ 舵机零点校准功能待实现（需要保存零点偏移到配置文件）")
             
             return True
         except Exception as e:
-            logger.error(f"❌ 校准舵机零点失败: {e}")
+            print(f"❌ 校准舵机零点失败: {e}")
             return False
     
     async def _send_servo_ids_result(self, servo_config: dict):
@@ -440,24 +442,24 @@ class MotorRouter:
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 舵机 ID 配置已发送到 Server")
+                print(f"✅ 舵机 ID 配置已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化")
+                print("⚠️ WebSocket client 未初始化")
         except Exception as e:
-            logger.error(f"❌ 发送舵机 ID 配置失败: {e}")
+            print(f"❌ 发送舵机 ID 配置失败: {e}")
 
     def _handle_get_network_info(self) -> bool:
         """处理获取网络信息命令"""
         try:
             from utils.network_utils import get_network_info
             info = get_network_info()
-            logger.info(f"🌐 获取网络信息: {info}")
+            print(f"🌐 获取网络信息: {info}")
             
             import asyncio
             asyncio.create_task(self._send_network_info(info))
             return True
         except Exception as e:
-            logger.error(f"❌ 获取网络信息失败: {e}")
+            print(f"❌ 获取网络信息失败: {e}")
             return False
 
     async def _send_network_info(self, info: dict):
@@ -471,8 +473,8 @@ class MotorRouter:
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 网络信息已发送到 Server")
+                print(f"✅ 网络信息已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化")
+                print("⚠️ WebSocket client 未初始化")
         except Exception as e:
-            logger.error(f"❌ 发送网络信息失败: {e}")
+            print(f"❌ 发送网络信息失败: {e}")

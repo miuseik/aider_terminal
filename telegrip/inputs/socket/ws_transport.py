@@ -32,7 +32,7 @@ class WSTransport:
         """连接到服务器，支持自动重连。"""
         self.ssl_context = self.setup_ssl()
         if self.ssl_context is None:
-            logger.error("SSL 设置失败")
+            print("SSL 设置失败")
             return False
         
         host = self.config.server_host
@@ -40,13 +40,13 @@ class WSTransport:
         ws_url = f"wss://{host}:{port}/ws/terminal"
         
         try:
-            logger.info(f"🔌 正在连接服务器: {ws_url}")
+            print(f"🔌 正在连接服务器: {ws_url}")
             self.websocket = await websockets.connect(
                 ws_url,
                 ssl=self.ssl_context
             )
             self.is_connected = True
-            logger.info(f"✅ 已连接到服务器")
+            print(f"✅ 已连接到服务器")
             print(f"✅ WebSocket 客户端连接成功: {ws_url}")
             
             # 启动消息接收任务
@@ -54,9 +54,9 @@ class WSTransport:
             return True
             
         except Exception as e:
-            logger.error(f"❌ 连接失败: {e}")
+            print(f"❌ 连接失败: {e}")
             # 3秒后自动重连
-            logger.info(f"🔄 3秒后重连...")
+            print(f"🔄 3秒后重连...")
             await asyncio.sleep(3)
             return await self.connect()
     
@@ -68,7 +68,7 @@ class WSTransport:
                 await self.websocket.close()
             except Exception:
                 pass
-            logger.info("🔴 已断开与服务器的连接")
+            print("🔴 已断开与服务器的连接")
     
     async def _receive_loop(self):
         """消息接收循环。"""
@@ -82,35 +82,35 @@ class WSTransport:
                     await self.on_message_callback(message)
         
         except websockets.exceptions.ConnectionClosedOK:
-            logger.info("❌ 连接已关闭（正常）")
+            print("❌ 连接已关闭（正常）")
             self.is_connected = False
             await self._reconnect()
         except websockets.exceptions.ConnectionClosedError as e:
-            logger.error(f"❌ 连接已关闭（错误）: {e}")
+            print(f"❌ 连接已关闭（错误）: {e}")
             self.is_connected = False
             await self._reconnect()
         except Exception as e:
-            logger.error(f"❌ 接收错误: {e}")
+            print(f"❌ 接收错误: {e}")
             self.is_connected = False
             await self._reconnect()
     
     async def _reconnect(self):
         """自动重连。"""
-        logger.info(f"🔄 3秒后重连...")
+        print(f"🔄 3秒后重连...")
         await asyncio.sleep(3)
         await self.connect()
     
     async def send_raw(self, data: str):
         """发送原始字符串消息。"""
         if not self.is_connected or not self.websocket:
-            logger.warning("⚠️ 未连接，无法发送消息")
+            print("⚠️ 未连接，无法发送消息")
             return False
         
         try:
             await self.websocket.send(data)
             return True
         except Exception as e:
-            logger.error(f"❌ 发送失败: {e}")
+            print(f"❌ 发送失败: {e}")
             return False
     
     def on_message(self, callback: Callable):

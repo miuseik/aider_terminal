@@ -73,12 +73,12 @@ class VRHandler(BaseInputProvider):
     async def start(self):
         """启动 VR 处理器(无需服务器)。"""
         self.is_running = True
-        logger.info("✅ VR 处理器已启动")
+        print("✅ VR 处理器已启动")
 
     async def stop(self):
         """停止 VR 处理器。"""
         self.is_running = False
-        logger.info("🛑 VR 处理器已停止")
+        print("🛑 VR 处理器已停止")
     
     async def process_message(self, message: str):
         """处理来自 WebSocket 客户端的 VR 控制器数据。"""
@@ -92,9 +92,9 @@ class VRHandler(BaseInputProvider):
                 # 处理 VR 控制器数据
                 await self.process_controller_data(data)
         except json.JSONDecodeError:
-            logger.warning(f"⚠️ 收到非 JSON 消息: {message}")
+            print(f"⚠️ 收到非 JSON 消息: {message}")
         except Exception as e:
-            logger.error(f"❌ 处理数据错误: {e}")
+            print(f"❌ 处理数据错误: {e}")
     
     async def handle_api_command(self, data: Dict):
         """处理 API 类命令。"""
@@ -158,7 +158,7 @@ class VRHandler(BaseInputProvider):
                     self.web_keyboard_handler.on_key_release(key)
         
         else:
-            logger.warning(f"⚠️ 未知 VR 命令: {action}")
+            print(f"⚠️ 未知 VR 命令: {action}")
     
     async def process_controller_data(self, data: Dict):
         """处理传入的 VR 控制器数据。"""
@@ -257,7 +257,7 @@ class VRHandler(BaseInputProvider):
                 )
                 await self.send_goal(reset_goal)
                 
-                logger.info(f"🔒 {hand.upper()} 握把已激活 - 控制 {hand} 机械臂")
+                print(f"🔒 {hand.upper()} 握把已激活 - 控制 {hand} 机械臂")
             
             # 计算目标位置
             if controller.origin_position:
@@ -319,7 +319,7 @@ class VRHandler(BaseInputProvider):
             )
             await self.send_goal(goal)
             
-            logger.info(f"🔓 {hand.upper()} 握把已释放 - 机械臂控制停止")
+            print(f"🔓 {hand.upper()} 握把已释放 - 机械臂控制停止")
     
     async def handle_trigger_release(self, hand: str):
         """处理控制器的扳机释放。"""
@@ -336,7 +336,7 @@ class VRHandler(BaseInputProvider):
             )
             await self.send_goal(goal)
             
-            logger.info(f"🤏 {hand.upper()} 夹爪已关闭 (扳机释放)")
+            print(f"🤏 {hand.upper()} 夹爪已关闭 (扳机释放)")
     
     def euler_to_quaternion(self, euler_deg: Dict[str, float]) -> np.ndarray:
         """将欧拉角（度）转换为四元数 [x, y, z, w]。"""
@@ -385,7 +385,7 @@ class VRHandler(BaseInputProvider):
             
             return z_rotation_deg
         except Exception as e:
-            logger.warning(f"从四元数提取翻滚角时出错: {e}")
+            print(f"从四元数提取翻滚角时出错: {e}")
             return 0.0
     
     def extract_pitch_from_quaternion(self, current_quat: np.ndarray, origin_quat: np.ndarray) -> float:
@@ -409,5 +409,5 @@ class VRHandler(BaseInputProvider):
             
             return x_rotation_deg
         except Exception as e:
-            logger.warning(f"从四元数提取俯仰角时出错: {e}")
+            print(f"从四元数提取俯仰角时出错: {e}")
             return 0.0

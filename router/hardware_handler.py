@@ -29,7 +29,7 @@ class HardwareHandler:
             motor_name = command.get('motor')
             
             if arm and motor_name:
-                logger.info(f"🔧 通过机械臂信息推断配置: {arm}臂 {motor_name}")
+                print(f"🔧 通过机械臂信息推断配置: {arm}臂 {motor_name}")
                 
                 try:
                     from telegrip.config import config, get_config_data
@@ -44,25 +44,25 @@ class HardwareHandler:
                         servo_type = config_data.get('robot', {}).get('right_arm', {}).get('servo_type', 'st3215')
                         baudrate = config_data.get('robot', {}).get('right_arm', {}).get('baudrate', 1000000)
                     else:
-                        logger.error(f"❌ 无效的机械臂: {arm}")
+                        print(f"❌ 无效的机械臂: {arm}")
                         return False
                     
-                    logger.info(f"✅ 配置推断成功: port={port}, servo_type={servo_type}, baudrate={baudrate}")
+                    print(f"✅ 配置推断成功: port={port}, servo_type={servo_type}, baudrate={baudrate}")
                     
                 except Exception as e:
-                    logger.error(f"❌ 配置推断失败: {e}")
+                    print(f"❌ 配置推断失败: {e}")
                     import traceback
-                    logger.error(traceback.format_exc())
+                    print(traceback.format_exc())
                     return False
             else:
-                logger.error("❌ set_motor_id 命令缺少必要参数")
+                print("❌ set_motor_id 命令缺少必要参数")
                 return False
         
         if not all([port, servo_type, old_id is not None, new_id is not None]):
-            logger.error("❌ set_motor_id 命令缺少必要参数")
+            print("❌ set_motor_id 命令缺少必要参数")
             return False
         
-        logger.info(f"🔧 设置电机ID: {port} ({servo_type}) ID {old_id} → {new_id}")
+        print(f"🔧 设置电机ID: {port} ({servo_type}) ID {old_id} → {new_id}")
         
         if hasattr(self.motor_controller, 'set_motor_id'):
             success = self.motor_controller.set_motor_id(
@@ -73,12 +73,12 @@ class HardwareHandler:
                 baudrate=baudrate
             )
             if success:
-                logger.info(f"✅ 电机ID设置成功: {port} {old_id} → {new_id}")
+                print(f"✅ 电机ID设置成功: {port} {old_id} → {new_id}")
             else:
-                logger.error(f"❌ 电机ID设置失败: {port} {old_id} → {new_id}")
+                print(f"❌ 电机ID设置失败: {port} {old_id} → {new_id}")
             return success
         else:
-            logger.error("❌ motor_controller 没有 set_motor_id 方法")
+            print("❌ motor_controller 没有 set_motor_id 方法")
             return False
     
     def scan_servos(self, command: Dict[str, Any], ws_client=None) -> bool:
@@ -134,7 +134,7 @@ class HardwareHandler:
     
     def list_ports(self, ws_client=None) -> bool:
         """获取串口列表"""
-        logger.info("🔍 获取串口列表")
+        print("🔍 收到 list_ports 命令")
         
         try:
             import serial.tools.list_ports
@@ -144,15 +144,15 @@ class HardwareHandler:
                 if 'USB' in port.device or 'ACM' in port.device or 'ttyUSB' in port.device or 'ttyACM' in port.device
             ]
             
-            logger.info(f"✅ 发现 {len(port_list)} 个串口: {port_list}")
+            print(f"✅ 发现 {len(port_list)} 个串口: {port_list}")
             
             import asyncio
             asyncio.create_task(self._send_ports_result(port_list, ws_client))
             return True
         except Exception as e:
-            logger.error(f"❌ 获取串口列表失败: {e}")
+            print(f"❌ 获取串口列表失败: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            print(traceback.format_exc())
             return False
     
     async def _send_ports_result(self, ports: list, ws_client):
@@ -166,8 +166,8 @@ class HardwareHandler:
             if ws_client and hasattr(ws_client, 'transport'):
                 from telegrip.inputs.socket.ws_protocol import encode_message
                 await ws_client.transport.send_raw(encode_message(result_message))
-                logger.info(f"✅ 串口列表已发送到 Server")
+                print(f"✅ 串口列表已发送到 Server")
             else:
-                logger.warning("⚠️ WebSocket client 未初始化")
+                print("⚠️ WebSocket client 未初始化")
         except Exception as e:
-            logger.error(f"❌ 发送串口列表失败: {e}")
+            print(f"❌ 发送串口列表失败: {e}")

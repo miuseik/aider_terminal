@@ -78,13 +78,13 @@ def load_config(config_path: str = "config.yaml") -> dict:
     # 检查包目录中是否存在配置
     if package_config_path.exists():
         config_file_to_use = package_config_path
-        logger.info(f"Loading config from package directory: {config_file_to_use}")
+        print(f"Loading config from package directory: {config_file_to_use}")
     # 回退到当前工作目录（用于用户提供的配置）
     elif os.path.exists(config_path):
         config_file_to_use = Path(config_path)
-        logger.info(f"Loading config from current directory: {config_file_to_use}")
+        print(f"Loading config from current directory: {config_file_to_use}")
     else:
-        logger.info(f"Config file {config_path} not found in package directory ({package_config_path}) or current directory, using defaults")
+        print(f"Config file {config_path} not found in package directory ({package_config_path}) or current directory, using defaults")
         return config
     
     try:
@@ -94,8 +94,8 @@ def load_config(config_path: str = "config.yaml") -> dict:
                 # 将 yaml 配置深度合并到默认配置中
                 _deep_merge(config, yaml_config)
     except Exception as e:
-        logger.warning(f"Could not load config from {config_file_to_use}: {e}")
-        logger.info("Using default configuration")
+        print(f"Could not load config from {config_file_to_use}: {e}")
+        print("Using default configuration")
     
     return config
 
@@ -108,7 +108,7 @@ def save_config(config: dict, config_path: str = "config.yaml"):
             yaml.dump(config, f, default_flow_style=False, indent=2)
         return True
     except Exception as e:
-        logger.error(f"Error saving config to {abs_config_path}: {e}")
+        print(f"Error saving config to {abs_config_path}: {e}")
         return False
 
 def _deep_merge(base: dict, update: dict):
@@ -295,3 +295,16 @@ def update_config_data(new_config: dict):
 
 # 全局配置实例
 config = TelegripConfig() 
+
+def get_api_endpoint():
+    """获取 API 地址，优先级：命令行参数 > 环境变量 > 配置默认值"""
+    import sys
+    # 1. 检查命令行参数
+    if '--api-host' in sys.argv:
+        idx = sys.argv.index('--api-host')
+        if idx + 1 < len(sys.argv):
+            return sys.argv[idx + 1]
+    if '--env-dev' in sys.argv:
+        return 'localhost'
+    # 2. 返回配置中的值（支持环境变量覆盖）
+    return config.api_host 
