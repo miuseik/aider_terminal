@@ -377,7 +377,7 @@ class ServoController:
             print(f"✅ 串口连接成功: {self.port} @ {self.baudrate}")
             return True, "Connected successfully"
         except Exception as e:
-            print(f"❌ 连接失败: {e}")
+            print(f"❌ servo 连接失败: {e}")
             return False, str(e)
     
     def disconnect(self):

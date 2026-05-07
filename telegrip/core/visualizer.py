@@ -18,41 +18,6 @@ from ..config import (
     END_EFFECTOR_LINK_NAME
 )
 
-logger = logging.getLogger(__name__)
-
-
-@contextlib.contextmanager
-def suppress_stdout_stderr():
-    """上下文管理器，在文件描述符级别抑制标准输出和标准错误输出。"""
-    # Save original file descriptors
-    stdout_fd = sys.stdout.fileno()
-    stderr_fd = sys.stderr.fileno()
-    
-    # Save original file descriptors
-    saved_stdout_fd = os.dup(stdout_fd)
-    saved_stderr_fd = os.dup(stderr_fd)
-    
-    try:
-        # Open devnull
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        
-        # Redirect stdout and stderr to devnull
-        os.dup2(devnull_fd, stdout_fd)
-        os.dup2(devnull_fd, stderr_fd)
-        
-        yield
-        
-    finally:
-        # Restore original file descriptors
-        os.dup2(saved_stdout_fd, stdout_fd)
-        os.dup2(saved_stderr_fd, stderr_fd)
-        
-        # Close saved file descriptors
-        os.close(saved_stdout_fd)
-        os.close(saved_stderr_fd)
-        os.close(devnull_fd)
-
-
 class PyBulletVisualizer:
     """机器人遥操作的 PyBullet 可视化工具。"""
     
@@ -123,9 +88,6 @@ class PyBulletVisualizer:
 
     def setup(self) -> bool:
         """初始化 PyBullet 并加载机器人。"""
-        # 确定是否应该抑制输出（但不抑制 GUI 显示）
-        should_suppress_output = getattr(logging, self.log_level.upper()) > logging.INFO
-
         # 在尝试 GUI 模式之前检查显示是否可用
         use_gui = self.use_gui
         if use_gui and not self._can_use_display():
@@ -133,29 +95,16 @@ class PyBulletVisualizer:
             use_gui = False
 
         try:
-            # GUI 可见性由 use_gui 标志控制，而非日志级别
+            # 连接 PyBullet
             if use_gui:
-                if should_suppress_output:
-                    # 抑制控制台输出但仍显示 GUI
-                    with suppress_stdout_stderr():
-                        self.physics_client = p.connect(p.GUI)
-                else:
-                    self.physics_client = p.connect(p.GUI)
+                self.physics_client = p.connect(p.GUI)
             else:
-                if should_suppress_output:
-                    with suppress_stdout_stderr():
-                        self.physics_client = p.connect(p.DIRECT)
-                else:
-                    self.physics_client = p.connect(p.DIRECT)
+                self.physics_client = p.connect(p.DIRECT)
         except p.error as e:
             print(f"Could not connect to PyBullet: {e}")
             try:
-                if should_suppress_output:
-                    with suppress_stdout_stderr():
-                        self.physics_client = p.connect(p.DIRECT)
-                else:
-                    self.physics_client = p.connect(p.DIRECT)
-                    print("Fallback to DIRECT mode")
+                self.physics_client = p.connect(p.DIRECT)
+                print("Fallback to DIRECT mode")
             except p.error:
                 print("Failed to connect to PyBullet")
                 return False
@@ -163,12 +112,7 @@ class PyBulletVisualizer:
         if self.physics_client < 0:
             return False
         
-        # 配置 PyBullet 以减少输出（仅在不使用 GUI 时）
-        if should_suppress_output and not self.use_gui:
-            p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
-            p.configureDebugVisualizer(p.COV_ENABLE_TINY_RENDERER, 0)
-        
-        # 即使使用 GUI，也关闭一些不必要的元素以提高性能
+        # 配置 PyBullet 可视化
         if self.use_gui:
             p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)  # 关闭侧边栏
             p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1)  # 保持渲染
@@ -177,11 +121,10 @@ class PyBulletVisualizer:
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -9.81)
         
-        if should_suppress_output:
-            with suppress_stdout_stderr():
-                p.loadURDF("plane.urdf")
-        else:
-            p.loadURDF("plane.urdf")
+        # ✅ 设置物理仿真时间步长，与控制循环同步（50Hz = 0.02秒）
+        p.setTimeStep(0.02)
+        
+        p.loadURDF("plane.urdf")
         
         # 加载机器人 URDF
         if not os.path.exists(self.urdf_path):
@@ -189,22 +132,14 @@ class PyBulletVisualizer:
             return False
         
         try:
-            if should_suppress_output:
-                with suppress_stdout_stderr():
-                    self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
-            else:
-                self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+            self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
         except p.error as e:
             print(f"Failed to load URDF: {e}")
             return False
         
         # 在 X 方向 40cm 处加载右侧机器人
         try:
-            if should_suppress_output:
-                with suppress_stdout_stderr():
-                    self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
-            else:
-                self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+            self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
         except p.error as e:
             print(f"Failed to load right robot URDF: {e}")
             return False
@@ -220,22 +155,9 @@ class PyBulletVisualizer:
         # 2. 检查文件是否存在
         if os.path.exists(aloha_urdf_path):
             try:
-                # 3. 根据日志级别决定是否抑制 PyBullet 的输出信息
-                if should_suppress_output:
-                    # 使用上下文管理器屏蔽 stdout/stderr(避免刷屏)
-                    with suppress_stdout_stderr():
-                        # 4. 加载 URDF 到 PyBullet 物理引擎
-                        #    - [0, 0, 0]: 初始位置(世界坐标系原点)
-                        #    - [0, 0, 0, 1]: 初始朝向(四元数,无旋转)
-                        #    - useFixedBase=1: 固定基座(底盘不会因重力掉落)
-                        self.aloha_id = p.loadURDF(aloha_urdf_path, [0, 0, 0], [0, 0, 0, 1], useFixedBase=1)
-                else:
-                    # 不抑制输出,直接加载
-                    self.aloha_id = p.loadURDF(aloha_urdf_path, [0, 0, 0], [0, 0, 0, 1], useFixedBase=1)
-                
-                # 5. 如果日志级别允许(INFO 及以上),打印成功消息
-                if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                    print("Aloha chassis loaded successfully")
+                # 加载 Aloha 底盘 URDF
+                self.aloha_id = p.loadURDF(aloha_urdf_path, [0, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+                print("Aloha chassis loaded successfully")
                     
             except p.error as e:
                 # 6. 捕获 PyBullet 加载错误(如 URDF 格式问题)

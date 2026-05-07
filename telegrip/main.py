@@ -33,38 +33,6 @@ def get_local_ip():
             return "localhost"
 
 
-@contextlib.contextmanager
-def suppress_stdout_stderr():
-    """上下文管理器，在文件描述符级别抑制标准输出和错误输出。"""
-    # 保存原始文件描述符
-    stdout_fd = sys.stdout.fileno()
-    stderr_fd = sys.stderr.fileno()
-    
-    # 保存原始文件描述符
-    saved_stdout_fd = os.dup(stdout_fd)
-    saved_stderr_fd = os.dup(stderr_fd)
-    
-    try:
-        # 打开 /dev/null
-        devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        
-        # 将标准输出和错误重定向到 /dev/null
-        os.dup2(devnull_fd, stdout_fd)
-        os.dup2(devnull_fd, stderr_fd)
-        
-        yield
-        
-    finally:
-        # 恢复原始文件描述符
-        os.dup2(saved_stdout_fd, stdout_fd)
-        os.dup2(saved_stderr_fd, stderr_fd)
-        
-        # 关闭保存的文件描述符
-        os.close(saved_stdout_fd)
-        os.close(saved_stderr_fd)
-        os.close(devnull_fd)
-
-
 # 在函数定义后导入 telegrip 模块
 from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
@@ -536,11 +504,6 @@ async def main():
     
     # 根据日志级别设置日志记录
     log_level = getattr(logging, args.log_level.upper())
-    
-    # 在非详细模式下抑制 PyBullet 的原生输出
-    if log_level > logging.INFO:
-        os.environ['PYBULLET_SUPPRESS_CONSOLE_OUTPUT'] = '1'
-        os.environ['PYBULLET_SUPPRESS_WARNINGS'] = '1'
     
     # 统一使用详细的日志格式，确保所有 logger 输出都能看到
     logging.basicConfig(

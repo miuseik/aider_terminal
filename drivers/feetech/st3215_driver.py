@@ -81,7 +81,7 @@ class ST3215Driver:
             return False
         
         # Print 发送的指令（模拟模式）
-        print(f"📤 [ST3215] 发送位置指令 → ID={servo_id}, Position={position}, Time={time_ms}ms, Port={self.port}")
+        # print(f"📤 [ST3215] 发送位置指令 → ID={servo_id}, Position={position}, Time={time_ms}ms, Port={self.port}")
         
         success, _ = self.controller.set_position(servo_id, position, time_ms)
         return success
@@ -106,7 +106,7 @@ class ST3215Driver:
         offset = self.id_to_offset.get(servo_id, 0.0)
         angle_with_offset = angle + offset
         
-        print(f"   [DEBUG] ID={servo_id}, 角度={angle}°, 偏移={offset:.2f}°, 实际={angle_with_offset:.2f}°")
+        # print(f"   [DEBUG] ID={servo_id}, 角度={angle}°, 偏移={offset:.2f}°, 实际={angle_with_offset:.2f}°")
         
         # ✅ 角度转脉冲值 (-180°~180° -> 0-4095)
         # 先将 -180~180 映射到 0~360，再转换为脉冲
@@ -120,7 +120,7 @@ class ST3215Driver:
             print(f"   ⚠️ 位置已限制到有效范围: {position}")
         
         # Print 发送的指令
-        print(f"📤 [ST3215] 发送角度指令 → ID={servo_id}, Angle={angle}°, Position={position}, Time={time_ms}ms, Port={self.port}")
+        # print(f"📤 [ST3215] 发送角度指令 → ID={servo_id}, Angle={angle}°, Position={position}, Time={time_ms}ms, Port={self.port}")
         
         return self.set_position(servo_id, position, time_ms)
     
@@ -152,29 +152,34 @@ class ST3215Driver:
     
     def set_speed(self, servo_id: int, speed: int) -> bool:
         """
-        设置速度（速度模式下使用）
-        
+        设置速度(速度模式下使用)
+            
         Args:
             servo_id: 舵机ID
             speed: 速度 (-1000 ~ 1000)
-                   正数=顺时针，负数=逆时针
+                   正数=顺时针,负数=逆时针
                    0=停止
         """
         if not self.is_connected:
-            print(f"⚠️ [ST3215] 未连接，跳过发送 - ID={servo_id}, Speed={speed}, Port={self.port}")
+            print(f"⚠️ [ST3215] 未连接,跳过发送 - ID={servo_id}, Speed={speed}, Port={self.port}")
             return False
-        
+            
         # Print 发送的指令
         direction = "顺时针" if speed >= 0 else "逆时针"
         print(f"📤 [ST3215] 发送速度指令 → ID={servo_id}, Speed={speed} ({direction}), Port={self.port}")
-        
-        try:
-            # ST3215 速度寄存器格式：bit15=方向(0=顺,1=逆), bit0-14=速度值
-            if speed >= 0:
-                speed_value = speed & 0x7FFF  # 顺时针，清除方向位
-            else:
-                speed_value = (abs(speed) & 0x7FFF) | 0x8000  # 逆时针，设置方向位
             
+        try:
+            # ✅ 先启用扭矩(确保舵机有力执行速度指令)
+            torque_success, _ = self.controller.write_register(servo_id, 40, 1, 1)
+            if not torque_success:
+                print(f"⚠️ 舵机 {servo_id} 启用扭矩失败")
+                
+            # ST3215 速度寄存器格式:bit15=方向(0=顺,1=逆), bit0-14=速度值
+            if speed >= 0:
+                speed_value = speed & 0x7FFF  # 顺时针,清除方向位
+            else:
+                speed_value = (abs(speed) & 0x7FFF) | 0x8000  # 逆时针,设置方向位
+                
             success, _ = self.controller.write_register(servo_id, 46, 2, speed_value)
             return success
         except Exception as e:
@@ -208,6 +213,28 @@ class ST3215Driver:
             return True
         except Exception as e:
             print(f"❌ 同步写入速度失败: {e}")
+            return False
+    
+    # ✅ 别名方法，兼容 motor_controller 的调用
+    sync_write_speeds = sync_write_velocity
+    
+    def sync_write_positions(self, targets: Dict[int, float], time_ms: int = 50) -> bool:
+        """
+        同步写入多个舵机的位置（所有舵机同时开始运动）
+        
+        Args:
+            targets: {servo_id: angle_deg} 字典，角度值（度）
+            time_ms: 运动时间（毫秒），默认 50ms 实现流畅连续运动
+        """
+        try:
+            # ✅ 关键：为每个舵机设置相同的运动时间，确保平滑移动并保持扭矩
+            for servo_id, angle in targets.items():
+                self.move_to_angle(servo_id, angle, time_ms)
+            return True
+        except Exception as e:
+            print(f"❌ 同步写入位置失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def write_position(self, servo_id: int, position: int) -> bool:

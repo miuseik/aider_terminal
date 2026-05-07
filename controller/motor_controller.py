@@ -376,14 +376,44 @@ class MotorController:
     # ==================== 5. 速度控制 ====================
     
     def set_velocity_mode(self, port: str, servo_id: int) -> bool:
-        """切换到速度模式"""
+        """切换到速度模式（轮式模式，连续旋转）"""
         brand = self._get_servo_brand(port, servo_id)
         driver = self._get_or_create_driver(port, brand)
         
         if not driver:
+            print(f"❌ 无法获取舵机 {servo_id} 的驱动")
             return False
         
-        return driver.set_velocity_mode(servo_id)
+        if hasattr(driver, 'set_velocity_mode'):
+            success = driver.set_velocity_mode(servo_id)
+            if success:
+                print(f"✅ 舵机 {servo_id} 已切换到速度模式")
+            else:
+                print(f"❌ 舵机 {servo_id} 切换速度模式失败")
+            return success
+        else:
+            print(f"⚠️ 驱动不支持 set_velocity_mode 方法")
+            return False
+    
+    def set_position_mode(self, port: str, servo_id: int) -> bool:
+        """切换到位置模式（默认）"""
+        brand = self._get_servo_brand(port, servo_id)
+        driver = self._get_or_create_driver(port, brand)
+        
+        if not driver:
+            print(f"❌ 无法获取舵机 {servo_id} 的驱动")
+            return False
+        
+        if hasattr(driver, 'set_position_mode'):
+            success = driver.set_position_mode(servo_id)
+            if success:
+                print(f"✅ 舵机 {servo_id} 已切换到位置模式")
+            else:
+                print(f"❌ 舵机 {servo_id} 切换位置模式失败")
+            return success
+        else:
+            print(f"⚠️ 驱动不支持 set_position_mode 方法")
+            return False
     
     def set_servo_speed(self, port: str, servo_id: int, speed: int) -> bool:
         """
@@ -413,7 +443,7 @@ class MotorController:
         Args:
             targets: {servo_id: angle_deg}
         """
-        print(f"⚡ 同步位置控制: {len(targets)} 个舵机")
+        # print(f"⚡ 同步位置控制: {len(targets)} 个舵机")
         
         # 获取第一个舵机的品牌（假设同一端口的舵机品牌相同）
         first_id = list(targets.keys())[0]

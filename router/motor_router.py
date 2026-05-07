@@ -82,6 +82,8 @@ class MotorRouter:
                 command.get('servo_id'),
                 command.get('speed')
             ),
+            'set_speed_mode': lambda: self._handle_set_speed_mode(command),
+            'set_position_mode': lambda: self._handle_set_position_mode(command),
             'scan_servos': lambda: self._handle_scan_servos(command),
             'list_ports': lambda: self._handle_list_ports(),
             'get_network_info': lambda: self._handle_get_network_info(),
@@ -119,6 +121,72 @@ class MotorRouter:
             return True
         else:
             print(f"❌ 获取舵机信息失败: ID={servo_id}")
+            return False
+    
+    def _handle_set_speed_mode(self, command: Dict[str, Any]) -> bool:
+        """处理设置速度模式命令"""
+        servo_id = command.get('servo_id')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        if not servo_id:
+            print("❌ set_speed_mode 命令缺少 servo_id 参数")
+            return False
+        
+        print(f"🔄 设置舵机 {servo_id} 为速度模式 (Port={port})")
+        
+        mc = self._get_motor_controller()
+        if not mc:
+            print("❌ MotorController 未初始化")
+            return False
+        
+        # 调用 motor_controller 的 set_velocity_mode 方法
+        success = self._safe_call(
+            mc.set_velocity_mode,
+            port,
+            servo_id
+        )
+        
+        if success:
+            print(f"✅ 舵机 {servo_id} 已切换到速度模式")
+        else:
+            print(f"❌ 舵机 {servo_id} 切换速度模式失败")
+        
+        return success
+    
+    def _handle_set_position_mode(self, command: Dict[str, Any]) -> bool:
+        """处理设置位置模式命令"""
+        servo_id = command.get('servo_id')
+        port = command.get('port', '/dev/ttyACM0')
+        
+        if not servo_id:
+            print("❌ set_position_mode 命令缺少 servo_id 参数")
+            return False
+        
+        print(f"🔄 设置舵机 {servo_id} 为位置模式 (Port={port})")
+        
+        mc = self._get_motor_controller()
+        if not mc:
+            print("❌ MotorController 未初始化")
+            return False
+        
+        # 需要先添加 set_position_mode 方法到 motor_controller
+        # 暂时直接调用驱动
+        brand = 'feetech'  # 默认飞特
+        driver = mc._get_or_create_driver(port, brand)
+        
+        if not driver:
+            print(f"❌ 无法获取驱动")
+            return False
+        
+        if hasattr(driver, 'set_position_mode'):
+            success = driver.set_position_mode(servo_id)
+            if success:
+                print(f"✅ 舵机 {servo_id} 已切换到位置模式")
+            else:
+                print(f"❌ 舵机 {servo_id} 切换位置模式失败")
+            return success
+        else:
+            print(f"⚠️ 驱动不支持 set_position_mode 方法")
             return False
     
     async def _send_servo_info(self, info_data: Dict[str, Any]):

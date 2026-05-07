@@ -42,7 +42,7 @@ robot:
     enabled: true
     name: Right Arm
     port: /dev/ttySO100red
-  send_interval: 0.05
+  send_interval: 0.02
   vr_to_robot_scale: 1
 aloha:
   enabled: true              # 是否启用 Aloha 底盘

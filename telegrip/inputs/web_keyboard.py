@@ -301,28 +301,16 @@ class WebKeyboardHandler(BaseInputProvider):
                 print(f"🎮key 底盘控制: 右平移 velocity_y=-0.3")
             elif key == 'v':
                 self.base_state["base_control_active"] = True
-                # 升降轴上升 - 发送高度增量命令
-                goal = ControlGoal(
-                    arm="lift",
-                    mode=ControlMode.IDLE,
-                    metadata={"action": "set_aloha_height", "height_delta": 0.01}
-                )
-                try:
-                    self.command_queue.put_nowait(goal)
-                except:
-                    pass
+                # ✅ 升降轴上升 - 设置负速度（逆时针）
+                if self.robot_interface:
+                    self.robot_interface.lift_velocity = -300  # 负=升
+                    print(f"🎮key 升降轴: 上升 (速度=-300)")
             elif key == 'b':
                 self.base_state["base_control_active"] = True
-                # 升降轴下降 - 发送高度减量命令
-                goal = ControlGoal(
-                    arm="lift",
-                    mode=ControlMode.IDLE,
-                    metadata={"action": "set_aloha_height", "height_delta": -0.01}
-                )
-                try:
-                    self.command_queue.put_nowait(goal)
-                except:
-                    pass
+                # ✅ 升降轴下降 - 设置正速度（顺时针）
+                if self.robot_interface:
+                    self.robot_interface.lift_velocity = 300  # 正=降
+                    print(f"🎮key 升降轴: 下降 (速度=+300)")
 
             # 特殊按键
             elif key == 'tab':
@@ -386,7 +374,10 @@ class WebKeyboardHandler(BaseInputProvider):
             elif key == '7' or key == '9':
                 self.base_state["velocity_y"] = 0.0
             elif key == 'v' or key == 'b':
-                pass
+                # ✅ 升降轴停止
+                if self.robot_interface:
+                    self.robot_interface.lift_velocity = 0
+                    print(f"🎮key 升降轴: 停止")
             
             # 检查所有底盘速度是否为0,如果是则禁用底盘控制
             if (self.base_state["velocity_x"] == 0.0 and 

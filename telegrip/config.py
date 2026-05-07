@@ -32,7 +32,7 @@ DEFAULT_CONFIG = {
             "enabled": True
         },
         "vr_to_robot_scale": 1.0,
-        "send_interval": 0.05,
+        "send_interval": 0.02,
     },
     "control": {
         "keyboard": {

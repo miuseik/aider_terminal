@@ -54,7 +54,7 @@ class WSTransport:
             return True
             
         except Exception as e:
-            print(f"❌ 连接失败: {e}")
+            print(f"❌ ws 连接失败: {e}")
             # 3秒后自动重连
             print(f"🔄 3秒后重连...")
             await asyncio.sleep(3)

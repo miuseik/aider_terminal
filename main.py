@@ -27,9 +27,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from telegrip.main import main
 
 if __name__ == "__main__":
-    # 默认添加 --no-robot 参数（仅可视化，不连接机械臂）
-    if '--no-robot' not in sys.argv:
-        sys.argv.append('--no-robot')
     # 默认使用 info 日志级别
     # if '--log-level' not in sys.argv:
     #     sys.argv.extend(['--log-level', 'info'])

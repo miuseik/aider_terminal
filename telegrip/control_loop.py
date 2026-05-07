@@ -128,19 +128,16 @@ class ControlLoop:
         """
         success = True
         setup_errors = []
-        
         # === 1. 设置机器人接口(连接真机) ===
         try:
             self.robot_interface = RobotInterface(self.config)
             if not self.robot_interface.connect():
                 # 真机连接失败
-                error_msg = "Robot interface failed to connect"
-                print(error_msg)
-                setup_errors.append(error_msg)
-                # 如果配置中启用了真机机器人,连接失败则标记setup失败
-                # 如果只使用仿真(enable_robot=False),连接失败不影响setup
-                if self.config.enable_robot:
-                    success = False
+                error_msg = "真机连接失败"
+                print(f"⚠️ {error_msg}（真机连接失败仿真仍可运行）")
+                # ✅ 真机连接失败不影响仿真启动
+                # if self.config.enable_robot:
+                #     success = False
             else:
                 # 真机连接成功,初始化电机控制器和API路由器
                 # 将robot_interface传入MotorController,使其能够:
@@ -159,7 +156,6 @@ class ControlLoop:
         except Exception as e:
             error_msg = f"Robot interface setup failed with exception: {e}"
             print(error_msg)
-            setup_errors.append(error_msg)
             if self.config.enable_robot:
                 success = False
         
@@ -180,7 +176,6 @@ class ControlLoop:
                 if not self.visualizer.setup():
                     error_msg = "PyBullet visualizer setup failed"
                     print(error_msg)
-                    setup_errors.append(error_msg)
                     self.visualizer = None
                 else:
                     # 将运动学解算器连接到机器人接口
@@ -203,14 +198,8 @@ class ControlLoop:
             except Exception as e:
                 error_msg = f"PyBullet visualizer setup failed with exception: {e}"
                 print(error_msg)
-                setup_errors.append(error_msg)
                 self.visualizer = None
-        
-        # 报告所有设置问题
-        if setup_errors:
-            print("设置失败，错误如下：")
-            for i, error in enumerate(setup_errors, 1):
-                print(f"  {i}. {error}")
+
         
         # 在 Web 键盘处理器上设置机器人接口,使其能获取当前位置
         if self.web_keyboard_handler and self.robot_interface:
@@ -561,11 +550,14 @@ class ControlLoop:
         # 右摇杆 X: 左推(-1)/右推(1) -> 左转/右转
         self.base_velocity_target["theta"] = -rx * MAX_ANG_SPEED
 
-        # 4. 处理升降轴高度 (使用右摇杆 Y 轴作为增量控制)
+        # 4. 处理升降轴速度 (使用右摇杆 Y 轴直接控制速度)
         if abs(ry) > DEADZONE:
-            delta_h = -ry * 0.005  # 负号修正方向，0.005 提高平滑度
-            new_height_mm = max(0.0, min(1.0, self.aloha_height + delta_h))
-            self.aloha_height = new_height_mm
+            # ✅ 直接设置速度：负=逆时针（升），正=顺时针（降）
+            MAX_LIFT_SPEED = 500  # 最大速度
+            self.robot_interface.lift_velocity = int(-ry * MAX_LIFT_SPEED)
+        else:
+            # 摇杆回中时停止
+            self.robot_interface.lift_velocity = 0
 
     def _update_robot_safely(self):
         """用当前控制目标更新机器人(带错误处理)。"""
@@ -599,55 +591,41 @@ class ControlLoop:
         else:
             print(f"🎮loop 使用键盘底盘控制，跳过VR摇杆")
 
-        # 4. 更新左臂(仅在连接或纯仿真模式下)
+        # 4. 更新左臂（始终更新，用于仿真可视化）
         if (self.left_arm.mode == ControlMode.POSITION_CONTROL and 
             self.left_arm.target_position is not None):
-            # 检查机械臂是否连接或处于无机器人模式
-            arm_connected = self.robot_interface.get_arm_connection_status("left")
-            should_update = arm_connected or not self.config.enable_robot
+            # 求解 IK
+            ik_solution = self.robot_interface.solve_ik("left", self.left_arm.target_position)
             
-            if should_update:
-                # 求解 IK
-                ik_solution = self.robot_interface.solve_ik("left", self.left_arm.target_position)
-                
-                # 更新机器人角度
-                current_gripper = self.robot_interface.get_arm_angles("left")[GRIPPER_INDEX]
-                self.robot_interface.update_arm_angles("left", ik_solution, 
-                                                     self.left_arm.current_wrist_flex, 
-                                                     self.left_arm.current_wrist_roll, 
-                                                     current_gripper)
-                
-                # 【夹爪线性控制】替换第6个关节角度
-                left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
-                if left_trigger is not None:
-                    self.robot_interface.left_arm_angles[GRIPPER_INDEX] = -left_trigger * 90.0
-            else:
-                print(f"跳过左臂更新: connected={arm_connected}, enable_robot={self.config.enable_robot}")
+            # 更新机器人角度
+            current_gripper = self.robot_interface.get_arm_angles("left")[GRIPPER_INDEX]
+            self.robot_interface.update_arm_angles("left", ik_solution, 
+                                                 self.left_arm.current_wrist_flex, 
+                                                 self.left_arm.current_wrist_roll, 
+                                                 current_gripper)
+            
+            # 【夹爪线性控制】替换第6个关节角度
+            left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
+            if left_trigger is not None:
+                self.robot_interface.left_arm_angles[GRIPPER_INDEX] = -left_trigger * 90.0
 
-        # 更新右臂(仅在连接或纯仿真模式下)
+        # 更新右臂（始终更新，用于仿真可视化）
         if (self.right_arm.mode == ControlMode.POSITION_CONTROL and 
             self.right_arm.target_position is not None):
-            # 检查机械臂是否连接或处于无机器人模式
-            arm_connected = self.robot_interface.get_arm_connection_status("right")
-            should_update = arm_connected or not self.config.enable_robot
+            # 求解 IK
+            ik_solution = self.robot_interface.solve_ik("right", self.right_arm.target_position)
             
-            if should_update:
-                # 求解 IK
-                ik_solution = self.robot_interface.solve_ik("right", self.right_arm.target_position)
-                
-                # 更新机器人角度
-                current_gripper = self.robot_interface.get_arm_angles("right")[GRIPPER_INDEX]
-                self.robot_interface.update_arm_angles("right", ik_solution, 
-                                                      self.right_arm.current_wrist_flex, 
-                                                      self.right_arm.current_wrist_roll, 
-                                                      current_gripper)
-                
-                # 【夹爪线性控制】替换第6个关节角度
-                right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
-                if right_trigger is not None:
-                    self.robot_interface.right_arm_angles[GRIPPER_INDEX] = -right_trigger * 90.0
-            else:
-                print(f"跳过右臂更新: connected={arm_connected}, enable_robot={self.config.enable_robot}")
+            # 更新机器人角度
+            current_gripper = self.robot_interface.get_arm_angles("right")[GRIPPER_INDEX]
+            self.robot_interface.update_arm_angles("right", ik_solution, 
+                                                  self.right_arm.current_wrist_flex, 
+                                                  self.right_arm.current_wrist_roll, 
+                                                  current_gripper)
+            
+            # 【夹爪线性控制】替换第6个关节角度
+            right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
+            if right_trigger is not None:
+                self.robot_interface.right_arm_angles[GRIPPER_INDEX] = -right_trigger * 90.0
 
 
         # === 同步状态到 robot_interface (用于 send_command 内部使用) ===
@@ -659,8 +637,8 @@ class ControlLoop:
                 "theta": self.base_velocity_target["theta"]
             }
             
-            # 更新升降轴状态 (aloha_height 单位是米,转换为毫米)
-            self.robot_interface.lift_height_mm = int(self.aloha_height * 1000)
+            # ✅ 升降轴速度已经通过 VR 摇杆或键盘直接设置，这里不需要额外处理
+            # self.robot_interface.lift_velocity 已经在 _update_mobile_base() 或 web_keyboard 中设置
             
             # 更新仿真相关状态
             self.robot_interface.vr_raw_data = self.vr_raw_data
@@ -686,7 +664,7 @@ class ControlLoop:
             if active_arms and self.robot_interface:
                 left_angles = self.robot_interface.get_arm_angles("left")
                 right_angles = self.robot_interface.get_arm_angles("right")
-                print(f"🤖 活跃控制: {', '.join(active_arms)} | 左: {left_angles.round(1)} | 右: {right_angles.round(1)}")
+                # print(f"🤖 活跃控制: {', '.join(active_arms)} | 左: {left_angles.round(1)} | 右: {right_angles.round(1)}")
     
     @property
     def status(self) -> Dict:
