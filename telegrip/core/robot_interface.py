@@ -225,7 +225,7 @@ class RobotInterface:
 
             if self.is_connected:
                 # 1. 从 Server 获取最新舵机配置 (优先执行)
-                from router.server_api_client import ServerAPIClient
+                from api.server_api_client import ServerAPIClient
                 api_client = ServerAPIClient()  # 自动从全局配置读取地址
                 config = api_client.get_servo_ids_config()
                 if config:

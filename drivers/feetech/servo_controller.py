@@ -354,6 +354,7 @@ class ServoController:
         self.servos: Dict[int, ServoInfo] = {}
         self.is_connected = False
         self._lock = threading.Lock()
+        self._last_send_time = 0  # ✅ 记录最后一次发送时间，用于控制最小间隔
     
     def connect(self) -> Tuple[bool, str]:
         """连接到串口"""
@@ -367,9 +368,16 @@ class ServoController:
             if not self.port_handler.setBaudRate(self.baudrate):
                 return False, f"Cannot set baudrate {self.baudrate}"
             
+            # ✅ 设置串口超时参数，防止长时间不通信断开
+            if hasattr(self.port_handler, 'ser') and self.port_handler.ser:
+                self.port_handler.ser.timeout = 0.1      # 读取超时 100ms
+                self.port_handler.ser.write_timeout = 0.1  # 写入超时 100ms
+            
             self.is_connected = True
+            print(f"✅ 串口连接成功: {self.port} @ {self.baudrate}")
             return True, "Connected successfully"
         except Exception as e:
+            print(f"❌ 连接失败: {e}")
             return False, str(e)
     
     def disconnect(self):
@@ -430,11 +438,16 @@ class ServoController:
             return None
     
     def read_status(self, servo_id: int) -> Optional[Dict]:
-        """读取舵机的完整状态"""
-        if not self.is_connected or servo_id not in self.servos:
+        """读取舵机的完整状态（即使未扫描也能读取）"""
+        if not self.is_connected:
             return None
         
-        servo = self.servos[servo_id]
+        # ✅ 如果舵机不在 servos 中，先创建一个临时对象
+        if servo_id not in self.servos:
+            servo = ServoInfo(id=servo_id, model_number=0)
+            self.servos[servo_id] = servo
+        else:
+            servo = self.servos[servo_id]
         
         with self._lock:
             # 读取位置
@@ -502,7 +515,7 @@ class ServoController:
         return asdict(servo)
     
     def set_position(self, servo_id: int, position: int, time_ms: int = 500) -> Tuple[bool, str]:
-        """设置舵机位置 (采用 lerobot 风格的只发不等模式)"""
+        """设置舵机位置 (采用 TxRx 模式，确保指令送达 + 自动启用扭矩)"""
         if not self.is_connected:
             return False, "Not connected"
         
@@ -511,14 +524,30 @@ class ServoController:
         
         with self._lock:
             try:
-                # 1. 写入目标时间 (TxOnly - 不等待回复)
-                self.packet_handler.write2ByteTxOnly(
+                # ✅ 1. 先启用扭矩（确保舵机有力保持位置）
+                comm_result_torque, _ = self.packet_handler.write1ByteTxRx(
+                    self.port_handler, servo_id, ADDR_SCS_TORQUE_ENABLE, 1
+                )
+                
+                if comm_result_torque != COMM_SUCCESS:
+                    print(f"⚠️ 启用扭矩失败，但继续发送位置指令")
+                
+                # 2. 写入目标时间
+                comm_result1, _ = self.packet_handler.write2ByteTxRx(
                     self.port_handler, servo_id, ADDR_SCS_GOAL_TIME, time_ms
                 )
-                # 2. 写入目标位置 (TxOnly - 不等待回复)
-                self.packet_handler.write2ByteTxOnly(
+                
+                if comm_result1 != COMM_SUCCESS:
+                    return False, f"Failed to write time to servo {servo_id}"
+                
+                # 3. 写入目标位置
+                comm_result2, _ = self.packet_handler.write2ByteTxRx(
                     self.port_handler, servo_id, ADDR_SCS_GOAL_POSITION, position
                 )
+                
+                if comm_result2 != COMM_SUCCESS:
+                    return False, f"Failed to write position to servo {servo_id}"
+                
                 return True, f"Moving servo {servo_id} to {position}"
             except Exception as e:
                 return False, f"Failed to move servo {servo_id}: {e}"

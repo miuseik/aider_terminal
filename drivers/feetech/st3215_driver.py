@@ -4,19 +4,51 @@
 支持多串口独立控制（左臂、右臂、底盘）
 """
 
-from typing import Optional
+from typing import Optional, Dict
+import numpy as np
 from .servo_controller import ServoController
 
 
 class ST3215Driver:
     """ST3215 舵机驱动（独立实例，支持多串口）"""
     
-    def __init__(self, port: str = '/dev/ttyACM0', baudrate: int = 1000000):
+    def __init__(self, port: str = '/dev/ttyACM0', baudrate: int = 1000000, servo_config: Optional[Dict] = None):
         self.port = port
         self.baudrate = baudrate
+        self.servo_config = servo_config
         self.is_connected = False
         # 每个实例拥有独立的 ServoController
         self.controller = ServoController(port, baudrate)
+        
+        # 建立 ID 到 offset 的映射（角度）
+        self.id_to_offset = self._build_id_offset_map(servo_config)
+    
+    def _build_id_offset_map(self, servo_config: Optional[Dict]) -> Dict[int, float]:
+        """从配置中构建 ID 到偏移量的映射（角度）"""
+        id_to_offset = {}
+        
+        if not servo_config:
+            return id_to_offset
+        
+        try:
+            # 遍历所有总线配置
+            for bus_name, bus_config in servo_config.items():
+                if not isinstance(bus_config, dict):
+                    continue
+                
+                for part_name, part_config in bus_config.items():
+                    if not isinstance(part_config, dict):
+                        continue
+                    
+                    for joint_name, joint_info in part_config.items():
+                        if isinstance(joint_info, dict) and 'id' in joint_info:
+                            servo_id = joint_info['id']
+                            zero_offset_deg = joint_info.get('zero_offset', 0)
+                            id_to_offset[servo_id] = zero_offset_deg
+        except Exception as e:
+            print(f"⚠️ 构建 ID-offset 映射失败: {e}")
+        
+        return id_to_offset
     
     def connect(self) -> bool:
         """连接舵机"""
@@ -70,8 +102,22 @@ class ST3215Driver:
     
     def move_to_angle(self, servo_id: int, angle: float, time_ms: int = 500) -> bool:
         """便捷方法：角度转位置并移动"""
-        # 角度转脉冲值 (0-360° -> 0-4095)
-        position = int((angle / 360.0) * 4095)
+        # 应用零点偏移
+        offset = self.id_to_offset.get(servo_id, 0.0)
+        angle_with_offset = angle + offset
+        
+        print(f"   [DEBUG] ID={servo_id}, 角度={angle}°, 偏移={offset:.2f}°, 实际={angle_with_offset:.2f}°")
+        
+        # ✅ 角度转脉冲值 (-180°~180° -> 0-4095)
+        # 先将 -180~180 映射到 0~360，再转换为脉冲
+        normalized_angle = angle_with_offset + 180  # -180~180 -> 0~360
+        position = int((normalized_angle / 360.0) * 4095)
+        
+        # 限制位置范围在 0-4095 之间
+        position = max(0, min(4095, position))
+        
+        if position != int(((angle_with_offset + 180) / 360.0) * 4095):
+            print(f"   ⚠️ 位置已限制到有效范围: {position}")
         
         # Print 发送的指令
         print(f"📤 [ST3215] 发送角度指令 → ID={servo_id}, Angle={angle}°, Position={position}, Time={time_ms}ms, Port={self.port}")

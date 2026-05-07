@@ -1,13 +1,14 @@
 """
 Motor命令路由器 - 轻量级路由层
+
+职责:
+- 接收 WebSocket/API 命令
+- 根据 action 字段路由到 MotorController 的对应方法
+- 处理结果返回（通过 WebSocket）
 """
 
 import logging
 from typing import Dict, Any
-
-from router.servo_handler import ServoHandler
-from router.motor_control_handler import MotorControlHandler
-from router.hardware_handler import HardwareHandler
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,7 @@ class MotorRouter:
     def __init__(self, control_loop=None):
         """初始化Motor命令路由器"""
         self.control_loop = control_loop
-        
-        # 初始化处理器（不传入 motor_controller，使用时动态获取）
-        self.servo_handler = ServoHandler()
-        self.motor_control_handler = None  # 延迟初始化
-        self.hardware_handler = None  # 延迟初始化
+        # 不再需要单独的 Handler，直接使用 motor_controller
     
     def _get_motor_controller(self):
         """动态获取 motor_controller"""
@@ -38,44 +35,19 @@ class MotorRouter:
             return self.control_loop.motor_controller
         return None
     
-    def _get_motor_control_handler(self):
-        """延迟获取 motor_control_handler（每次检查 motor_controller 是否有效）"""
-        motor_controller = self._get_motor_controller()
-        
-        # 如果 motor_controller 为 None，返回错误
-        if motor_controller is None:
-            print("❌ motor_controller 未初始化")
-            return None
-        
-        # 如果 handler 不存在或 motor_controller 已变化，重新创建
-        if self.motor_control_handler is None or self.motor_control_handler.motor_controller != motor_controller:
-            self.motor_control_handler = MotorControlHandler(motor_controller)
-        
-        return self.motor_control_handler
-    
-    def _get_hardware_handler(self):
-        """延迟获取 hardware_handler（每次检查 motor_controller 是否有效）"""
-        print("延迟获取 hardware_handler（每次检查 motor_controller 是否有效）")
-        motor_controller = self._get_motor_controller()
-        
-        # 如果 motor_controller 为 None，返回错误
-        if motor_controller is None:
-            print("❌ motor_controller 未初始化")
-            return None
-        
-        # 如果 handler 不存在或 motor_controller 已变化，重新创建
-        if self.hardware_handler is None or self.hardware_handler.motor_controller != motor_controller:
-            self.hardware_handler = HardwareHandler(motor_controller)
-        
-        return self.hardware_handler
-    
     @staticmethod
-    def _safe_call(func, handler):
-        """安全调用 handler 方法，如果 handler 为 None 则返回 False"""
-        if handler is None:
-            print("❌ Handler 为 None，无法执行命令")
+    def _safe_call(method, *args, **kwargs):
+        """安全调用 motor_controller 方法"""
+        if method is None:
+            print("❌ MotorController 未初始化")
             return False
-        return func(handler)
+        try:
+            return method(*args, **kwargs)
+        except Exception as e:
+            print(f"❌ 调用失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
     
     def route(self, command: Dict[str, Any]) -> bool:
         """路由单个API命令到对应的处理器"""
@@ -85,95 +57,36 @@ class MotorRouter:
             print("⚠️ 命令缺少action字段")
             return False
         
+        # 获取 motor_controller
+        mc = self._get_motor_controller()
+        
         # 路由表: action → 处理方法
         route_map = {
-            # === 机械臂控制 ===
-            'control_motor': lambda: self._safe_call(
-                lambda h: h.control_motor(command.get('arm'), command.get('motor'), command.get('angle')),
-                self._get_motor_control_handler()
-            ),
-            'calibrate_motor': lambda: self._safe_call(
-                lambda h: h.calibrate_motor(command.get('arm'), command.get('motor'), command.get('target_zero', 0.0)),
-                self._get_motor_control_handler()
-            ),
-            
-            # === 传感器读取 ===
-            'read_sensor': lambda: self._safe_call(
-                lambda h: h.read_sensor(command.get('arm'), command.get('motor')),
-                self._get_motor_control_handler()
-            ),
-            
-            # === 电机硬件控制 ===
-            'set_motor_id': lambda: self._safe_call(
-                lambda h: h.set_motor_id(command),
-                self._get_hardware_handler()
-            ),
-            'edit_motor_id': lambda: self._safe_call(
-                lambda h: h.set_motor_id(command),
-                self._get_hardware_handler()
-            ),
-            'scan_servos': lambda: self._safe_call(
-                lambda h: h.scan_servos(command, MotorRouter._ws_client),
-                self._get_hardware_handler()
-            ),
-            'list_ports': lambda: self._safe_call(
-                lambda h: h.list_ports(MotorRouter._ws_client),
-                self._get_hardware_handler()
-            ),
-            'set_operation_mode': lambda: self._route_set_mode(command),
-            'set_velocity': lambda: self._route_set_velocity(command),
-            'set_torque': lambda: self._route_set_torque(command),
-            
-            # === 底盘和升降轴 ===
-            'control_chassis': lambda: self._safe_call(
-                lambda h: h.control_chassis(command.get('wheel'), command.get('speed')),
-                self._get_motor_control_handler()
-            ),
-            'control_lift': lambda: self._safe_call(
-                lambda h: h.control_lift(command.get('speed')),
-                self._get_motor_control_handler()
-            ),
-            
-            # === 校准管理 ===
-            'save_calibration': lambda: self._route_save_calibration(command),
-            'load_calibration': lambda: self._route_load_calibration(command),
-            
-            # === 配置管理 ===
-            'reload_servo_config': lambda: self._route_reload_servo_config(),
-            
-            # === 舵机控制 ===
-            'set_servo_angle': lambda: self.servo_handler.set_angle(
-                self._get_motor_controller(),
+            # === 舵机控制（直接调用 MotorController）===
+            'set_servo_angle': lambda: self._safe_call(
+                mc.set_servo_angle,
+                command.get('port', '/dev/ttyACM0'),
                 command.get('servo_id'),
                 command.get('angle'),
-                command.get('port', '/dev/ttyACM0')
+                command.get('time_ms', 500)
             ),
-            'reset_servo': lambda: self.servo_handler.reset(
-                command.get('servo_id'),
-                command.get('port', '/dev/ttyACM0')
-            ),
-            'set_servo_id': lambda: self.servo_handler.set_id(
+            'set_servo_id': lambda: self._safe_call(
+                mc.change_servo_id,
+                command.get('port', '/dev/ttyACM0'),
                 command.get('old_id'),
-                command.get('new_id'),
-                command.get('port', '/dev/ttyACM0')
+                command.get('new_id')
             ),
-            'set_position_mode': lambda: self.servo_handler.set_position_mode(
+            'set_servo_speed': lambda: self._safe_call(
+                mc.set_servo_speed,
+                command.get('port', '/dev/ttyACM0'),
                 command.get('servo_id'),
-                command.get('port', '/dev/ttyACM0')
+                command.get('speed')
             ),
-            'set_speed_mode': lambda: self.servo_handler.set_speed_mode(
-                command.get('servo_id'),
-                command.get('port', '/dev/ttyACM0')
-            ),
-            'set_servo_speed': lambda: self.servo_handler.set_speed(
-                command.get('servo_id'),
-                command.get('speed'),
-                command.get('port', '/dev/ttyACM0')
-            ),
-            'get_servo_info': lambda: self._handle_get_servo_info(command),
+            'scan_servos': lambda: self._handle_scan_servos(command),
+            'list_ports': lambda: self._handle_list_ports(),
             'get_network_info': lambda: self._handle_get_network_info(),
             'ping_servo': lambda: self._route_ping_servo(command),
-            'calibrate_servo_zero': lambda: self._route_calibrate_servo_zero(command),
+            'get_servo_info': lambda: self._handle_get_servo_info(command),
         }
         
         handler = route_map.get(action)
@@ -189,7 +102,14 @@ class MotorRouter:
         port = command.get('port', '/dev/ttyACM0')
         
         print(f"🔍 请求获取舵机信息: ID={servo_id}, Port={port}")
-        info_data = self.servo_handler.get_info(servo_id, port)
+        
+        mc = self._get_motor_controller()
+        if not mc:
+            print("❌ MotorController 未初始化")
+            return False
+        
+        # ✅ 使用新的 get_servo_info 方法（基于 ST3215Driver）
+        info_data = mc.get_servo_info(servo_id, port)
         
         if info_data:
             print(f"✅ 成功获取舵机信息: {info_data}")
@@ -218,124 +138,7 @@ class MotorRouter:
         except Exception as e:
             print(f"❌ 发送舵机信息失败: {e}")
     
-    def _route_set_mode(self, command: Dict[str, Any]) -> bool:
-        """路由设置电机模式命令"""
-        motor_id = command.get('motor_id')
-        mode = command.get('mode')  # 'position' | 'velocity' | 'torque'
-        
-        if not all([motor_id is not None, mode]):
-            print("❌ set_operation_mode 命令缺少必要参数")
-            return False
-        
-        valid_modes = ['position', 'velocity', 'torque']
-        if mode not in valid_modes:
-            print(f"❌ 无效的模式: {mode}, 可选: {valid_modes}")
-            return False
-        
-        print(f"🔧 设置电机{motor_id} 模式: {mode}")
-        
-        # TODO: 调用底层驱动设置模式
-        # if hasattr(self.motor_controller, 'driver'):
-        #     return self.motor_controller.driver.set_operation_mode(motor_id, mode)
-        
-        print("⚠️ 设置电机模式功能待实现")
-        return False
-    
-    def _route_set_velocity(self, command: Dict[str, Any]) -> bool:
-        """路由设置电机转速命令"""
-        motor_id = command.get('motor_id')
-        velocity = command.get('velocity')  # rpm
-        
-        if not all([motor_id is not None, velocity is not None]):
-            print("❌ set_velocity 命令缺少必要参数")
-            return False
-        
-        print(f"🔄 设置电机{motor_id} 转速: {velocity} rpm")
-        
-        # TODO: 调用底层驱动设置转速
-        # if hasattr(self.motor_controller, 'driver'):
-        #     return self.motor_controller.driver.set_velocity(motor_id, velocity)
-        
-        print("⚠️ 设置电机转速功能待实现")
-        return False
-    
-    def _route_set_torque(self, command: Dict[str, Any]) -> bool:
-        """路由设置电机力矩命令"""
-        motor_id = command.get('motor_id')
-        torque = command.get('torque')  # 0-100%
-        
-        if not all([motor_id is not None, torque is not None]):
-            print("❌ set_torque 命令缺少必要参数")
-            return False
-        
-        print(f"⚡ 设置电机{motor_id} 力矩: {torque}%")
-        
-        # TODO: 调用底层驱动设置力矩
-        # if hasattr(self.motor_controller, 'driver'):
-        #     return self.motor_controller.driver.set_torque(motor_id, torque)
-        
-        print("⚠️ 设置电机力矩功能待实现")
-        return False
-    
-    def _route_save_calibration(self, command: Dict[str, Any]) -> bool:
-        """路由保存校准配置命令"""
-        filepath = command.get('filepath', 'calibration.json')
-        
-        print(f"💾 保存校准配置: {filepath}")
-        
-        # TODO: 实现校准配置保存功能
-        print("⚠️ 校准配置保存功能待实现")
-        return False
-    
-    def _route_load_calibration(self, command: Dict[str, Any]) -> bool:
-        """路由加载校准配置命令"""
-        filepath = command.get('filepath', 'calibration.json')
-        
-        print(f"📂 加载校准配置: {filepath}")
-        
-        # TODO: 实现校准配置加载功能
-        print("⚠️ 校准配置加载功能待实现")
-        return False
-    
-    def _route_reload_servo_config(self) -> bool:
-        """重载舵机配置（从 Server 获取）"""
-        print("🔄 收到重载舵机配置命令")
-        
-        if self.control_loop and hasattr(self.control_loop, 'robot_interface'):
-            from router.server_api_client import ServerAPIClient
-            
-            api_client = ServerAPIClient()
-            config = api_client.get_servo_ids_config()
-            
-            if config:
-                success = self.control_loop.robot_interface.set_servo_ids_config(config)
-                if success:
-                    print("✅ 舵机配置已重载")
-                    return True
-                else:
-                    print("❌ 设置舵机配置失败")
-                    return False
-            else:
-                print("❌ 从 Server 获取配置失败")
-                return False
-        else:
-            print("⚠️ Robot interface 未初始化")
-            return False
-    
-    def _route_get_servo_ids(self) -> bool:
-        """获取舵机ID配置"""
-        print("🔧 收到获取舵机 ID 配置命令")
-        
-        if self.control_loop and hasattr(self.control_loop, 'robot_interface'):
-            servo_config = self.control_loop.robot_interface.servo_ids
-            
-            import asyncio
-            asyncio.create_task(self._send_servo_ids_result(servo_config))
-            return True
-        else:
-            print("⚠️ Robot interface not initialized")
-            return False
-    
+
     def _route_ping_servo(self, command: Dict[str, Any]) -> bool:
         """Ping 舵机（小幅度摆动 3 秒）"""
         servo_id = command.get('servo_id')
@@ -349,17 +152,22 @@ class MotorRouter:
         
         # 异步执行摆动
         import asyncio
-        asyncio.create_task(self._execute_ping(servo_id, port))
+        asyncio.create_task(self._execute_ping(servo_id, port, command))
         return True
     
-    async def _execute_ping(self, servo_id: int, port: str):
+    async def _execute_ping(self, servo_id: int, port: str, command: Dict[str, Any]):
         """执行舵机摆动"""
         try:
             import time
             import math
             
-            # 获取当前位置
-            info_data = self.servo_handler.get_info(servo_id, port)
+            mc = self._get_motor_controller()
+            if not mc:
+                print("❌ MotorController 未初始化")
+                return
+            
+            # ✅ 使用新的 get_servo_info 方法获取当前位置
+            info_data = mc.get_servo_info(servo_id, port)
             if not info_data:
                 print(f"❌ 无法获取舵机 {servo_id} 信息")
                 return
@@ -379,57 +187,27 @@ class MotorRouter:
                 target_angle = current_angle + offset
                 
                 # 设置角度
-                self.servo_handler.set_angle(
-                    self._get_motor_controller(),
+                mc.set_servo_angle(
+                    port,
                     servo_id,
                     target_angle,
-                    port
+                    50  # 快速响应
                 )
                 
                 time.sleep(0.05)  # 50ms 更新一次
             
             # 恢复到原位
-            self.servo_handler.set_angle(
-                self._get_motor_controller(),
+            mc.set_servo_angle(
+                port,
                 servo_id,
                 current_angle,
-                port
+                500  # 平滑恢复
             )
             
             print(f"✅ Ping 完成：舵机 {servo_id}")
             
         except Exception as e:
             print(f"❌ Ping 舵机失败: {e}")
-    
-    def _route_calibrate_servo_zero(self, command: Dict[str, Any]) -> bool:
-        """校准舵机零点（设置当前位置为 0 度）"""
-        servo_id = command.get('servo_id')
-        port = command.get('port', '/dev/ttyACM0')
-        
-        if not servo_id:
-            print("❌ calibrate_servo_zero 命令缺少 servo_id 参数")
-            return False
-        
-        print(f"⚙️ 校准舵机零点: ID={servo_id}, Port={port}")
-        
-        try:
-            # 获取当前位置
-            info_data = self.servo_handler.get_info(servo_id, port)
-            if not info_data:
-                print(f"❌ 无法获取舵机 {servo_id} 信息")
-                return False
-            
-            current_angle = info_data['angle']
-            print(f"📍 当前位置: {current_angle}°，设置为 0°")
-            
-            # TODO: 保存零点偏移到配置文件
-            # 需要找到该舵机在配置中的位置，更新 zero_offset
-            print("⚠️ 舵机零点校准功能待实现（需要保存零点偏移到配置文件）")
-            
-            return True
-        except Exception as e:
-            print(f"❌ 校准舵机零点失败: {e}")
-            return False
     
     async def _send_servo_ids_result(self, servo_config: dict):
         """发送舵机ID配置"""
@@ -478,3 +256,96 @@ class MotorRouter:
                 print("⚠️ WebSocket client 未初始化")
         except Exception as e:
             print(f"❌ 发送网络信息失败: {e}")
+    
+    def _handle_scan_servos(self, command: Dict[str, Any]) -> bool:
+        """处理扫描舵机命令"""
+        port = command.get('port', '/dev/ttyACM0')
+        start_id = command.get('start_id', 1)
+        end_id = command.get('end_id', 253)  # 扩大默认范围
+        
+        print(f"🔍 扫描舵机: {port} ID范围 {start_id}-{end_id}（自动识别品牌）")
+        
+        mc = self._get_motor_controller()
+        if not mc:
+            print("❌ MotorController 未初始化")
+            return False
+        
+        # ✅ 使用新的自动识别品牌的扫描方法
+        found_servos = mc.scan_servos_on_port(port, start_id, end_id)
+        
+        # 转换为字典格式（保持 API 兼容性）
+        result = [
+            {
+                'id': servo.servo_id,
+                'port': servo.port,
+                'brand': servo.brand,
+                'model': servo.model,
+                'online': servo.is_online
+            }
+            for servo in found_servos
+        ]
+        
+        print(f"✅ 扫描完成，找到 {len(result)} 个舵机")
+        print(f"📋 舵机列表: {result}")
+        
+        # 通过 WebSocket 返回结果
+        import asyncio
+        asyncio.create_task(self._send_scan_result(result))
+        return True
+    
+    async def _send_scan_result(self, servos: list):
+        """发送扫描结果"""
+        try:
+            result_message = {
+                'type': 'scan_servos_response',
+                'result': servos
+            }
+            
+            if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
+                from telegrip.inputs.socket.ws_protocol import encode_message
+                await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
+                print(f"✅ 扫描结果已发送到 Server")
+            else:
+                print(f"⚠️ WebSocket client 未初始化")
+        except Exception as e:
+            print(f"❌ 发送扫描结果失败: {e}")
+    
+    def _handle_list_ports(self) -> bool:
+        """处理获取串口列表命令"""
+        print("🔍 收到 list_ports 命令")
+        
+        try:
+            import serial.tools.list_ports
+            ports = serial.tools.list_ports.comports()
+            port_list = [
+                port.device for port in ports 
+                if 'USB' in port.device or 'ACM' in port.device or 'ttyUSB' in port.device or 'ttyACM' in port.device
+            ]
+            
+            print(f"✅ 发现 {len(port_list)} 个串口: {port_list}")
+            
+            import asyncio
+            asyncio.create_task(self._send_ports_result(port_list))
+            return True
+        except Exception as e:
+            print(f"❌ 获取串口列表失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
+    
+    async def _send_ports_result(self, ports: list):
+        """发送串口列表"""
+        try:
+            result_message = {
+                'type': 'list_ports_response',
+                'ports': ports
+            }
+            
+            if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
+                from telegrip.inputs.socket.ws_protocol import encode_message
+                await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
+                print(f"✅ 串口列表已发送到 Server")
+            else:
+                print("⚠️ WebSocket client 未初始化")
+        except Exception as e:
+            print(f"❌ 发送串口列表失败: {e}")

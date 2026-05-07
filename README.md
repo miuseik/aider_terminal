@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "电机驱动有问题";git push
+git add ./;git commit -m "准备驱动硬件了";git push
 ```
 
 ```bash

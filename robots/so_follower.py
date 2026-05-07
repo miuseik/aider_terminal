@@ -1,10 +1,10 @@
 """
-SO Follower 机器人驱动 - 支持 LX-16A 和 ST3215 总线舵机
+SO Follower 机器人驱动 - 支持 ST3215 总线舵机
 """
 
 import logging
 from typing import Dict, Any, Optional
-from drivers.bus_servo_driver import create_servo_driver, ServoType
+from drivers.feetech.st3215_driver import ST3215Driver
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +18,13 @@ class SOFollowerRobotConfig:
         id: str = "follower",
         use_degrees: bool = True,
         disable_torque_on_disconnect: bool = True,
-        servo_type: str = "st3215",  # "lx16a" or "st3215"
-        baudrate: int = 115200,
+        baudrate: int = 1000000,  # ST3215 默认波特率
         **kwargs
     ):
         self.port = port
         self.id = id
         self.use_degrees = use_degrees
         self.disable_torque_on_disconnect = disable_torque_on_disconnect
-        self.servo_type = servo_type
         self.baudrate = baudrate
 
 
@@ -36,18 +34,10 @@ class SOFollower:
     def __init__(self, config: SOFollowerRobotConfig):
         self.config = config
         self.is_connected = False
-        self.driver = None
         
-        # 根据配置创建舵机驱动
-        if config.servo_type.lower() == "lx16a":
-            servo_type = ServoType.LX16A
-            print(f"🔧 创建 LX-16A 舵机驱动 (端口: {config.port})")
-        else:
-            servo_type = ServoType.ST3215
-            print(f"🔧 创建 ST3215 舵机驱动 (端口: {config.port})")
-        
-        self.driver = create_servo_driver(
-            servo_type=servo_type,
+        # 创建 ST3215 舵机驱动
+        print(f"🔧 创建 ST3215 舵机驱动 (端口: {config.port}, 波特率: {config.baudrate})")
+        self.driver = ST3215Driver(
             port=config.port,
             baudrate=config.baudrate
         )
