@@ -515,24 +515,17 @@ class ServoController:
         return asdict(servo)
     
     def set_position(self, servo_id: int, position: int, time_ms: int = 500) -> Tuple[bool, str]:
-        """设置舵机位置 (采用 TxRx 模式，确保指令送达 + 自动启用扭矩)"""
+        """设置舵机位置 (采用 TxRx 模式，确保指令送达)"""
         if not self.is_connected:
             return False, "Not connected"
         
         # 限制位置范围
         position = max(0, min(4095, position))
-        
+
         with self._lock:
             try:
-                # ✅ 1. 先启用扭矩（确保舵机有力保持位置）
-                comm_result_torque, _ = self.packet_handler.write1ByteTxRx(
-                    self.port_handler, servo_id, ADDR_SCS_TORQUE_ENABLE, 1
-                )
-                
-                if comm_result_torque != COMM_SUCCESS:
-                    print(f"⚠️ 启用扭矩失败，但继续发送位置指令")
-                
-                # 2. 写入目标时间
+
+                # 1. 写入目标时间
                 comm_result1, _ = self.packet_handler.write2ByteTxRx(
                     self.port_handler, servo_id, ADDR_SCS_GOAL_TIME, time_ms
                 )
@@ -547,7 +540,7 @@ class ServoController:
                 
                 if comm_result2 != COMM_SUCCESS:
                     return False, f"Failed to write position to servo {servo_id}"
-                
+
                 return True, f"Moving servo {servo_id} to {position}"
             except Exception as e:
                 return False, f"Failed to move servo {servo_id}: {e}"

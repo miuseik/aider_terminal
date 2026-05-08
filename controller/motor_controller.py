@@ -467,8 +467,6 @@ class MotorController:
         Args:
             targets: {servo_id: speed}
         """
-        print(f"⚡ 同步速度控制: {len(targets)} 个舵机")
-        
         first_id = list(targets.keys())[0]
         brand = self._get_servo_brand(port, first_id)
         driver = self._get_or_create_driver(port, brand)

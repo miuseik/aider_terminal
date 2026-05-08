@@ -718,7 +718,6 @@ class RobotInterface:
                 
                 # 标记底盘舵机已切换到速度模式
                 if speed_targets:
-                    print(f"🔧 底盘速度目标: {speed_targets}")
                     self._base_servos_mode_set = True
                     self.motor_controller.sync_write_speeds(base_port, speed_targets)
                 else:

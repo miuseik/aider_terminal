@@ -278,51 +278,51 @@ class WebKeyboardHandler(BaseInputProvider):
             elif key == 'arrowup':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_x"] = 0.5  # 前进
-                print(f"🎮key 底盘控制: 前进 velocity_x=0.5")
+                # print(f"🎮key 底盘控制: 前进 velocity_x=0.5")
             elif key == 'arrowdown':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_x"] = -0.5  # 后退
-                print(f"🎮key 底盘控制: 后退 velocity_x=-0.5")
+                # print(f"🎮key 底盘控制: 后退 velocity_x=-0.5")
             elif key == 'arrowleft':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_theta"] = 0.5  # 左转
-                print(f"🎮key 底盘控制: 左转 velocity_theta=0.5")
+                # print(f"🎮key 底盘控制: 左转 velocity_theta=0.5")
             elif key == 'arrowright':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_theta"] = -0.5  # 右转
-                print(f"🎮key 底盘控制: 右转 velocity_theta=-0.5")
+                # print(f"🎮key 底盘控制: 右转 velocity_theta=-0.5")
             elif key == '7':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_y"] = 0.3  # 左平移
-                print(f"🎮key 底盘控制: 左平移 velocity_y=0.3")
+                # print(f"🎮key 底盘控制: 左平移 velocity_y=0.3")
             elif key == '9':
                 self.base_state["base_control_active"] = True
                 self.base_state["velocity_y"] = -0.3  # 右平移
-                print(f"🎮key 底盘控制: 右平移 velocity_y=-0.3")
+                # print(f"🎮key 底盘控制: 右平移 velocity_y=-0.3")
             elif key == 'v':
                 self.base_state["base_control_active"] = True
                 # ✅ 升降轴上升 - 设置负速度（逆时针）
                 if self.robot_interface:
                     self.robot_interface.lift_velocity = -300  # 负=升
-                    print(f"🎮key 升降轴: 上升 (速度=-300)")
+                    # print(f"🎮key 升降轴: 上升 (速度=-300)")
             elif key == 'b':
                 self.base_state["base_control_active"] = True
                 # ✅ 升降轴下降 - 设置正速度（顺时针）
                 if self.robot_interface:
                     self.robot_interface.lift_velocity = 300  # 正=降
-                    print(f"🎮key 升降轴: 下降 (速度=+300)")
+                    # print(f"🎮key 升降轴: 下降 (速度=+300)")
 
             # 特殊按键
             elif key == 'tab':
                 self.left_arm_state["position_control_active"] = not self.left_arm_state["position_control_active"]
-                print(f"左臂位置控制: {'激活' if self.left_arm_state['position_control_active'] else '停用'} (网页)")
+                # print(f"左臂位置控制: {'激活' if self.left_arm_state['position_control_active'] else '停用'} (网页)")
                 self._send_mode_change_goal("left")
             elif key == 'enter':
                 self.right_arm_state["position_control_active"] = not self.right_arm_state["position_control_active"]
-                print(f"右臂位置控制: {'激活' if self.right_arm_state['position_control_active'] else '停用'} (网页)")
+                # print(f"右臂位置控制: {'激活' if self.right_arm_state['position_control_active'] else '停用'} (网页)")
                 self._send_mode_change_goal("right")
             elif key == 'esc':
-                print("通过Web按下ESC - 断开机器人连接")
+                # print("通过Web按下ESC - 断开机器人连接")
                 if self.disconnect_callback:
                     self.disconnect_callback()
 
@@ -377,7 +377,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 # ✅ 升降轴停止
                 if self.robot_interface:
                     self.robot_interface.lift_velocity = 0
-                    print(f"🎮key 升降轴: 停止")
+                    # print(f"🎮key 升降轴: 停止")
             
             # 检查所有底盘速度是否为0,如果是则禁用底盘控制
             if (self.base_state["velocity_x"] == 0.0 and 
@@ -431,7 +431,7 @@ class WebKeyboardHandler(BaseInputProvider):
 
     async def _control_loop(self):
         """主控制循环,处理Web键盘输入并发送命令。"""
-        print("Web键盘控制循环已启动")
+        # print("Web键盘控制循环已启动")
 
         while self.is_running:
             try:
@@ -458,7 +458,7 @@ class WebKeyboardHandler(BaseInputProvider):
                             arm_state["delta_wrist_roll"] != 0 or
                             arm_state["delta_wrist_flex"] != 0):
 
-                            print(f"🎮key 发送{arm}臂控制: offset={arm_state['current_offset']}")
+                            # print(f"🎮key 发送{arm}臂控制: offset={arm_state['current_offset']}")
                             goal = ControlGoal(
                                 arm=arm,
                                 mode=ControlMode.POSITION_CONTROL,
@@ -474,7 +474,7 @@ class WebKeyboardHandler(BaseInputProvider):
 
                 # 处理底盘控制
                 if self.base_state["base_control_active"]:
-                    print(f"🎮key 发送底盘控制: x={self.base_state['velocity_x']}, y={self.base_state['velocity_y']}, theta={self.base_state['velocity_theta']}")
+                    # print(f"🎮key 发送底盘控制: x={self.base_state['velocity_x']}, y={self.base_state['velocity_y']}, theta={self.base_state['velocity_theta']}")
                     goal = ControlGoal(
                         arm="base",
                         mode=ControlMode.IDLE,
@@ -498,4 +498,4 @@ class WebKeyboardHandler(BaseInputProvider):
                 print(f"网页键盘控制循环错误: {e}")
                 await asyncio.sleep(0.1)
 
-        print("Web键盘控制循环已停止")
+        # print("Web键盘控制循环已停止")

@@ -166,13 +166,9 @@ class ST3215Driver:
             
         # Print 发送的指令
         direction = "顺时针" if speed >= 0 else "逆时针"
-        print(f"📤 [ST3215] 发送速度指令 → ID={servo_id}, Speed={speed} ({direction}), Port={self.port}")
-            
+
         try:
-            # ✅ 先启用扭矩(确保舵机有力执行速度指令)
-            torque_success, _ = self.controller.write_register(servo_id, 40, 1, 1)
-            if not torque_success:
-                print(f"⚠️ 舵机 {servo_id} 启用扭矩失败")
+            # ✅ 不再每次启用扭矩，扭矩应在连接时统一启用
                 
             # ST3215 速度寄存器格式:bit15=方向(0=顺,1=逆), bit0-14=速度值
             if speed >= 0:
@@ -202,7 +198,6 @@ class ST3215Driver:
             return False
         
         # Print 批量发送的指令
-        print(f"📤 [ST3215] 同步发送速度指令 → {len(targets)}个舵机, Port={self.port}")
         for servo_id, speed in targets.items():
             direction = "顺" if speed >= 0 else "逆"
             print(f"   ├─ ID={servo_id}: Speed={speed} ({direction})")
