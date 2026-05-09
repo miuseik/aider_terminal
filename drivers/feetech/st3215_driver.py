@@ -198,9 +198,9 @@ class ST3215Driver:
             return False
         
         # Print 批量发送的指令
-        for servo_id, speed in targets.items():
-            direction = "顺" if speed >= 0 else "逆"
-            print(f"   ├─ ID={servo_id}: Speed={speed} ({direction})")
+        # for servo_id, speed in targets.items():
+        #     direction = "顺" if speed >= 0 else "逆"
+        #     print(f"   ├─ ID={servo_id}: Speed={speed} ({direction})")
         
         try:
             for servo_id, speed in targets.items():

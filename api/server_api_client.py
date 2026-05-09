@@ -7,14 +7,11 @@ Server API 客户端
 - 处理与 Server 的数据交换
 - 统一管理 API 端点和认证
 """
-import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 # 导入统一的地址获取函数
 from telegrip.config import get_api_endpoint, config as telegrip_config
-
-logger = logging.getLogger(__name__)
 
 
 class ServerAPIClient:

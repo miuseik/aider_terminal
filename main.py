@@ -32,15 +32,19 @@ class LoggerRedirect:
         self.console = sys.__stdout__
 
     def write(self, message):
-        if not message.strip():
+        # ✅ 允许纯换行符通过，不要过滤掉
+        if not message:
             return
+
         # 加时间戳
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 精确到毫秒
         log_msg = f"[{now}] {message}"
         
         # 控制台打印
         self.console.write(log_msg)
-        # 写入日志文件
+        # 写入日志文件（确保每条日志后有换行符）
+        if not log_msg.endswith('\n'):
+            log_msg += '\n'
         self.log_file.write(log_msg)
         self.log_file.flush()
 
@@ -49,8 +53,8 @@ class LoggerRedirect:
         self.log_file.flush()
 
 # 接管全局 print
-sys.stdout = LoggerRedirect(LOG_FILE)
-sys.stderr = LoggerRedirect(LOG_FILE)
+# sys.stdout = LoggerRedirect(LOG_FILE)
+# sys.stderr = LoggerRedirect(LOG_FILE)
 
 # 禁用 CUDA,使用 CPU (避免 NCCL 库问题)
 os.environ['CUDA_VISIBLE_DEVICES'] = ''

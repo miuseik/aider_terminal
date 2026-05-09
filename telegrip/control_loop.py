@@ -538,8 +538,8 @@ class ControlLoop:
         rx, ry = apply_deadzone(rx), apply_deadzone(ry)
 
         # 3. 映射到底盘速度 (m/s 和 deg/s)
-        MAX_LIN_SPEED = 1.0   # 线速度
-        MAX_ANG_SPEED = 1.0   # 角速度
+        MAX_LIN_SPEED = 0.3   # 线速度（降低平移速度）
+        MAX_ANG_SPEED = 20.0   # 角速度（大幅提高转向速度）
         
         # 左摇杆 Y: 前推(-1)/后推(1) -> 前进/后退
         self.base_velocity_target["x"] = ly * MAX_LIN_SPEED
@@ -553,7 +553,7 @@ class ControlLoop:
         # 4. 处理升降轴速度 (使用右摇杆 Y 轴直接控制速度)
         if abs(ry) > DEADZONE:
             # ✅ 直接设置速度：负=逆时针（升），正=顺时针（降）
-            MAX_LIFT_SPEED = 500  # 最大速度
+            MAX_LIFT_SPEED = 1500  # 最大速度（提高升降速度）
             self.robot_interface.lift_velocity = int(-ry * MAX_LIFT_SPEED)
         else:
             # 摇杆回中时停止

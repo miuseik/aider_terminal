@@ -151,7 +151,7 @@ class RobotInterface:
             
             # ✅ 第二步：根据配置动态连接左臂、右臂、底盘和升降轴
             from drivers.feetech.st3215_driver import ST3215Driver
-            
+
             # 连接左臂
             try:
                 left_port = servo_config.get('left_bus', {}).get('port')
@@ -173,7 +173,7 @@ class RobotInterface:
                 print(f"❌ 左臂连接异常: {e}")
                 self.left_arm_connected = False
 
-            # 连接右臂  
+            # 连接右臂
             try:
                 right_port = servo_config.get('right_bus', {}).get('port')
                 if not right_port:
@@ -183,7 +183,7 @@ class RobotInterface:
                     print(f"🔌 尝试连接右臂: {right_port}")
                     self.right_robot = ST3215Driver(port=right_port, baudrate=1000000)
                     success = self.right_robot.connect()
-                    
+
                     if success:
                         self.right_arm_connected = True
                         print(f"✅ 右臂连接成功 ({right_port})")
@@ -656,7 +656,6 @@ class RobotInterface:
         """发送指令到真机硬件（双臂 + 底盘 + 升降轴）。"""
         # ✅ 复用 motor_controller 的批量同步控制
         if not self.motor_controller:
-            print("⚠️ motor_controller 未初始化，跳过真机控制")
             return
         
         # 构建完整的动作字典
