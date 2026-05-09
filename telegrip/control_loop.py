@@ -131,28 +131,26 @@ class ControlLoop:
         # === 1. 设置机器人接口(连接真机) ===
         try:
             self.robot_interface = RobotInterface(self.config)
-            if not self.robot_interface.connect():
+            robot_connected = self.robot_interface.connect()
+            
+            if not robot_connected:
                 # 真机连接失败
                 error_msg = "真机连接失败"
                 print(f"⚠️ {error_msg}（真机连接失败仿真仍可运行）")
                 # ✅ 真机连接失败不影响仿真启动
                 # if self.config.enable_robot:
                 #     success = False
-            else:
-                # 真机连接成功,初始化电机控制器和API路由器
-                # 将robot_interface传入MotorController,使其能够:
-                # 1. 访问机械臂角度数组(left/right_arm_angles)
-                # 2. 调用send_action()发送指令到真机
-                # 3. 读取实际关节角度(get_actual_arm_angles)
-                # 初始化电机控制器
-                self.motor_controller = MotorController(robot_interface=self.robot_interface)
-                print("✅ 电机控制器已初始化")
-                
-                # 初始化API命令路由器
-                self.motor_router = MotorRouter(
-                    control_loop=self
-                )
-                print("✅ API命令路由器已初始化")
+            
+            # ✅ 关键修改：无论真机是否连接，都初始化 MotorController
+            # 这样 API 命令（如扫描舵机）在 setup() 之前到达时也能正常工作
+            self.motor_controller = MotorController(robot_interface=self.robot_interface)
+            print("✅ 电机控制器已初始化")
+            
+            # 初始化API命令路由器
+            self.motor_router = MotorRouter(
+                control_loop=self
+            )
+            print("✅ API命令路由器已初始化")
         except Exception as e:
             error_msg = f"Robot interface setup failed with exception: {e}"
             print(error_msg)
@@ -538,11 +536,12 @@ class ControlLoop:
         rx, ry = apply_deadzone(rx), apply_deadzone(ry)
 
         # 3. 映射到底盘速度 (m/s 和 deg/s)
-        MAX_LIN_SPEED = 0.3   # 线速度（降低平移速度）
-        MAX_ANG_SPEED = 20.0   # 角速度（大幅提高转向速度）
+        # ✅ 与键盘控制保持一致：平移慢，旋转快
+        MAX_LIN_SPEED = 0.1   # 线速度（0.1 × 0.3 缩放）
+        MAX_ANG_SPEED = 1.0   # 角速度（60 × 1.5 缩放，与键盘 velocity_theta=60 对应）
         
-        # 左摇杆 Y: 前推(-1)/后推(1) -> 前进/后退
-        self.base_velocity_target["x"] = ly * MAX_LIN_SPEED
+        # 左摇杆 Y: 前推(-1)/后推(1) -> 前进/后退（✅ 取反修正方向）
+        self.base_velocity_target["x"] = -ly * MAX_LIN_SPEED
         
         # 左摇杆 X: 左推(-1)/右推(1) -> 左移/右移
         self.base_velocity_target["y"] = -lx * MAX_LIN_SPEED
@@ -552,9 +551,9 @@ class ControlLoop:
 
         # 4. 处理升降轴速度 (使用右摇杆 Y 轴直接控制速度)
         if abs(ry) > DEADZONE:
-            # ✅ 直接设置速度：负=逆时针（升），正=顺时针（降）
+            # ✅ 直接设置速度：负=逆时针（升），正=顺时针（降）（✅ 取反修正方向）
             MAX_LIFT_SPEED = 1500  # 最大速度（提高升降速度）
-            self.robot_interface.lift_velocity = int(-ry * MAX_LIFT_SPEED)
+            self.robot_interface.lift_velocity = int(ry * MAX_LIFT_SPEED)
         else:
             # 摇杆回中时停止
             self.robot_interface.lift_velocity = 0

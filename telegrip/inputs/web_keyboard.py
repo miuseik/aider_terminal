@@ -277,39 +277,39 @@ class WebKeyboardHandler(BaseInputProvider):
             # 底盘控制(方向键 + 数字键 + V/B)
             elif key == 'arrowup':
                 self.base_state["base_control_active"] = True
-                self.base_state["velocity_x"] = 0.5  # 前进
+                self.base_state["velocity_x"] = -0.1  # 前进（✅ 取反修正方向）
                 # print(f"🎮key 底盘控制: 前进 velocity_x=0.5")
             elif key == 'arrowdown':
                 self.base_state["base_control_active"] = True
-                self.base_state["velocity_x"] = -0.5  # 后退
+                self.base_state["velocity_x"] = 0.1  # 后退（✅ 取反修正方向）
                 # print(f"🎮key 底盘控制: 后退 velocity_x=-0.5")
             elif key == 'arrowleft':
                 self.base_state["base_control_active"] = True
-                self.base_state["velocity_theta"] = 0.5  # 左转
+                self.base_state["velocity_theta"] = 0.1  # 左转
                 # print(f"🎮key 底盘控制: 左转 velocity_theta=0.5")
             elif key == 'arrowright':
                 self.base_state["base_control_active"] = True
-                self.base_state["velocity_theta"] = -0.5  # 右转
+                self.base_state["velocity_theta"] = -0.1  # 右转
                 # print(f"🎮key 底盘控制: 右转 velocity_theta=-0.5")
             elif key == '7':
                 self.base_state["base_control_active"] = True
-                self.base_state["velocity_y"] = 0.3  # 左平移
+                self.base_state["velocity_y"] = 0.1  # 左平移
                 # print(f"🎮key 底盘控制: 左平移 velocity_y=0.3")
             elif key == '9':
                 self.base_state["base_control_active"] = True
-                self.base_state["velocity_y"] = -0.3  # 右平移
+                self.base_state["velocity_y"] = -0.1  # 右平移
                 # print(f"🎮key 底盘控制: 右平移 velocity_y=-0.3")
             elif key == 'v':
                 self.base_state["base_control_active"] = True
-                # ✅ 升降轴上升 - 设置负速度（逆时针）
+                # ✅ 升降轴上升 - 设置正速度（✅ 取反修正方向）
                 if self.robot_interface:
-                    self.robot_interface.lift_velocity = -300  # 负=升
+                    self.robot_interface.lift_velocity = 300  # 正=升
                     # print(f"🎮key 升降轴: 上升 (速度=-300)")
             elif key == 'b':
                 self.base_state["base_control_active"] = True
-                # ✅ 升降轴下降 - 设置正速度（顺时针）
+                # ✅ 升降轴下降 - 设置负速度（✅ 取反修正方向）
                 if self.robot_interface:
-                    self.robot_interface.lift_velocity = 300  # 正=降
+                    self.robot_interface.lift_velocity = -300  # 负=降
                     # print(f"🎮key 升降轴: 下降 (速度=+300)")
 
             # 特殊按键

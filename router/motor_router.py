@@ -326,7 +326,7 @@ class MotorRouter:
             print(f"❌ 发送网络信息失败: {e}")
     
     def _handle_scan_servos(self, command: Dict[str, Any]) -> bool:
-        """处理扫描舵机命令"""
+        """处理扫描舵机命令 - 自动发现端口"""
         port = command.get('port', '/dev/ttyACM0')
         start_id = command.get('start_id', 1)
         end_id = command.get('end_id', 253)  # 扩大默认范围
@@ -338,8 +338,29 @@ class MotorRouter:
             print("❌ MotorController 未初始化")
             return False
         
-        # ✅ 使用新的自动识别品牌的扫描方法
-        found_servos = mc.scan_servos_on_port(port, start_id, end_id)
+        # ✅ 关键修改：如果指定了具体端口，只扫描该端口；否则扫描所有端口
+        if port and port != 'all':
+            # 扫描指定端口
+            found_servos = mc.scan_servos_on_port(port, start_id, end_id)
+        else:
+            # 扫描所有可用端口
+            import serial.tools.list_ports
+            available_ports = [
+                p.device for p in serial.tools.list_ports.comports()
+                if 'USB' in p.device or 'ACM' in p.device or 'ttyUSB' in p.device or 'ttyACM' in p.device
+            ]
+            
+            print(f"📋 可用串口: {available_ports}")
+            
+            # 在所有端口上扫描
+            found_servos = []
+            for p in available_ports:
+                try:
+                    servos = mc.scan_servos_on_port(p, start_id, end_id)
+                    found_servos.extend(servos)
+                    print(f"   ✅ {p}: 找到 {len(servos)} 个舵机")
+                except Exception as e:
+                    print(f"   ⚠️ {p}: 扫描失败 - {e}")
         
         # 转换为字典格式（保持 API 兼容性）
         result = [

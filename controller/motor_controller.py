@@ -119,25 +119,21 @@ class MotorController:
     
     def scan_available_ports(self) -> List[str]:
         """
-        扫描所有可用的串口
+        扫描所有可用的 USB 串口（过滤掉虚拟终端等）
         
         Returns:
             List[str]: 可用串口列表 ['/dev/ttyACM0', '/dev/ttyUSB0', ...]
         """
-        import glob
-        import sys
+        import serial.tools.list_ports
         
+        # ✅ 使用 pyserial 的 list_ports，更准确
         ports = []
+        for p in serial.tools.list_ports.comports():
+            # 只保留 USB 相关的串口
+            if 'USB' in p.device or 'ACM' in p.device or 'ttyUSB' in p.device:
+                ports.append(p.device)
         
-        if sys.platform.startswith('linux'):
-            ports = glob.glob('/dev/tty[A-Z]*')
-        elif sys.platform.startswith('darwin'):
-            ports = glob.glob('/dev/tty.*')
-        elif sys.platform.startswith('win'):
-            import serial.tools.list_ports
-            ports = [p.device for p in serial.tools.list_ports.comports()]
-        
-        print(f"🔍 发现 {len(ports)} 个串口: {ports}")
+        print(f"🔍 发现 {len(ports)} 个 USB 串口: {ports}")
         return ports
     
     def scan_servos_on_port(self, port: str, start_id: int = 1, end_id: int = 253) -> List[ServoInfo]:
@@ -210,6 +206,103 @@ class MotorController:
                 result[port] = servos
         
         return result
+    
+    def discover_ports_by_ids(self, target_ids: set) -> Dict[int, str]:
+        """
+        根据舵机 ID 自动发现所在的端口
+        
+        Args:
+            target_ids: 需要查找的舵机 ID 集合
+            
+        Returns:
+            Dict[int, str]: {servo_id: port} 映射
+        """
+        available_ports = self.scan_available_ports()
+        if not available_ports:
+            return {}
+        
+        # ✅ 只扫描目标 ID，而不是 1-253
+        id_to_port = {}
+        
+        for port in available_ports:
+            try:
+                driver = self._get_or_create_driver(port, 'feetech')
+                if driver and hasattr(driver, 'connect'):
+                    if driver.connect():
+                        for servo_id in sorted(target_ids):
+                            try:
+                                if driver.ping(servo_id):
+                                    id_to_port[servo_id] = port
+                            except Exception:
+                                pass
+                        driver.disconnect()
+            except Exception:
+                continue
+        
+        return id_to_port
+    
+    def auto_discover_ports_from_config(self, servo_config: dict) -> tuple[dict, bool]:
+        """
+        根据舵机配置自动发现并更新端口
+        
+        Args:
+            servo_config: 舵机配置字典（格式同 servo_ids.yaml）
+            
+        Returns:
+            (updated_config, has_changes): 更新后的配置和是否有修改
+        """
+        # 1. 收集所有需要查找的舵机 ID
+        target_ids = set()
+        for bus_name, bus_config in servo_config.items():
+            if not isinstance(bus_config, dict):
+                continue
+            for part_name, part_config in bus_config.items():
+                if part_name == 'port' or not isinstance(part_config, dict):
+                    continue
+                for joint_name, joint_info in part_config.items():
+                    if isinstance(joint_info, dict) and 'id' in joint_info:
+                        target_ids.add(joint_info['id'])
+        
+        if not target_ids:
+            return servo_config, False
+        
+        # 2. 发现 ID → Port 映射
+        id_to_port = self.discover_ports_by_ids(target_ids)
+        
+        if not id_to_port:
+            print("⚠️ 未检测到任何舵机，使用配置文件中的端口")
+            return servo_config, False
+        
+        # 3. 更新配置中的端口
+        updated = False
+        for bus_name, bus_config in servo_config.items():
+            if not isinstance(bus_config, dict):
+                continue
+            
+            # 找出该总线中所有 ID 所在的端口
+            ports_in_bus = set()
+            for part_name, part_config in bus_config.items():
+                if part_name == 'port' or not isinstance(part_config, dict):
+                    continue
+                for joint_name, joint_info in part_config.items():
+                    if isinstance(joint_info, dict) and 'id' in joint_info:
+                        sid = joint_info['id']
+                        if sid in id_to_port:
+                            ports_in_bus.add(id_to_port[sid])
+            
+            # 如果该总线的所有 ID 都在同一个端口，更新配置
+            if len(ports_in_bus) == 1:
+                detected_port = ports_in_bus.pop()
+                old_port = bus_config.get('port')
+                if old_port != detected_port:
+                    bus_config['port'] = detected_port
+                    print(f"🔄 {bus_name}: {old_port} → {detected_port}")
+                    updated = True
+        
+        if updated:
+            print("✅ 端口配置已自动更新")
+        
+        return servo_config, updated
     
     # ==================== 2. 舵机信息管理 ====================
     

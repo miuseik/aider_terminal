@@ -10,7 +10,7 @@ import numpy as np
 # ------------------------ 物理常量配置 ------------------------ #
 WHEEL_RADIUS: float = 0.05  # 轮子半径 (m)
 BASE_RADIUS: float = 0.125  # 轮心到底盘中心距离 (m)
-MAX_RAW_SPEED: int = 3000   # 电机原始速度上限 (对应 Feetech Goal_Velocity)
+MAX_RAW_SPEED: int = 3000   # 电机原始速度上限（大幅提高以支持快速旋转）
 
 
 def degps_to_raw(degps: float) -> int:

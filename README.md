@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "动了，一个电流问题高了2天！！！";git push
+git add ./;git commit -m "自动扫描串口";git push
 ```
 
 ```bash
@@ -13,7 +13,7 @@ git checkout 。/
 ssh root@121.40.151.10
 ```
 ```bash
-ssh root@192.168.1.104
+ssh gaoda@192.168.110.90
 ```
 ```bash
 conda activate aider

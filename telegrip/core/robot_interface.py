@@ -149,6 +149,16 @@ class RobotInterface:
             self.set_servo_ids_config(servo_config)
             print("✅ 舵机配置已从 Server 同步")
             
+            # ✅ 关键修改：自动发现舵机所在的串口（根据 ID 全局唯一性）
+            from controller.motor_controller import MotorController
+            
+            # ✅ 复用 MotorController 的端口自动发现方法
+            temp_mc = MotorController()
+            servo_config, updated = temp_mc.auto_discover_ports_from_config(servo_config)
+            
+            if updated:
+                self.set_servo_ids_config(servo_config)
+            
             # ✅ 第二步：根据配置动态连接左臂、右臂、底盘和升降轴
             from drivers.feetech.st3215_driver import ST3215Driver
 
@@ -626,12 +636,17 @@ class RobotInterface:
 
         # 2. 底盘部分（三轮全向轮运动学）
         from .wheels import body_to_wheel_raw
+
+        # ✅ 统一提高旋转速度增益（同时影响 VR 和键盘）
+        ROTATION_GAIN = 100.0
+        theta_scaled = self.base_velocity_target["theta"] * ROTATION_GAIN
+
         wheel_speeds = body_to_wheel_raw(
             self.base_velocity_target["x"],
             self.base_velocity_target["y"],
-            self.base_velocity_target["theta"]
+            theta_scaled  # 使用放大后的旋转速度
         )
-        
+
         # 🔍 调试：打印运动学转换结果
         if abs(self.base_velocity_target["x"]) > 0.01 or abs(self.base_velocity_target["theta"]) > 0.01:
             print(f"🔧 运动学转换: x={self.base_velocity_target['x']}, y={self.base_velocity_target['y']}, theta={self.base_velocity_target['theta']}")
