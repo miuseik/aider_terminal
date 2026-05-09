@@ -5,7 +5,7 @@
 numpy
 # torch  # 注释掉：aider_terminal 不需要 PyTorch（仅在 open_origin/lerobot 示例中使用）
 scipy
-# pybullet  # 注释掉：如果不需要仿真可以注释
+pybullet  # 必需：用于 IK（逆运动学）计算
 websockets
 pynput
 opencv-python
