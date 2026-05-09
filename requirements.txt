@@ -3,9 +3,9 @@
 # For installation as package, use: pip install -e .
 
 numpy
-torch
+# torch  # 注释掉：aider_terminal 不需要 PyTorch（仅在 open_origin/lerobot 示例中使用）
 scipy
-pybullet
+# pybullet  # 注释掉：如果不需要仿真可以注释
 websockets
 pynput
 opencv-python
