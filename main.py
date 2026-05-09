@@ -17,7 +17,8 @@ import asyncio
 from datetime import datetime
 
 # ✅ 配置日志文件输出（带时间戳 + 按日期分文件 + 启动时清空）
-LOG_DIR = "/home/miuseik/www/aider/aider_terminal/log"
+# 使用相对于脚本的路径，避免硬编码用户目录
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log")
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, f"log_{datetime.now().strftime('%Y-%m-%d')}.log")
 
