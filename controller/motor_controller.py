@@ -138,22 +138,27 @@ class MotorController:
     
     def scan_servos_on_port(self, port: str, start_id: int = 1, end_id: int = 253) -> List[ServoInfo]:
         """
-        在指定串口扫描舵机（自动识别品牌）
+        在指定串口/CAN接口扫描电机（自动识别品牌）
         
         Args:
-            port: 串口号
+            port: 串口号或 CAN 接口 (can0)
             start_id: 起始ID
             end_id: 结束ID
             
         Returns:
-            List[ServoInfo]: 发现的舵机列表
+            List[ServoInfo]: 发现的舵机/电机列表
         """
-        print(f"🔍 扫描串口 {port} (ID: {start_id}-{end_id})...")
+        print(f"🔍 扫描 {port} (ID: {start_id}-{end_id})...")
         
         found_servos = []
         
-        # 尝试不同品牌的驱动
-        brands_to_try = ['feetech']
+        # ✅ 根据端口类型决定扫描哪些品牌
+        if 'can' in port.lower():
+            # CAN 接口：扫描 RobStride
+            brands_to_try = ['robstride']
+        else:
+            # 串口：扫描飞特等
+            brands_to_try = ['feetech']
         
         for brand in brands_to_try:
             try:
@@ -162,24 +167,51 @@ class MotorController:
                 if not driver or not driver.is_connected:
                     continue
                 
-                # 扫描该品牌的舵机
-                for servo_id in range(start_id, end_id + 1):
-                    if driver.ping(servo_id):
-                        # 获取型号信息
-                        model = self._get_servo_model(driver, servo_id)
-                        
-                        servo_info = ServoInfo(
-                            port=port,
-                            servo_id=servo_id,
-                            brand=brand,
-                            model=model,
-                            is_online=True
-                        )
-                        
-                        found_servos.append(servo_info)
-                        print(f"  ✅ 发现 {brand} 舵机 ID={servo_id}, 型号={model}")
+                # RobStride 特殊处理：遍历 ID 范围
+                if brand.lower() == 'robstride':
+                    # ✅ 使用 ping 快速检测，不需要使能/禁用
+                    for motor_id in range(start_id, end_id + 1):
+                        try:
+                            if driver.ping(motor_id):
+                                # ✅ Ping 成功，读取状态获取位置信息
+                                state = driver.get_feedback(motor_id)
+                                model = 'RS-00'  # TODO: 从配置或 UUID 识别
+                                servo_info = ServoInfo(
+                                    port=port,
+                                    servo_id=motor_id,
+                                    brand='robstride',
+                                    model=model,
+                                    is_online=True
+                                )
+                                found_servos.append(servo_info)
+                                self.servo_registry[(port, motor_id)] = servo_info
+                                pos_str = f", 位置={state.position:.3f} rad" if state else ""
+                                print(f"  ✅ 发现 RobStride 电机 ID={motor_id}, 型号={model}{pos_str}")
+                            else:
+                                print(f"  ⚠️  ID={motor_id} 未响应")
+                        except Exception as e:
+                            # ID 不存在时会有异常，这是正常的
+                            pass
+
+                else:
+                    # 飞特等其他品牌：逐个 ping
+                    for servo_id in range(start_id, end_id + 1):
+                        if driver.ping(servo_id):
+                            # 获取型号信息
+                            model = self._get_servo_model(driver, servo_id)
+                            
+                            servo_info = ServoInfo(
+                                port=port,
+                                servo_id=servo_id,
+                                brand=brand,
+                                model=model,
+                                is_online=True
+                            )
+                            
+                            found_servos.append(servo_info)
+                            print(f"  ✅ 发现 {brand} 舵机 ID={servo_id}, 型号={model}")
                 
-                # 如果找到了舵机，就停止尝试其他品牌
+                # 如果找到了设备，就停止尝试其他品牌
                 if found_servos:
                     break
                     
@@ -187,7 +219,7 @@ class MotorController:
                 print(f"⚠️ 尝试品牌 {brand} 时出错: {e}")
                 continue
         
-        print(f"✅ 扫描完成，找到 {len(found_servos)} 个舵机")
+        print(f"✅ 扫描完成，找到 {len(found_servos)} 个设备")
         return found_servos
     
     def scan_all_servos(self) -> Dict[str, List[ServoInfo]]:
@@ -393,13 +425,13 @@ class MotorController:
     
     def set_servo_angle(self, port: str, servo_id: int, angle_deg: float, time_ms: int = 500) -> bool:
         """
-        单个舵机角度控制
+        单个舵机角度控制（自动识别品牌）
         
         Args:
-            port: 串口号
-            servo_id: 舵机ID
-            angle_deg: 目标角度（度）
-            time_ms: 到达时间（毫秒）
+            port: 串口号/CAN接口
+            servo_id: 舵机/电机ID
+            angle_deg: 目标角度（度）- 飞特用；RobStride 会转换为弧度
+            time_ms: 到达时间（毫秒）- 飞特用；RobStride 忽略
             
         Returns:
             bool: 是否成功
@@ -416,17 +448,87 @@ class MotorController:
             print(f"❌ 无法创建舵机 {servo_id} 的驱动")
             return False
         
-        # 调用驱动的角度控制方法（自动转换角度到脉冲）
-        try:
-            success = driver.move_to_angle(servo_id, angle_deg, time_ms)
-            if success:
-                print(f"✅ 舵机 {servo_id} 角度设置为 {angle_deg}°")
-            else:
-                print(f"❌ 舵机 {servo_id} 角度设置失败")
-            return success
-        except Exception as e:
-            print(f"❌ 舵机 {servo_id} 控制异常: {e}")
-            return False
+        # 根据品牌调用不同方法
+        if brand.lower() == 'robstride':
+            # RobStride 使用 MIT 模式控制
+            try:
+                # ✅ 先使能电机
+                if not driver.is_motor_enabled(servo_id):
+                    print(f"  🔌 使能 RobStride 电机 {servo_id}...")
+                    driver.enable_motor(servo_id)
+                    import time
+                    time.sleep(0.1)  # 等待使能完成
+                
+                # ✅ 关键修复：获取当前位置，避免大幅度跳变
+                current_state = None
+                for retry in range(3):  # 最多重试3次
+                    current_state = driver.get_feedback(servo_id)
+                    if current_state:
+                        break
+                    import time
+                    time.sleep(0.05)  # 等待50ms后重试
+                
+                if current_state:
+                    current_pos = current_state.position
+                    
+                    # 角度转弧度
+                    target_rad = angle_deg * 3.14159265 / 180.0
+                    
+                    # ✅ 将目标位置调整到当前位置附近（处理多圈问题）
+                    # RobStride 位置范围是 ±12.5 rad
+                    # 尝试多个等效位置，选择离当前最近且在合法范围内的
+                    
+                    best_position = None
+                    best_distance = float('inf')
+                    
+                    for offset in [-2, -1, 0, 1, 2]:
+                        candidate = target_rad + offset * 2 * 3.14159265
+                        
+                        if -12.5 <= candidate <= 12.5:
+                            distance = abs(candidate - current_pos)
+                            if distance < best_distance:
+                                best_distance = distance
+                                best_position = candidate
+                    
+                    if best_position is None:
+                        print(f"  ⚠️ RobStride {servo_id}: 无法找到合法位置")
+                        return False
+                    
+                    position_rad = best_position
+                    
+                    print(f"  📍 RobStride {servo_id}: 当前={current_pos:.3f} rad, 目标={position_rad:.3f} rad ({angle_deg}°)")
+                else:
+                    # ⚠️ 严重警告：无法获取状态，禁止发送指令
+                    print(f"  ❌ RobStride {servo_id}: 无法获取电机状态，拒绝发送指令（防止超转）")
+                    return False
+                
+                success = driver.send_motion_control(
+                    motor_id=servo_id,
+                    position=position_rad,
+                    kp=150.0,  # ✅ 更高Kp，更快响应
+                    kd=3.0,    # ✅ 适中Kd，平衡稳定性和速度
+                    torque=0.0
+                )
+                if success:
+                    print(f"✅ RobStride 电机 {servo_id} 位置设置为 {position_rad:.3f} rad ({angle_deg}°)")
+                else:
+                    print(f"❌ RobStride 电机 {servo_id} 位置设置失败")
+                return success
+            except Exception as e:
+                print(f"❌ RobStride 电机控制异常: {e}")
+                return False
+        else:
+            # 飞特等其他品牌使用角度控制
+            try:
+                success = driver.move_to_angle(servo_id, angle_deg, time_ms)
+                if success:
+                    print(f"✅ 舵机 {servo_id} 角度设置为 {angle_deg}°")
+                else:
+                    print(f"❌ 舵机 {servo_id} 角度设置失败")
+                return success
+            except Exception as e:
+                print(f"❌ 舵机 {servo_id} 控制异常: {e}")
+                return False
     
     def set_servos_angles(self, port: str, targets: Dict[int, float], time_ms: int = 500) -> bool:
         """
@@ -601,13 +703,35 @@ class MotorController:
             return None
         
         try:
-            # 读取舵机状态
-            if hasattr(driver.controller, 'read_status'):
+            # ✅ 根据品牌使用不同的读取方法
+            if brand.lower() == 'robstride':
+                # RobStride 使用 get_feedback
+                state = driver.get_feedback(servo_id)
+                if state:
+                    # ✅ 将弧度转换为角度，并归一化到 -180° ~ 180°
+                    angle_raw = state.position * 180.0 / 3.14159265
+                    # 归一化：将任意角度映射到 [-180, 180)
+                    angle_normalized = ((angle_raw + 180) % 360) - 180
+                    
+                    return {
+                        'servo_id': servo_id,
+                        'port': port,
+                        'position': state.position,
+                        'angle': round(angle_normalized, 2),  # ✅ 使用归一化后的角度
+                        'voltage': 0,  # RobStride 不直接提供电压
+                        'temperature': state.temperature,
+                        'current': state.torque,  # 扭矩当作电流近似
+                        'speed': state.velocity,
+                        'load': 0,
+                        'mode': 'position',
+                        'torque_enabled': state.enabled
+                    }
+            elif hasattr(driver.controller, 'read_status'):
+                # 飞特等其他品牌
                 status = driver.controller.read_status(servo_id)
                 if status:
-                    # 转换为角度
                     position = status.get('position', 0)
-                    angle = (position / 4095.0) * 360.0 - 180.0  # 0-4095 -> -180~180
+                    angle = (position / 4095.0) * 360.0 - 180.0
                     
                     return {
                         'servo_id': servo_id,
@@ -619,8 +743,8 @@ class MotorController:
                         'current': status.get('present_current', 0),
                         'speed': status.get('speed', 0),
                         'load': status.get('load', 0),
-                        'mode': 'position',  # 默认为位置模式
-                        'torque_enabled': True  # 默认启用
+                        'mode': 'position',
+                        'torque_enabled': True
                     }
             
             print(f"❌ 舵机 {servo_id} 不支持 read_status 方法")
@@ -674,21 +798,25 @@ class MotorController:
                         print(f"❌ ST3215 连接失败")
                         return None
                 
-                # 其他品牌直接导入驱动
+                # RobStride 电机（使用官方 SDK）
                 if brand.lower() == 'robstride':
                     try:
-                        from drivers.robstride.robstride_driver import RobstrideDriver
-                        # Robstride 使用 CAN 接口，不是串口
-                        driver = RobstrideDriver(can_name='can0')
+                        from drivers.robStride import RobStrideOfficialDriver
+                        # RobStride 使用 CAN 接口
+                        driver = RobStrideOfficialDriver(can_interface='can0')
+                        
+                        # ✅ 添加电机 ID 127 (使用 rs-02 型号)
+                        driver.add_motor(motor_id=127, model='rs-02')
+                        
                         if driver.connect():
                             self.drivers[port] = driver
-                            print(f"✅ 创建 Robstride 驱动: {brand} @ {port}")
+                            print(f"✅ 创建 RobStride 驱动: {brand} @ {port}")
                             return driver
                         else:
-                            print(f"❌ Robstride 连接失败")
+                            print(f"❌ RobStride 连接失败")
                             return None
                     except Exception as e:
-                        print(f"❌ 创建 Robstride 驱动失败: {e}")
+                        print(f"❌ 创建 RobStride 驱动失败: {e}")
                         return None
                 
                 elif brand.lower() == 'damiao':
@@ -721,6 +849,10 @@ class MotorController:
         
         if info:
             return info.brand
+        
+        # ✅ 根据端口类型自动判断品牌
+        if 'can' in port.lower():
+            return 'robstride'
         
         # 尝试检测
         return self._detect_brand(port, servo_id)

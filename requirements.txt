@@ -12,7 +12,10 @@ aiortc
 requests
 opencv-python
 feetech-servo-sdk  # ST3215总线舵机驱动SDK
-# el_a3_sdk  # Robstride灵足电机驱动SDK (Linux only, 需要手动安装: cd /path/to/EDULITE_A3/el_a3_sdk && pip install -e .)
+# RobStride 灵足电机驱动（基于官方 el_a3_sdk，无需额外 pip 安装）
+# 注意：需要配置 SocketCAN 接口和 Canable USB2CAN 适配器
+# 系统依赖: sudo apt-get install can-utils
+# CAN 配置: sudo ip link set can0 type can bitrate 1000000 && sudo ip link set can0 up
 # lerobot[feetech]  # 注释掉，使用 drivers/so_follower.py 的空实现
 # For development
 pytest

@@ -7,22 +7,25 @@ Motor命令路由器 - 轻量级路由层
 - 处理结果返回（通过 WebSocket）
 """
 
-import logging
 from typing import Dict, Any
-
-logger = logging.getLogger(__name__)
-
 
 class MotorRouter:
     """API命令路由器 - 根据action字段路由到对应的处理器"""
     
     # 类级别的全局 ws_client 引用
     _ws_client = None
+    _loop = None  # ✅ 保存事件循环引用
     
     @classmethod
     def set_ws_client(cls, ws_client):
         """设置全局 WebSocket 客户端引用"""
         cls._ws_client = ws_client
+        # ✅ 保存当前事件循环
+        import asyncio
+        try:
+            cls._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            cls._loop = None
     
     def __init__(self, control_loop=None):
         """初始化Motor命令路由器"""
@@ -326,17 +329,30 @@ class MotorRouter:
             print(f"❌ 发送网络信息失败: {e}")
     
     def _handle_scan_servos(self, command: Dict[str, Any]) -> bool:
-        """处理扫描舵机命令 - 自动发现端口"""
+        """处理扫描舵机命令 - 自动发现端口（后台执行）"""
         port = command.get('port', '/dev/ttyACM0')
         start_id = command.get('start_id', 1)
         end_id = command.get('end_id', 253)  # 扩大默认范围
         
         print(f"🔍 扫描舵机: {port} ID范围 {start_id}-{end_id}（自动识别品牌）")
         
+        # ✅ 在后台线程执行扫描，避免阻塞 WebSocket 心跳
+        import threading
+        thread = threading.Thread(
+            target=self._do_scan,
+            args=(port, start_id, end_id),
+            daemon=True
+        )
+        thread.start()
+        
+        return True
+    
+    def _do_scan(self, port: str, start_id: int, end_id: int):
+        """实际扫描逻辑（在后台线程执行）"""
         mc = self._get_motor_controller()
         if not mc:
             print("❌ MotorController 未初始化")
-            return False
+            return
         
         # ✅ 关键修改：如果指定了具体端口，只扫描该端口；否则扫描所有端口
         if port and port != 'all':
@@ -379,8 +395,10 @@ class MotorRouter:
         
         # 通过 WebSocket 返回结果
         import asyncio
-        asyncio.create_task(self._send_scan_result(result))
-        return True
+        asyncio.run_coroutine_threadsafe(
+            self._send_scan_result(result),
+            MotorRouter._loop if hasattr(MotorRouter, '_loop') else None
+        )
     
     async def _send_scan_result(self, servos: list):
         """发送扫描结果"""
@@ -400,7 +418,7 @@ class MotorRouter:
             print(f"❌ 发送扫描结果失败: {e}")
     
     def _handle_list_ports(self) -> bool:
-        """处理获取串口列表命令"""
+        """处理获取串口列表命令（包含 CAN 接口）"""
         print("🔍 收到 list_ports 命令")
         
         try:
@@ -411,13 +429,25 @@ class MotorRouter:
                 if 'USB' in port.device or 'ACM' in port.device or 'ttyUSB' in port.device or 'ttyACM' in port.device
             ]
             
-            print(f"✅ 发现 {len(port_list)} 个串口: {port_list}")
+            # ✅ 添加 CAN 接口
+            import subprocess
+            try:
+                result = subprocess.run(['ip', '-o', 'link', 'show'], capture_output=True, text=True, timeout=2)
+                for line in result.stdout.split('\n'):
+                    if 'can0' in line and 'state UP' in line:
+                        if 'can0' not in port_list:
+                            port_list.insert(0, 'can0')  # 放在最前面
+                        break
+            except Exception as e:
+                print(f"⚠️ 检查 CAN 接口失败: {e}")
+            
+            print(f"✅ 发现 {len(port_list)} 个端口: {port_list}")
             
             import asyncio
             asyncio.create_task(self._send_ports_result(port_list))
             return True
         except Exception as e:
-            print(f"❌ 获取串口列表失败: {e}")
+            print(f"❌ 获取端口列表失败: {e}")
             import traceback
             print(traceback.format_exc())
             return False
