@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "灵足角度模式和速度模式ok";git push
+git add ./;git commit -m "可以设置ID了";git push
 ```
 
 ```bash

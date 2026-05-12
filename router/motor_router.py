@@ -418,10 +418,13 @@ class MotorRouter:
             print(f"❌ 发送扫描结果失败: {e}")
     
     def _handle_list_ports(self) -> bool:
-        """处理获取串口列表命令（包含 CAN 接口）"""
+        """处理获取串口列表命令（包含 CAN 接口，自动启动）"""
         print("🔍 收到 list_ports 命令")
         
         try:
+            # ✅ 先确保 CAN 接口已启动
+            self._ensure_can_interface_up()
+            
             import serial.tools.list_ports
             ports = serial.tools.list_ports.comports()
             port_list = [
@@ -434,9 +437,8 @@ class MotorRouter:
             try:
                 result = subprocess.run(['ip', '-o', 'link', 'show'], capture_output=True, text=True, timeout=2)
                 for line in result.stdout.split('\n'):
-                    if 'can0' in line and 'state UP' in line:
-                        if 'can0' not in port_list:
-                            port_list.insert(0, 'can0')  # 放在最前面
+                    if 'can0' in line and 'can0' not in port_list:
+                        port_list.insert(0, 'can0')  # 放在最前面
                         break
             except Exception as e:
                 print(f"⚠️ 检查 CAN 接口失败: {e}")
@@ -451,6 +453,40 @@ class MotorRouter:
             import traceback
             print(traceback.format_exc())
             return False
+    
+    def _ensure_can_interface_up(self):
+        """确保 CAN 接口处于 UP 状态（全自动处理）"""
+        import subprocess
+        try:
+            # 检查 can0 是否存在
+            result = subprocess.run(
+                ['ip', 'link', 'show', 'can0'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            
+            if result.returncode == 0:
+                # can0 存在，检查是否 UP
+                if 'state UP' not in result.stdout:
+                    print("🔧 检测到 can0 处于 DOWN 状态，正在自动启动...")
+                    try:
+                        start_result = subprocess.run(
+                            ['sudo', 'ip', 'link', 'set', 'can0', 'up', 'type', 'can', 'bitrate', '500000'],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        
+                        if start_result.returncode == 0:
+                            print("✅ can0 接口已自动启动")
+                        else:
+                            print(f"⚠️ 自动启动 can0 失败: {start_result.stderr.strip()}")
+                    except Exception as e:
+                        print(f"⚠️ 启动 can0 时出错: {e}")
+            # 如果 can0 不存在，静默忽略
+        except Exception as e:
+            pass
     
     async def _send_ports_result(self, ports: list):
         """发送串口列表"""

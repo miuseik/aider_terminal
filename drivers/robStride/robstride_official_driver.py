@@ -4,14 +4,11 @@ RobStride 电机驱动 - 基于官方 robstride_dynamics SDK
 """
 
 import time
-import logging
 from typing import Optional, Dict, List
 from dataclasses import dataclass
 
 # 导入官方 SDK（已集成到项目中）
 from .robstride_dynamics import RobstrideBus, Motor as RSDMotor, ParameterType
-
-logger = logging.getLogger(__name__)
 
 @dataclass
 class MotorState:
@@ -56,10 +53,9 @@ class RobStrideOfficialDriver:
             )
             self._bus.connect()
             self._connected = True
-            logger.info(f"✅ RobStride 官方驱动连接成功: {self.can_interface}")
             return True
         except Exception as e:
-            logger.error(f"❌ RobStride 连接失败: {e}")
+            print(f"❌ RobStride 连接失败: {e}")
             return False
     
     def disconnect(self):
@@ -73,7 +69,6 @@ class RobStrideOfficialDriver:
                 pass
             self._bus.disconnect()
             self._connected = False
-            logger.info("RobStride 驱动已断开")
     
     def enable_motor(self, motor_id: int) -> bool:
         """使能电机"""
@@ -85,7 +80,6 @@ class RobStrideOfficialDriver:
             self._states[motor_id].enabled = True
             return True
         except Exception as e:
-            logger.error(f"使能电机 {motor_id} 失败: {e}")
             return False
     
     def disable_motor(self, motor_id: int) -> bool:
@@ -98,7 +92,6 @@ class RobStrideOfficialDriver:
             self._states[motor_id].enabled = False
             return True
         except Exception as e:
-            logger.error(f"禁用电机 {motor_id} 失败: {e}")
             return False
     
     def send_motion_control(self, motor_id: int, position: float, velocity: float = 0.0,
@@ -129,10 +122,9 @@ class RobStrideOfficialDriver:
             
             # ✅ 立即读取响应，确认指令已接收
             pos, vel, tor, temp = self._bus.read_operation_frame(motor_key)
-            logger.debug(f"电机 {motor_id} 控制成功: pos={pos:.3f}, target={position:.3f}")
             return True
         except Exception as e:
-            logger.error(f"发送运动控制指令失败: {e}")
+            print(f"发送运动控制指令失败: {e}")
             return False
     
     def set_speed(self, motor_id: int, speed_raw: int) -> bool:
@@ -152,7 +144,6 @@ class RobStrideOfficialDriver:
         try:
             # ✅ 关键:速度模式也需要先使能电机
             if not self.is_motor_enabled(motor_id):
-                logger.info(f"  🔌 使能 RobStride 电机 {motor_id} (速度模式)...")
                 self.enable_motor(motor_id)
                 import time
                 time.sleep(0.1)
@@ -177,10 +168,9 @@ class RobStrideOfficialDriver:
                 torque=0.0
             )
                 
-            logger.info(f"✅ RobStride 电机 {motor_id} 速度设置为 {speed_raw} ({velocity_rad_s:.2f} rad/s)")
             return True
         except Exception as e:
-            logger.error(f"设置速度失败: {e}")
+            print(f"设置速度失败: {e}")
             return False
     
     def ping(self, motor_id: int) -> bool:
@@ -192,7 +182,59 @@ class RobStrideOfficialDriver:
             result = self._bus.ping_by_id(motor_id, timeout=0.1)
             return result is not None
         except Exception as e:
-            logger.debug(f"Ping 电机 {motor_id} 失败: {e}")
+            return False
+    
+    def scan_motors(self, start_id: int = 1, end_id: int = 253) -> list:
+        """扫描电机（先试 127，再扫范围）"""
+        from .robstride_dynamics import Motor as RSDMotor
+        found_ids = []
+        
+        # ✅ 清空旧 motors，避免 ID 冲突
+        self._bus.motors.clear()
+        
+        # 1. 先试 ID 127
+        self._bus.motors['motor_127'] = RSDMotor(id=127, model='rs-02')
+        if self.ping(127):
+            state = self.get_feedback(127)
+            if state:
+                found_ids.append(127)
+        
+        # 2. 再扫指定范围（排除已找到的）
+        for motor_id in range(start_id, end_id + 1):
+            if motor_id in found_ids:
+                continue
+            # 注册当前 motor
+            motor_key = f"motor_{motor_id}"
+            self._bus.motors[motor_key] = RSDMotor(id=motor_id, model='rs-02')
+            
+            if self.ping(motor_id):
+                state = self.get_feedback(motor_id)
+                if state:
+                    found_ids.append(motor_id)
+        
+        return found_ids
+    
+    def set_id(self, old_id: int, new_id: int) -> bool:
+        """修改电机 ID（兼容接口）"""
+        if not self._connected:
+            return False
+        try:
+            motor_key = f"motor_{old_id}"
+            # ✅ 使用官方 SDK 的 write_id
+            result = self._bus.write_id(motor_key, new_id)
+            if result:
+                # 更新内部记录
+                if old_id in self._states:
+                    self._states[new_id] = self._states.pop(old_id)
+                if old_id in self._last_targets:
+                    self._last_targets[new_id] = self._last_targets.pop(old_id)
+                print(f"✅ 电机 ID 修改成功: {old_id} → {new_id}")
+                return True
+            else:
+                print(f"⚠️ 修改 ID 超时，未收到响应")
+            return False
+        except Exception as e:
+            print(f"修改电机 ID 失败: {e}")
             return False
     
     def is_motor_enabled(self, motor_id: int) -> bool:
@@ -200,33 +242,27 @@ class RobStrideOfficialDriver:
         return self._states.get(motor_id, MotorState()).enabled
     
     def get_feedback(self, motor_id: int) -> Optional[MotorState]:
-        """获取电机反馈(重新发送上次目标以触发响应)"""
+        """获取电机反馈"""
         if not self._connected:
             return None
         try:
             motor_key = f"motor_{motor_id}"
             
-            # ✅ 如果有记录的目标，重新发送以保持运动并触发响应
-            if motor_id in self._last_targets:
-                target = self._last_targets[motor_id]
-                self._bus.write_operation_frame(
-                    motor_key,
-                    position=target['position'],
-                    velocity=target.get('velocity', 0.0),
-                    kp=target['kp'],
-                    kd=target['kd'],
-                    torque=target['torque']
-                )
-            else:
-                # ✅ 首次调用，发送空指令触发响应
-                self._bus.write_operation_frame(
-                    motor_key,
-                    position=0.0,
-                    kp=0.0,
-                    kd=0.0,
-                    velocity=0.0,
-                    torque=0.0
-                )
+            # ✅ 先使能电机（如果需要）
+            if not self.is_motor_enabled(motor_id):
+                self.enable_motor(motor_id)
+                import time
+                time.sleep(0.05)
+            
+            # ✅ 发送空指令触发响应
+            self._bus.write_operation_frame(
+                motor_key,
+                position=0.0,
+                kp=0.0,
+                kd=0.0,
+                velocity=0.0,
+                torque=0.0
+            )
             
             # 读取响应
             pos, vel, tor, temp = self._bus.read_operation_frame(motor_key)
@@ -236,13 +272,90 @@ class RobStrideOfficialDriver:
                 velocity=vel,
                 torque=tor,
                 temperature=temp,
-                enabled=self._states[motor_id].enabled
+                enabled=True
             )
             self._states[motor_id] = state
             return state
         except Exception as e:
-            logger.warning(f"读取电机 {motor_id} 状态失败: {e}")
             return None
+    
+    def set_angle(self, motor_id: int, angle_deg: float, time_ms: int = 500) -> bool:
+        """统一的角度控制接口（品牌特定逻辑由驱动自己处理）"""
+        if not self._connected:
+            return False
+        
+        try:
+            # ✅ 先使能电机
+            if not self.is_motor_enabled(motor_id):
+                self.enable_motor(motor_id)
+                import time
+                time.sleep(0.1)
+            
+            # ✅ 获取当前位置
+            current_state = None
+            for retry in range(3):
+                current_state = self.get_feedback(motor_id)
+                if current_state:
+                    break
+                import time
+                time.sleep(0.05)
+            
+            if not current_state:
+                return False
+            
+            # ✅ 角度转弧度
+            current_pos = current_state.position
+            target_rad = angle_deg * 3.14159265 / 180.0
+            
+            # ✅ 将目标位置调整到当前位置附近（处理多圈问题）
+            best_position = None
+            best_distance = float('inf')
+            
+            for offset in [-2, -1, 0, 1, 2]:
+                candidate = target_rad + offset * 2 * 3.14159265
+                if -12.5 <= candidate <= 12.5:
+                    distance = abs(candidate - current_pos)
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_position = candidate
+            
+            if best_position is None:
+                return False
+            
+            # ✅ 发送控制指令
+            return self.send_motion_control(
+                motor_id=motor_id,
+                position=best_position,
+                kp=150.0,
+                kd=3.0,
+                torque=0.0
+            )
+        except Exception:
+            return False
+    
+    def get_status(self, motor_id: int) -> Optional[Dict]:
+        """统一的状态查询接口（返回标准化格式）"""
+        state = self.get_feedback(motor_id)
+        if not state:
+            return None
+        
+        # ✅ 将弧度转换为角度，并归一化到 -180° ~ 180°
+        angle_raw = state.position * 180.0 / 3.14159265
+        angle_normalized = ((angle_raw + 180) % 360) - 180
+        
+        return {
+            'servo_id': motor_id,
+            'port': self.can_interface,
+            'position': state.position,
+            'angle': round(angle_normalized, 2),
+            'voltage': 0,
+            'temperature': state.temperature,
+            'current': state.torque,
+            'speed': state.velocity,
+            'load': 0,
+            'mode': 'position',
+            'torque_enabled': state.enabled
+        }
     
     def read_parameter(self, motor_id: int, param_type: ParameterType):
         """读取参数"""
@@ -252,7 +365,6 @@ class RobStrideOfficialDriver:
             motor_key = f"motor_{motor_id}"
             return self._bus.read(motor_key, param_type)
         except Exception as e:
-            logger.error(f"读取参数失败: {e}")
             return None
     
     def write_parameter(self, motor_id: int, param_type: ParameterType, value):
@@ -264,7 +376,6 @@ class RobStrideOfficialDriver:
             self._bus.write(motor_key, param_type, value)
             return True
         except Exception as e:
-            logger.error(f"写入参数失败: {e}")
             return False
     
     @property
@@ -288,17 +399,13 @@ class RobStrideMotor:
         
         self._connected = False
         self._enabled = False
-        
-        logger.info(f"RobStride 电机初始化: ID={motor_id}, 型号={motor_model}")
     
     def connect(self) -> bool:
         """连接 CAN 总线"""
         if self.driver.connect():
             self._connected = True
-            logger.info(f"✅ RobStride 电机 {self.motor_id} 已连接")
             return True
         else:
-            logger.error(f"❌ 连接失败")
             return False
     
     def disconnect(self):
@@ -306,23 +413,19 @@ class RobStrideMotor:
         if self._connected:
             self.driver.disconnect()
             self._connected = False
-            logger.info(f"RobStride 电机 {self.motor_id} 已断开")
     
     def enable_torque(self, enable: bool = True) -> bool:
         """使能/禁用扭矩"""
         if not self._connected:
-            logger.warning("电机未连接")
             return False
         
         try:
             success = self.driver.enable_motor(self.motor_id) if enable else self.driver.disable_motor(self.motor_id)
             if success:
                 self._enabled = enable
-            logger.debug(f"电机 {self.motor_id} 扭矩{'使能' if enable else '禁用'}")
             return success
             
         except Exception as e:
-            logger.error(f"使能扭矩失败: {e}")
             return False
     
     def set_position(self, position_rad: float, kp: float = 80.0, kd: float = 4.0,
@@ -331,7 +434,6 @@ class RobStrideMotor:
         设置目标位置（PD 控制）
         """
         if not self._connected:
-            logger.warning("电机未连接")
             return False
         
         try:
@@ -342,11 +444,9 @@ class RobStrideMotor:
                 kd=kd,
                 torque=feedforward_torque
             )
-            logger.debug(f"电机 {self.motor_id} 位置指令: {position_rad:.3f} rad")
             return success
             
         except Exception as e:
-            logger.error(f"设置位置失败: {e}")
             return False
     
     def set_velocity(self, velocity_rad_s: float, kp: float = 0.0, kd: float = 4.0,
@@ -355,7 +455,6 @@ class RobStrideMotor:
         设置目标速度
         """
         if not self._connected:
-            logger.warning("电机未连接")
             return False
         
         try:
@@ -367,11 +466,9 @@ class RobStrideMotor:
                 kd=kd,
                 torque=feedforward_torque
             )
-            logger.debug(f"电机 {self.motor_id} 速度指令: {velocity_rad_s:.3f} rad/s")
             return success
             
         except Exception as e:
-            logger.error(f"设置速度失败: {e}")
             return False
     
     def read_state(self) -> Optional[Dict]:

@@ -408,20 +408,92 @@ class RobstrideBus:
         self.transmit(CommunicationType.DISABLE, self.host_id, device_id)
         self.receive_status_frame(motor)
 
-    def write_id(self, motor: str, new_id: int):
+    def write_id(self, motor: str, new_id: int, max_retries: int = 3):
         """
-        Write the ID of the motor.
+        Write the ID of the motor using extended frame protocol.
+        Reference: Set_CAN_ID in Robstride01.cpp line 650
+        
+        Args:
+            motor: Motor name
+            new_id: New device ID (1-127)
+            max_retries: Maximum retry attempts (default: 3)
+        
+        Returns:
+            tuple: (device_id, uuid) if successful, None if failed
         """
-        device_id = self.motors[motor].id
-        self.transmit(CommunicationType.SET_CAN_ID, new_id, device_id)
-        response = self.receive()
-        if not response:
-            return None
-        communication_type, device_id, check, uuid = response
-        print(f"new ID: {device_id}, UUID: {uuid}")
-
-        self.motors[motor].id = new_id
-        return device_id, uuid
+        import can
+        import time
+        
+        old_id = self.motors[motor].id
+        master_id = self.host_id  # 主机ID
+        
+        print(f"🔧 修改RobStride电机ID: {old_id} → {new_id}")
+        
+        for attempt in range(max_retries):
+            try:
+                # Step 1: 禁用电机
+                print(f"   [{attempt+1}/{max_retries}] 禁用电机...")
+                self.disable(motor)
+                time.sleep(0.3)
+                
+                # Step 2: 发送ID修改命令（扩展帧）
+                # ExtId = Communication_Type_Can_ID<<24 | Set_CAN_ID<<16 | Master_CAN_ID<<8 | CAN_ID
+                ext_id = (0x07 << 24) | (new_id << 16) | (master_id << 8) | old_id
+                
+                print(f"   发送扩展帧命令: 0x{ext_id:08X}")
+                
+                # 创建临时CAN总线发送命令
+                temp_bus = can.interface.Bus(channel=self.channel, interface='socketcan', bitrate=self.bitrate)
+                
+                msg = can.Message(
+                    arbitration_id=ext_id,
+                    is_extended_id=True,
+                    dlc=8,
+                    data=[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+                )
+                
+                temp_bus.send(msg)
+                print(f"   ✅ 命令已发送")
+                
+                # Step 3: 保存参数到Flash
+                print(f"   保存参数到Flash...")
+                save_ext_id = (0x16 << 24) | (master_id << 8) | old_id
+                save_msg = can.Message(
+                    arbitration_id=save_ext_id,
+                    is_extended_id=True,
+                    dlc=8,
+                    data=[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+                )
+                temp_bus.send(save_msg)
+                time.sleep(1.0)
+                
+                temp_bus.shutdown()
+                
+                # Step 4: 等待电机处理
+                time.sleep(0.5)
+                
+                # 尝试验证新ID
+                print(f"   验证新ID {new_id}...")
+                verify_result = self.ping_by_id(new_id, timeout=1.0)
+                if verify_result:
+                    verified_id, verified_uuid = verify_result
+                    print(f"   ✅ ID修改成功! 新ID={verified_id}")
+                    
+                    # 更新motor对象的ID
+                    self.motors[motor].id = new_id
+                    return (verified_id, verified_uuid)
+                else:
+                    # 即使没响应，命令可能已生效
+                    print(f"   ⚠️ 新ID暂未响应，但命令已发送")
+                    self.motors[motor].id = new_id
+                    return (new_id, b'')
+                    
+            except Exception as e:
+                print(f"   ❌ 尝试 {attempt+1} 失败: {e}")
+                time.sleep(0.5)
+        
+        print(f"❌ ID修改失败，已重试{max_retries}次")
+        return None
 
     def write_operation_frame(
         self,

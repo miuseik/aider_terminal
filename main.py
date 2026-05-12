@@ -54,8 +54,8 @@ class LoggerRedirect:
         self.log_file.flush()
 
 # 接管全局 print
-sys.stdout = LoggerRedirect(LOG_FILE)
-sys.stderr = LoggerRedirect(LOG_FILE)
+# sys.stdout = LoggerRedirect(LOG_FILE)
+# sys.stderr = LoggerRedirect(LOG_FILE)
 
 # 禁用 CUDA,使用 CPU (避免 NCCL 库问题)
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
