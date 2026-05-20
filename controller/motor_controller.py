@@ -165,13 +165,13 @@ class MotorController:
         """在指定串口/CAN接口扫描电机（自动识别品牌）"""
         found_servos = []
         brands_to_try = ['robstride'] if 'can' in port.lower() else ['feetech']
-        
+            
         for brand in brands_to_try:
             try:
                 driver = self._get_or_create_driver(port, brand)
                 if not driver or not driver.is_connected:
                     continue
-                
+                    
                 if brand.lower() == 'robstride':
                     # ✅ 调用驱动的扫描方法
                     found_ids = driver.scan_motors(start_id, end_id)
@@ -185,12 +185,12 @@ class MotorController:
                             model = self._get_servo_model(driver, servo_id)
                             servo_info = ServoInfo(port=port, servo_id=servo_id, brand=brand, model=model, is_online=True)
                             found_servos.append(servo_info)
-                
+                    
                 if found_servos:
                     break
             except Exception:
                 continue
-        
+            
         return found_servos
     
     def scan_all_servos(self) -> Dict[str, List[ServoInfo]]:

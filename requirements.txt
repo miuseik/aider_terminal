@@ -11,7 +11,6 @@ pynput
 aiortc
 requests
 opencv-python
-feetech-servo-sdk  # ST3215总线舵机驱动SDK
 # RobStride 灵足电机驱动（基于官方 el_a3_sdk，无需额外 pip 安装）
 # 注意：需要配置 SocketCAN 接口和 Canable USB2CAN 适配器
 # 系统依赖: sudo apt-get install can-utils

@@ -4,7 +4,8 @@
 import threading
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, asdict
-from scservo_sdk import *
+from .scservo_sdk import PortHandler, sms_sts
+from .scservo_sdk.scservo_def import COMM_SUCCESS
 
 # SCS 舵机寄存器地址 (EEPROM - 持久化，写入需要解锁)
 ADDR_SCS_ID = 5                    # 舵机ID (1-253)
@@ -350,7 +351,7 @@ class ServoController:
         self.port = port
         self.baudrate = baudrate
         self.port_handler: Optional[PortHandler] = None
-        self.packet_handler: Optional[PacketHandler] = None
+        self.packet_handler = None  # sms_sts instance
         self.servos: Dict[int, ServoInfo] = {}
         self.is_connected = False
         self._lock = threading.Lock()
@@ -360,7 +361,7 @@ class ServoController:
         """连接到串口"""
         try:
             self.port_handler = PortHandler(self.port)
-            self.packet_handler = PacketHandler(0)
+            self.packet_handler = sms_sts(self.port_handler)
             
             if not self.port_handler.openPort():
                 return False, f"Cannot open port {self.port}"
@@ -395,9 +396,7 @@ class ServoController:
         found_servos = []
         with self._lock:
             for servo_id in range(start_id, end_id + 1):
-                model_number, comm_result, error = self.packet_handler.ping(
-                    self.port_handler, servo_id
-                )
+                model_number, comm_result, error = self.packet_handler.ping(servo_id)
                 if comm_result == COMM_SUCCESS:
                     servo = ServoInfo(id=servo_id, model_number=model_number)
                     self.servos[servo_id] = servo
@@ -411,9 +410,8 @@ class ServoController:
             return False, "Not connected"
         
         with self._lock:
-            model_number, comm_result, error = self.packet_handler.ping(
-                self.port_handler, servo_id
-            )
+            # ✅ ping 只需要一个参数 (scs_id)
+            model_number, comm_result, error = self.packet_handler.ping(servo_id)
             if comm_result == COMM_SUCCESS:
                 return True, f"Servo {servo_id} online, model: {model_number}"
             else:
