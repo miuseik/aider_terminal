@@ -4,7 +4,8 @@
 import threading
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, asdict
-from scservo_sdk import *
+from .scservo_sdk import PortHandler, sms_sts
+from .scservo_sdk.scservo_def import COMM_SUCCESS
 
 # SCS 舵机寄存器地址 (EEPROM - 持久化，写入需要解锁)
 ADDR_SCS_ID = 5                    # 舵机ID (1-253)
@@ -31,7 +32,7 @@ ADDR_SCS_PRESENT_TEMPERATURE = 63  # 当前温度 (1字节, 只读)
 # SCS 舵机寄存器地址 (DEFAULT - 运动曲线参数)
 ADDR_SCS_MOVING_THRESHOLD = 80     # 移动阈值 (1字节)
 ADDR_SCS_DTS = 81                  # DTs 毫秒 (1字节)
-ADDR_SCS_VK = 82                   # Vk 毫秒 (1字节)  
+ADDR_SCS_VK = 82                   # Vk 毫秒 (1字节)
 ADDR_SCS_VMIN = 83                 # Vmin (1字节)
 ADDR_SCS_VMAX = 84                 # Vmax (1字节)
 ADDR_SCS_AMAX = 85                 # Amax - 最大加速度 (1字节)
@@ -205,7 +206,7 @@ SERVO_REGISTERS = {
         'desc': '速度PID控制器的积分增益 (I)。',
         'unit': '', 'range': '0-255', 'default': '200'
     },
-    
+
     # ============ SRAM 寄存器 (易失性，断电重置) ============
     'torque_enable': {
         'addr': 40, 'size': 1, 'area': 'SRAM', 'rw': 'rw', 'name': 'Torque Enable',
@@ -287,7 +288,7 @@ SERVO_REGISTERS = {
         'desc': '当前电流消耗。',
         'unit': 'mA', 'range': '0-65535', 'default': '—'
     },
-    
+
     # ============ DEFAULT 寄存器 (运动曲线参数) ============
     'moving_threshold': {
         'addr': 80, 'size': 1, 'area': 'DEFAULT', 'rw': 'rw', 'name': 'Moving Threshold',
@@ -350,83 +351,80 @@ class ServoController:
         self.port = port
         self.baudrate = baudrate
         self.port_handler: Optional[PortHandler] = None
-        self.packet_handler: Optional[PacketHandler] = None
+        self.packet_handler = None  # sms_sts instance
         self.servos: Dict[int, ServoInfo] = {}
         self.is_connected = False
         self._lock = threading.Lock()
         self._last_send_time = 0  # ✅ 记录最后一次发送时间，用于控制最小间隔
-    
+
     def connect(self) -> Tuple[bool, str]:
         """连接到串口"""
         try:
             self.port_handler = PortHandler(self.port)
-            self.packet_handler = PacketHandler(0)
-            
+            self.packet_handler = sms_sts(self.port_handler)
+
             if not self.port_handler.openPort():
                 return False, f"Cannot open port {self.port}"
-            
+
             if not self.port_handler.setBaudRate(self.baudrate):
                 return False, f"Cannot set baudrate {self.baudrate}"
-            
+
             # ✅ 设置串口超时参数，防止长时间不通信断开
             if hasattr(self.port_handler, 'ser') and self.port_handler.ser:
                 self.port_handler.ser.timeout = 0.1      # 读取超时 100ms
                 self.port_handler.ser.write_timeout = 0.1  # 写入超时 100ms
-            
+
             self.is_connected = True
             print(f"✅ 串口连接成功: {self.port} @ {self.baudrate}")
             return True, "Connected successfully"
         except Exception as e:
             print(f"❌ servo 连接失败: {e}")
             return False, str(e)
-    
+
     def disconnect(self):
         """断开口连接"""
         if self.port_handler:
             self.port_handler.closePort()
         self.is_connected = False
         self.servos.clear()
-    
+
     def scan_servos(self, start_id: int = 1, end_id: int = 20) -> List[ServoInfo]:
         """在ID范围内扫描连接的舵机"""
         if not self.is_connected:
             return []
-        
+
         found_servos = []
         with self._lock:
             for servo_id in range(start_id, end_id + 1):
-                model_number, comm_result, error = self.packet_handler.ping(
-                    self.port_handler, servo_id
-                )
+                model_number, comm_result, error = self.packet_handler.ping(servo_id)
                 if comm_result == COMM_SUCCESS:
                     servo = ServoInfo(id=servo_id, model_number=model_number)
                     self.servos[servo_id] = servo
                     found_servos.append(servo)
-        
+
         return found_servos
-    
+
     def ping(self, servo_id: int) -> Tuple[bool, str]:
         """Ping特定舵机"""
         if not self.is_connected:
             return False, "Not connected"
-        
+
         with self._lock:
-            model_number, comm_result, error = self.packet_handler.ping(
-                self.port_handler, servo_id
-            )
+            # ✅ ping 只需要一个参数 (scs_id)
+            model_number, comm_result, error = self.packet_handler.ping(servo_id)
             if comm_result == COMM_SUCCESS:
                 return True, f"Servo {servo_id} online, model: {model_number}"
             else:
                 return False, f"Servo {servo_id} not responding"
-    
+
     def read_position(self, servo_id: int) -> Optional[int]:
         """读取舵机的当前位置"""
         if not self.is_connected:
             return None
-        
+
         with self._lock:
             position, comm_result, error = self.packet_handler.read2ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_PRESENT_POSITION
+                servo_id, ADDR_SCS_PRESENT_POSITION
             )
             if comm_result == COMM_SUCCESS:
                 # 处理有符号值（某些舵机的位置可以为负）
@@ -436,89 +434,89 @@ class ServoController:
                     self.servos[servo_id].position = position
                 return position
             return None
-    
+
     def read_status(self, servo_id: int) -> Optional[Dict]:
         """读取舵机的完整状态（即使未扫描也能读取）"""
         if not self.is_connected:
             return None
-        
+
         # ✅ 如果舵机不在 servos 中，先创建一个临时对象
         if servo_id not in self.servos:
             servo = ServoInfo(id=servo_id, model_number=0)
             self.servos[servo_id] = servo
         else:
             servo = self.servos[servo_id]
-        
+
         with self._lock:
             # 读取位置
             pos, res, _ = self.packet_handler.read2ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_PRESENT_POSITION
+                servo_id, ADDR_SCS_PRESENT_POSITION
             )
             if res == COMM_SUCCESS:
                 if pos > 32767:
                     pos = pos - 65536
                 servo.position = pos
-            
+
             # 读取速度
             speed, res, _ = self.packet_handler.read2ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_PRESENT_SPEED
+                servo_id, ADDR_SCS_PRESENT_SPEED
             )
             if res == COMM_SUCCESS:
                 if speed > 32767:
                     speed = speed - 65536
                 servo.speed = speed
-            
+
             # 读取负载
             load, res, _ = self.packet_handler.read2ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_PRESENT_LOAD
+                servo_id, ADDR_SCS_PRESENT_LOAD
             )
             if res == COMM_SUCCESS:
                 if load > 32767:
                     load = load - 65536
                 servo.load = load
-            
+
             # 读取电压
             voltage, res, _ = self.packet_handler.read1ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_PRESENT_VOLTAGE
+                servo_id, ADDR_SCS_PRESENT_VOLTAGE
             )
             if res == COMM_SUCCESS:
                 servo.voltage = voltage / 10.0
-            
+
             # 读取温度
             temp, res, _ = self.packet_handler.read1ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_PRESENT_TEMPERATURE
+                servo_id, ADDR_SCS_PRESENT_TEMPERATURE
             )
             if res == COMM_SUCCESS:
                 servo.temperature = temp
-            
+
             # 读取电流
             current, res, _ = self.packet_handler.read2ByteTxRx(
-                self.port_handler, servo_id, 69  # ADDR_SCS_PRESENT_CURRENT
+                servo_id, 69  # ADDR_SCS_PRESENT_CURRENT
             )
             if res == COMM_SUCCESS:
                 servo.present_current = current
-            
+
             # 读取移动状态
             moving, res, _ = self.packet_handler.read1ByteTxRx(
-                self.port_handler, servo_id, 66  # ADDR_SCS_MOVING_STATUS
+                servo_id, 66  # ADDR_SCS_MOVING_STATUS
             )
             if res == COMM_SUCCESS:
                 servo.moving_status = moving
-            
+
             # 读取目标位置
             goal, res, _ = self.packet_handler.read2ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_GOAL_POSITION
+                servo_id, ADDR_SCS_GOAL_POSITION
             )
             if res == COMM_SUCCESS:
                 servo.goal_position = goal
-        
+
         return asdict(servo)
-    
+
     def set_position(self, servo_id: int, position: int, time_ms: int = 500) -> Tuple[bool, str]:
         """设置舵机位置 (采用 TxRx 模式，确保指令送达)"""
         if not self.is_connected:
             return False, "Not connected"
-        
+
         # 限制位置范围
         position = max(0, min(4095, position))
 
@@ -527,82 +525,82 @@ class ServoController:
 
                 # 1. 写入目标时间
                 comm_result1, _ = self.packet_handler.write2ByteTxRx(
-                    self.port_handler, servo_id, ADDR_SCS_GOAL_TIME, time_ms
+                    servo_id, ADDR_SCS_GOAL_TIME, time_ms
                 )
-                
+
                 if comm_result1 != COMM_SUCCESS:
                     return False, f"Failed to write time to servo {servo_id}"
-                
+
                 # 3. 写入目标位置
                 comm_result2, _ = self.packet_handler.write2ByteTxRx(
-                    self.port_handler, servo_id, ADDR_SCS_GOAL_POSITION, position
+                    servo_id, ADDR_SCS_GOAL_POSITION, position
                 )
-                
+
                 if comm_result2 != COMM_SUCCESS:
                     return False, f"Failed to write position to servo {servo_id}"
 
                 return True, f"Moving servo {servo_id} to {position}"
             except Exception as e:
                 return False, f"Failed to move servo {servo_id}: {e}"
-    
+
     def set_torque(self, servo_id: int, enable: bool) -> Tuple[bool, str]:
         """启用/禁用舵机扭矩"""
         if not self.is_connected:
             return False, "Not connected"
-        
+
         with self._lock:
             comm_result, error = self.packet_handler.write1ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_TORQUE_ENABLE, 1 if enable else 0
+                servo_id, ADDR_SCS_TORQUE_ENABLE, 1 if enable else 0
             )
-            
+
             if comm_result == COMM_SUCCESS:
                 return True, f"Torque {'enabled' if enable else 'disabled'} for servo {servo_id}"
             else:
                 return False, f"Failed to set torque for servo {servo_id}"
-    
+
     def center_servo(self, servo_id: int) -> Tuple[bool, str]:
         """将舵机移动到中心位置 (2048)"""
         return self.set_position(servo_id, 2048, 1000)
-    
+
     def test_range(self, servo_id: int, min_pos: int = 0, max_pos: int = 4095) -> Tuple[bool, str]:
         """测试舵机的全范围运动"""
         if not self.is_connected:
             return False, "Not connected"
-        
+
         # 移动到最小位置
         success, msg = self.set_position(servo_id, min_pos, 1500)
         if not success:
             return False, msg
-        
+
         return True, f"Testing range {min_pos} -> {max_pos} for servo {servo_id}"
-    
+
     def get_all_servos(self) -> List[Dict]:
         """获取所有已知舵机的列表"""
         return [asdict(s) for s in self.servos.values()]
-    
+
     def set_calibration(self, servo_id: int, min_pos: int, max_pos: int, center_pos: int):
         """设置舵机的校准值"""
         if servo_id in self.servos:
             self.servos[servo_id].min_position = min_pos
             self.servos[servo_id].max_position = max_pos
             self.servos[servo_id].center_position = center_pos
-    
+
     def unlock_eeprom(self, servo_id: int) -> bool:
         """解锁EEPROM以进行写入（更改ID前必需）"""
         with self._lock:
             comm_result, _ = self.packet_handler.write1ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_LOCK, 0
+                servo_id, ADDR_SCS_LOCK, 0
             )
             return comm_result == COMM_SUCCESS
-    
+
     def lock_eeprom(self, servo_id: int) -> bool:
         """写入后锁定EEPROM"""
         with self._lock:
             comm_result, _ = self.packet_handler.write1ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_LOCK, 1
+                servo_id, ADDR_SCS_LOCK, 1
             )
             return comm_result == COMM_SUCCESS
-    
+
     def change_servo_id(self, old_id: int, new_id: int) -> Tuple[bool, str]:
         """
         更改舵机ID。
@@ -610,44 +608,44 @@ class ServoController:
         """
         if not self.is_connected:
             return False, "Not connected"
-        
+
         if new_id < 1 or new_id > 253:
             return False, "ID must be between 1 and 253"
-        
+
         if old_id == new_id:
             return False, "New ID is same as old ID"
-        
+
         # 首先ping以确保old_id存在
         success, _ = self.ping(old_id)
         if not success:
             return False, f"Servo ID {old_id} not found"
-        
+
         # 检查new_id是否已存在
         success, _ = self.ping(new_id)
         if success:
             return False, f"ID {new_id} already in use by another servo!"
-        
+
         try:
             # 先禁用扭矩
             self.set_torque(old_id, False)
-            
+
             # 解锁EEPROM
             if not self.unlock_eeprom(old_id):
                 return False, "Failed to unlock EEPROM"
-            
+
             # 写入新ID
             with self._lock:
                 comm_result, _ = self.packet_handler.write1ByteTxRx(
-                    self.port_handler, old_id, ADDR_SCS_ID, new_id
+                    old_id, ADDR_SCS_ID, new_id
                 )
-            
+
             if comm_result != COMM_SUCCESS:
                 self.lock_eeprom(old_id)
                 return False, "Failed to write new ID"
-            
+
             # 用新ID锁定EEPROM
             self.lock_eeprom(new_id)
-            
+
             # 验证新ID是否有效（增加重试机制）
             import time
             verified = False
@@ -657,7 +655,7 @@ class ServoController:
                 if success:
                     verified = True
                     break
-            
+
             if verified:
                 # 更新内部舵机列表
                 if old_id in self.servos:
@@ -669,60 +667,60 @@ class ServoController:
                 # 即使 ping 失败，ID 往往也已经写入成功了（需要舵机断电重启）
                 print(f"⚠️ ID 已写入 {new_id}，但在线验证超时。请尝试断电重启舵机。")
                 return True, f"ID changed to {new_id}, but verification timed out. Please power cycle the servo."
-                
+
         except Exception as e:
             return False, f"Error changing ID: {str(e)}"
-    
+
     def read_servo_id(self, servo_id: int) -> Optional[int]:
         """从舵机读取存储的ID"""
         if not self.is_connected:
             return None
-        
+
         with self._lock:
             read_id, comm_result, _ = self.packet_handler.read1ByteTxRx(
-                self.port_handler, servo_id, ADDR_SCS_ID
+                servo_id, ADDR_SCS_ID
             )
             if comm_result == COMM_SUCCESS:
                 return read_id
             return None
-    
+
     def read_register(self, servo_id: int, addr: int, size: int) -> Optional[int]:
         """从舵机读取寄存器值"""
         if not self.is_connected:
             return None
-        
+
         with self._lock:
             if size == 1:
                 value, comm_result, _ = self.packet_handler.read1ByteTxRx(
-                    self.port_handler, servo_id, addr
+                    servo_id, addr
                 )
             else:  # size == 2
                 value, comm_result, _ = self.packet_handler.read2ByteTxRx(
-                    self.port_handler, servo_id, addr
+                    servo_id, addr
                 )
-            
+
             if comm_result == COMM_SUCCESS:
                 return value
             return None
-    
+
     def write_register(self, servo_id: int, addr: int, size: int, value: int, unlock_eeprom: bool = False) -> Tuple[bool, str]:
         """向舵机寄存器写入值"""
         if not self.is_connected:
             return False, "Not connected"
-        
+
         try:
             # 对于EEPROM寄存器，先解锁
             if unlock_eeprom:
                 self.unlock_eeprom(servo_id)
-            
+
             with self._lock:
                 if size == 1:
                     comm_result, _ = self.packet_handler.write1ByteTxRx(
-                        self.port_handler, servo_id, addr, value
+                        servo_id, addr, value
                     )
                 else:  # size == 2
                     comm_result, _ = self.packet_handler.write2ByteTxRx(
-                        self.port_handler, servo_id, addr, value
+                        servo_id, addr, value
                     )
             
             # 写入后锁定EEPROM
