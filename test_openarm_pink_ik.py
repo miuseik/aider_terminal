@@ -21,7 +21,7 @@ class OpenArmXSolver():
     def __init__(
         self,
         # 使用 OpenArmX 的双臂 URDF 路径
-        urdf_path: str = "/home/miuseik/www/open_origin/openArmX/openarmx_mujoco/openarmx_v10_bimanual.urdf"
+        urdf_path: str = "C:/www/codeing/open_origin/openArmX/openarmx_mujoco/openarmx_v10_bimanual.urdf"
     ):
         print(f"Loading URDF from: {urdf_path}")
         
@@ -31,7 +31,7 @@ class OpenArmXSolver():
         # 关键：将 openarmx_description 路径映射到 package://openarmx_description
         # Pinocchio 会在这些目录下寻找与 package 名称匹配的文件夹
         package_dirs = [
-            "/home/miuseik/www/open_origin/openArmX",
+            "C:/www/codeing/open_origin/openArmX",
             urdf_package_path
         ]
         

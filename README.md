@@ -326,6 +326,50 @@ python -m telegrip.main --log-level debug   # 显示最大详细信息以进行�
 2. 添加新的标记类型或坐标系
 3. 更新控制循环中的可视化调用
 
+## pink IK 求解器依赖 (test_openarm_pink_ik.py)
+
+`test_openarm_pink_ik.py` 是基于 [pink](https://github.com/stephane-caron/pink) 的 OpenArmX 双臂逆运动学求解脚本，需要额外的依赖。
+
+### 所需的库
+
+| 包名 | 用途 | 安装方式 |
+|---|---|---|
+| `pinocchio` | 机器人建模与运动学 (C++库) | conda |
+| `pin-pink` | pink IK 求解框架 (含 `pin`+`pink`) | pip (`--no-deps`) |
+| `meshcat_shapes` | MeshCat 可视化辅助 (画坐标系) | pip |
+| `qpsolvers` | 二次规划(QP)求解器封装 | pip |
+| `quadprog` | QP 求解器后端 (脚本默认) | pip |
+| `loop_rate_limiters` | 循环频率限制 | pip |
+
+### Windows 安装步骤 (aider conda 环境)
+
+> ⚠️ `pinocchio` 是 C++ 库，pip 安装需要 CMake + C++ 编译器，Windows 上请用 conda 安装。
+
+```bash
+# 1. 先通过 conda 安装 pinocchio (预编译, 无需编译工具)
+conda install -c conda-forge pinocchio -y
+
+# 2. pip 安装其他依赖
+pip install meshcat_shapes qpsolvers loop_rate_limiters quadprog
+
+# 3. 安装 pin-pink (跳过自带的 pin 依赖, 用 conda 的 pinocchio)
+pip install pin-pink --no-deps
+```
+
+### Linux 安装步骤
+
+```bash
+pip install meshcat_shapes qpsolvers loop_rate_limiters quadprog pin-pink
+```
+
+### 运行
+
+```bash
+python test_openarm_pink_ik.py
+```
+
+> 💡 注意: 脚本中 URDF 路径需根据当前系统修改。默认路径对应 `C:/www/codeing/open_origin/openArmX/openarmx_mujoco/`。
+
 ## 安全注意事项
 
 - **紧急停止**：按 Ctrl+C 进行优雅关闭
