@@ -18,8 +18,6 @@ PushAudioFull, PushVideoFull = False, False
 startPush = False
 
 def get_input(linuxEngine):
-    loop2 = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop2)
     while True:
         user_input = input()    
         command_array = user_input.split()
@@ -163,7 +161,6 @@ def main():
         sleepFor(0.1)
     input_thread.start()
 
-    videoPushEnd, audioPushEnd = False, False
     fps = 25
     audioSampleRate = 16000
     audioSampleChannel = 1
@@ -190,7 +187,7 @@ def main():
     frameInterval = 1.0 / fps
     lastPushTime = 0
     
-    while not videoPushEnd or not audioPushEnd:
+    while True:
         if stopSignal:
             break
         
@@ -239,5 +236,4 @@ def main():
     while not stopSignal:
         sleepFor(1)
     linuxEngine.Release() # 建议离会后再释放资源
-    linuxEngine = None
 
