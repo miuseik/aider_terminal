@@ -41,6 +41,7 @@ from .inputs.ws_client import VRWebSocketClient
 from .inputs.webrtc_streamer import WebRTCStreamer
 from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
+import src.rtc_video as rtc_video
 
 # Logger will be configured in main() based on command line arguments
 logger = logging.getLogger(__name__)
@@ -238,6 +239,9 @@ class TelegripSystem:
 
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.vr_ws_client.connect()
+
+            # AliRTC 视频推流
+            threading.Thread(target=rtc_video.main, daemon=True, name="AliRTCStreamer").start()
             
             # WebRTC 视频推流改为按需启动(前端请求时才开启)
             # if getattr(self.config, 'enable_webrtc', False):
@@ -283,6 +287,9 @@ class TelegripSystem:
 
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.vr_ws_client.connect()
+
+            # AliRTC 视频推流
+            threading.Thread(target=rtc_video.main, daemon=True, name="AliRTCStreamer").start()
 
             # WebRTC 视频推流改为按需启动(前端请求时才开启)
             # if getattr(self.config, 'enable_webrtc', False):
@@ -368,6 +375,9 @@ class TelegripSystem:
                 await self.webrtc_streamer.stop_streaming()
             except Exception as e:
                 print(f"停止 WebRTC 推流器时出错: {e}")
+
+        # 停止 AliRTC 推流
+        rtc_video.stopSignal = True
 
         try:
             await asyncio.wait_for(self.vr_handler.stop(), timeout=2.0)
@@ -514,6 +524,8 @@ async def main():
 
     # 抑制嘈杂的 websockets 库日志（对 WS 端口的无效 HTTP 请求）
     logging.getLogger('websockets').setLevel(logging.WARNING)
+    # 抑制阿里 RTC 引擎的 buffer 状态刷屏日志
+    logging.getLogger('AliRTCEngineImpl').setLevel(logging.WARNING)
 
     config = create_config_from_args(args)
 

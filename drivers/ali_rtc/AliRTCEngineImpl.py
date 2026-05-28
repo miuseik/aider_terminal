@@ -17,6 +17,7 @@ import logging
 import ctypes
 import shutil
 import threading
+import time
 from queue import Queue
 
 class AliRtcEngineImpl(AliRTCEngineInterface):
@@ -407,34 +408,34 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_PUSH_AUDIO_FRAME_BUFFER_FULL:
                     isFull = parsed_message['success']
                     self.__pushAudioFull = isFull
-                    self.__logger.info(f'[Python] on push audio buffer state, isfull: {isFull}')
+                    self.__logger.debug(f'[Python] on push audio buffer state, isfull: {isFull}')
                     self.__eventHandler.OnPushAudioFrameBufferFull(isFull)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_PUSH_VIDEO_FRAME_BUFFER_FULL:
                     isFull = parsed_message['success']
-                    self.__logger.info(f'[Python] on push video buffer state, isfull: {isFull}')
+                    self.__logger.debug(f'[Python] on push video buffer state, isfull: {isFull}')
                     self.__eventHandler.OnPushVideoFrameBufferFull(isFull)
 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_PUSH_AUDIO_FRAME_BEGIN:
                     frameID = parsed_message['frameID']
-                    self.__logger.info(f'[Python] on push audio buffer begin: {frameID}')
+                    self.__logger.debug(f'[Python] on push audio buffer begin: {frameID}')
                     # self.__eventHandler.OnPushAudioFrameBegin(frameID)
 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_PUSH_AUDIO_FRAME_END:
                     frameID = parsed_message['frameID']
-                    self.__logger.info(f'[Python] on push audio buffer end: {frameID}')
+                    self.__logger.debug(f'[Python] on push audio buffer end: {frameID}')
                     # self.__eventHandler.OnPushAudioFrameEnd(frameID)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_PUSH_AUDIO_FRAME_BEGIN_EXT:
                     sentenceID = parsed_message['sentenceID']
                     sequenceID = parsed_message['sequenceID']
-                    self.__logger.info(f'[Python] on push audio buffer begin, sentence:{sentenceID}, sequence:{sequenceID}')
+                    self.__logger.debug(f'[Python] on push audio buffer begin, sentence:{sentenceID}, sequence:{sequenceID}')
                     self.__eventHandler.OnPushAudioFrameBegin(sentenceID, sequenceID)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_PUSH_AUDIO_FRAME_END_EXT:
                     sentenceID = parsed_message['sentenceID']
                     sequenceID = parsed_message['sequenceID']
-                    self.__logger.info(f'[Python] on push audio buffer end, sentence:{sentenceID}, sequence:{sequenceID}')
+                    self.__logger.debug(f'[Python] on push audio buffer end, sentence:{sentenceID}, sequence:{sequenceID}')
                     self.__eventHandler.OnPushAudioFrameEnd(sentenceID, sequenceID)
 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_GET_REMAIN_DATA_BUFFER_SIZE:
@@ -1320,7 +1321,7 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                                     inter duration: {1000*(interTs - beginTs)}")
                 self.__pushVideoFrameCnt = self.__pushVideoFrameCnt + 1
                 if endTs - self.__sendVideoStatsTs > 2:
-                    self.__logger.info(f"[Python] push video frame cnt: {self.__pushVideoFrameCnt}")
+                    self.__logger.debug(f"[Python] push video frame cnt: {self.__pushVideoFrameCnt}")
                     self.__sendVideoStatsTs = endTs
             return 0
         else:
@@ -1464,7 +1465,7 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                                     inter duration: {1000*(interTs - beginTs)}")
                 self.__pushAudioFrameCnt = self.__pushAudioFrameCnt + 1
                 if endTs - self.__sendAudioStatsTs > 2:
-                    self.__logger.info(f"[Python] push audio frame cnt: {self.__pushAudioFrameCnt}")
+                    self.__logger.debug(f"[Python] push audio frame cnt: {self.__pushAudioFrameCnt}")
                     self.__sendAudioStatsTs = endTs
             return 0
         else:

@@ -4,6 +4,11 @@ import json
 import time
 import threading
 import os
+import sys
+import cv2
+
+# 将 drivers/ali_rtc 目录加入 Python 路径
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'drivers', 'ali_rtc')))
 
 from AliRTCLinuxSdkDefine import *
 import AliRTCEngine
@@ -104,10 +109,14 @@ def sleepFor(seconds: float) -> None:
     loop.run_until_complete(internalSleep(seconds))
 
 def main():
+    # Python 3.10+ 不会自动创建事件循环，需要手动创建
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     eventHandler = EngineEventListener()
-    h5mode = False # 与Web端互通请设置为True，开启H5兼容模式
-    currentPath = os.getcwd()
-    coreServicePath = os.path.abspath(os.path.join(currentPath, "Release", "lib", "AliRtcCoreService"))
+    h5mode = True # 与Web端互通请设置为True，开启H5兼容模式
+    currentPath = os.path.dirname(os.path.abspath(__file__))
+    coreServicePath = os.path.abspath(os.path.join(currentPath, "..", "drivers", "ali_rtc", "Release", "lib", "AliRtcCoreService"))
     extra_jobj = {
         "user_specified_disable_audio_ranking": "true"
     }
@@ -115,30 +124,32 @@ def main():
     linuxEngine = AliRTCEngine.CreateAliRTCEngine(eventHandler, 42000, 45000, "/tmp", coreServicePath, h5mode, extra)
     
     authInfo = AuthInfo()
-    authInfo.appid = 'xxx'
-    appkey = 'xxx'
-    authInfo.userid = 'testUser'
-    authInfo.username = authInfo.userid
-    authInfo.channel = '12345'
+    authInfo.appid = '1295a524-ff41-4bfc-ba3f-7c1c786738cd'
+    appkey = '659fe17ceb1494befefd57559b094a0d'
+    authInfo.userid = 'python_terminal'
+    authInfo.username = 'Python终端'
+    authInfo.channel = 'test123'
     expire = datetime.datetime.now() + datetime.timedelta(days=1)
     authInfo.timestamp = int(time.mktime(expire.timetuple()))
     authInfo.token = linuxEngine.GenerateToken(authInfo, appkey)
 
     joinConfig = JoinChannelConfig()
-    joinConfig.channelProfile = ChannelProfile.ChannelProfileInteractiveLive
+    joinConfig.channelProfile = ChannelProfile.ChannelProfileInteractiveWithLowLatencyLive
     joinConfig.subscribeAudioFormat = AudioFormat.AudioFormatPcmBeforMixing
     joinConfig.subscribeVideoFormat = VideoFormat.VideoFormatH264
     joinConfig.isAudioOnly = False
-    joinConfig.publishAvsyncMode = PublishAvsyncMode.PublishAvsyncWithPts
+    joinConfig.publishAvsyncMode = PublishAvsyncMode.PublishAvsyncNoDelay
     joinConfig.subscribeMode = SubscribeMode.SubscribeAutomatically
     joinConfig.publishMode = PublishMode.PublishAutomatically
 
     linuxEngine.PublishLocalVideoStream(True)
     linuxEngine.PublishLocalAudioStream(True)
-    videoConfig = AliEngineVideoEncoderConfiguration(width=640, height=480, f=AliEngineFrameRate.AliEngineFrameRateFps15, b=512, \
+    videoConfig = AliEngineVideoEncoderConfiguration(width=1920, height=1080, f=AliEngineFrameRate.AliEngineFrameRateFps25, b=5000, \
                                                      ori=AliEngineVideoEncoderOrientationMode.AliEngineVideoEncoderOrientationModeAdaptive, \
                                                      mr=AliEngineVideoMirrorMode.AliEngineVideoMirrorModeDisabled, \
                                                      rotation=AliEngineRotationMode.AliEngineRotationMode_0)
+    videoConfig.keyFrameInterval = 500   # 0.5秒一个关键帧，快速清除残影
+    videoConfig.minBitrate = 3000
     linuxEngine.SetVideoEncoderConfiguration(videoConfig)
     linuxEngine.SetExternalVideoSource(True, sourceType=VideoSource.VideoSourceCamera, renderMode=RenderMode.RenderModeFill)
     linuxEngine.SetExternalAudioSource(True, sampleRate=16000, channelsPerFrame=1)
@@ -153,46 +164,70 @@ def main():
     input_thread.start()
 
     videoPushEnd, audioPushEnd = False, False
-    fps = 15
+    fps = 25
     audioSampleRate = 16000
     audioSampleChannel = 1
-    sampleMs = 1000//fps
+    sampleMs = 1000 // fps
     v_ts, a_ts = 0, 0
-    with open("/mnt/test.rgb", 'rb') as videoFile, open("/mnt/test.pcm", 'rb') as audioFile:
-        while not videoPushEnd or not audioPushEnd:
-            if stopSignal:
+    
+    # 打开真实摄像头
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("[Python] 摄像头打开失败！")
+        return
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    cap.set(cv2.CAP_PROP_FPS, fps)
+    videoWidth = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    videoHeight = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"[Python] 摄像头已打开: {videoWidth}x{videoHeight}")
+    frameSize = videoWidth * videoHeight * 3
+    
+    # 静音音频帧
+    frameLength = (audioSampleRate // 1000) * sampleMs * 2 * audioSampleChannel
+    silenceFrame = b'\x00' * frameLength
+    
+    frameInterval = 1.0 / fps
+    lastPushTime = 0
+    
+    while not videoPushEnd or not audioPushEnd:
+        if stopSignal:
+            break
+        
+        elapsed = time.time() - lastPushTime
+        
+        # 按帧率推视频帧
+        if not PushVideoFull and elapsed >= frameInterval:
+            ret, frame = cap.read()
+            if not ret:
+                print("[Python] 读帧失败，停止推流")
                 break
-            # construct video sample
-            if not PushVideoFull and not videoPushEnd:
-                videoSample = VideoDataSample()
-                videoSample.width = 720
-                videoSample.height = 1280
-                videoSample.strideY = videoSample.width
-                videoSample.strideU = videoSample.width
-                videoSample.strideV = videoSample.width
-                videoSample.dataLen = videoSample.width * videoSample.height * 3
-                videoSample.format = VideoDataFormat.VideoDataFormatRGB24
-                videoSample.bufferType = VideoBufferType.VideoBufferTypeRawData
-                videoSample.rotation = 0
-                videoSample.data = videoFile.read(videoSample.dataLen)
-                if not videoSample.data or len(videoSample.data) < videoSample.dataLen:
-                    videoPushEnd = True
-                else:
-                    videoSample.timeStamp = v_ts
-                    linuxEngine.PushExternalVideoFrame(videoSample, VideoSource.VideoSourceCamera)
-                    v_ts += 1000 // fps
-
-            # construct audio sample
-            if not PushAudioFull and not audioPushEnd:
-                frameLength = (audioSampleRate // 1000) * sampleMs * 2 * audioSampleChannel
-                audioSample = audioFile.read(frameLength)
-                if not audioSample or len(audioSample) < frameLength:
-                    audioPushEnd = True
-                else:
-                    linuxEngine.PushExternalAudioFrameRawData(audioSample, frameLength, a_ts)
-                    a_ts += sampleMs
-            
-            sleepFor(10/1000) # 10ms，PublishAvsyncWithPts模式下以时间戳为准
+            # OpenCV 读出来是 BGR，直接推 BGR 避免 RGB 转换开销
+            # 注意：BGR24 格式需要 SDK 支持，若不支持请保留 BGR→RGB 转换
+            videoSample = VideoDataSample()
+            videoSample.width = videoWidth
+            videoSample.height = videoHeight
+            videoSample.strideY = videoSample.width
+            videoSample.strideU = videoSample.width
+            videoSample.strideV = videoSample.width
+            videoSample.dataLen = frameSize
+            videoSample.format = VideoDataFormat.VideoDataFormatBGR24
+            videoSample.bufferType = VideoBufferType.VideoBufferTypeRawData
+            videoSample.rotation = 0
+            videoSample.data = frame.tobytes()
+            videoSample.timeStamp = v_ts
+            linuxEngine.PushExternalVideoFrame(videoSample, VideoSource.VideoSourceCamera)
+            v_ts += 1000 // fps
+            lastPushTime = time.time()
+        
+        # 推音频帧（按音频速率推送，避免每循环都推）
+        if not PushAudioFull:
+            linuxEngine.PushExternalAudioFrameRawData(silenceFrame, frameLength, a_ts)
+            a_ts += sampleMs
+        
+        time.sleep(0.001)
+    
+    cap.release()
 
     input_thread.join()
     # sleepFor(20) # 等待素材播放完成
@@ -206,6 +241,3 @@ def main():
     linuxEngine.Release() # 建议离会后再释放资源
     linuxEngine = None
 
-
-if __name__ == '__main__':
-    main()
