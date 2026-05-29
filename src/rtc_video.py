@@ -114,7 +114,7 @@ def main():
     eventHandler = EngineEventListener()
     h5mode = True # 与Web端互通请设置为True，开启H5兼容模式
     currentPath = os.path.dirname(os.path.abspath(__file__))
-    coreServicePath = os.path.abspath(os.path.join(currentPath, "..", "drivers", "ali_rtc", "Release", "lib", "AliRtcCoreService"))
+    coreServicePath = os.path.abspath(os.path.join(currentPath, "..", "drivers", "ali_rtc", "Release", "native", "AliRtcCoreService"))
     extra_jobj = {
         "user_specified_disable_audio_ranking": "true"
     }
