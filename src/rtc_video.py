@@ -157,9 +157,14 @@ def main():
     linuxEngine.JoinChannel(authInfo.token, authInfo.channel, authInfo.userid, authInfo.username, joinConfig)
 
     input_thread = threading.Thread(target=get_input, args=(linuxEngine,))
+    
+    # 优化：等待推流就绪后再启动输入线程
     while not startPush:
         sleepFor(0.1)
     input_thread.start()
+    
+    print("[Python] 推流已就绪，正在等待观众...")
+    print("[Python] 提示：即使没有观众，推流也会产生费用！")
 
     fps = 25
     audioSampleRate = 16000

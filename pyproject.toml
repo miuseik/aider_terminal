@@ -20,6 +20,12 @@ dependencies = [
     "scipy",
     "pyyaml",
     "opencv-python",
+    # Pink IK Solver dependencies
+    "meshcat_shapes",
+    "qpsolvers",
+    "loop_rate_limiters",
+    "quadprog",
+    "pin-pink",
 ]
 
 requires-python = ">=3.8"
@@ -31,6 +37,13 @@ dev = [
     "black",
     "flake8",
     "mypy",
+]
+pink = [
+    "meshcat_shapes",
+    "qpsolvers",
+    "loop_rate_limiters",
+    "quadprog",
+    "pin-pink",
 ]
 
 [project.scripts]
