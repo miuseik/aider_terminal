@@ -288,19 +288,19 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_REMOTE_USER_ONLINE_NOTIFY:
                     uid = parsed_message['uid']
-                    self.__logger.info('[Python] on remote online: {uid}')
+                    self.__logger.info(f'[Python] on remote online: {uid}')
                     self.__eventHandler.OnRemoteUserOnLineNotify(uid)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_REMOTE_USER_OFFLINE_NOTIFY:
                     uid = parsed_message['uid']
-                    self.__logger.info('[Python] on remote offline: {uid}')
+                    self.__logger.info(f'[Python] on remote offline: {uid}')
                     self.__eventHandler.OnRemoteUserOffLineNotify(uid)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_REMOTE_TRACK_AVAILABLE_NOTIFY:
                     uid = parsed_message['uid']
                     audioTrack = AudioTrack(parsed_message['audioTrack'])
                     videoTrack = VideoTrack(parsed_message['videoTrack'])
-                    self.__logger.info('[Python] on {uid}\'s remote audio track: {audioTrack.value}, remote video track {videoTrack.value}')
+                    self.__logger.info(f'[Python] on {uid}\'s remote audio track: {audioTrack.value}, remote video track {videoTrack.value}')
                     self.__eventHandler.OnRemoteTrackAvailableNotify(uid, audioTrack, videoTrack)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_VIDEO_SUBSCRIBE_STATE_CHANGED:
@@ -309,7 +309,7 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                     newState = AliEngineSubscribeState(parsed_message['newState'])
                     elapseSinceLastState = parsed_message['elapseSinceLastState']
                     channel = parsed_message['channel']
-                    self.__logger.info('[Python] on {uid}\'s v sub state changed, oldState: {oldState.value}, newState: {newState.value}')
+                    self.__logger.info(f'[Python] on {uid}\'s v sub state changed, oldState: {oldState.value}, newState: {newState.value}')
                     self.__eventHandler.OnVideoSubscribeStateChanged(uid, oldState, newState, elapseSinceLastState, channel)
 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_AUDIO_SUBSCRIBE_STATE_CHANGED:
@@ -318,7 +318,7 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                     newState = AliEngineSubscribeState(parsed_message['newState'])
                     elapseSinceLastState = parsed_message['elapseSinceLastState']
                     channel = parsed_message['channel']
-                    self.__logger.info('[Python] on {uid}\'s a sub state changed, oldState: {oldState.value}, newState: {newState.value}')
+                    self.__logger.info(f'[Python] on {uid}\'s a sub state changed, oldState: {oldState.value}, newState: {newState.value}')
                     self.__eventHandler.OnAudioSubscribeStateChanged(uid, oldState, newState, elapseSinceLastState, channel)
 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_SUBSCRIBE_STREAM_TYPE_CHANGED:
@@ -356,7 +356,7 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                     newState = AliEnginePublishState(parsed_message['newState'])
                     elapseSinceLastState = parsed_message['elapseSinceLastState']
                     channel = parsed_message['channel']
-                    self.__logger.info('[Python] on {uid}\'s v pub state changed, oldState: {oldState.value}, newState: {newState.value}')
+                    self.__logger.info(f'[Python] on v pub state changed, oldState: {oldState.value}, newState: {newState.value}')
                     self.__eventHandler.OnVideoPublishStateChanged(oldState, newState, elapseSinceLastState, channel)
 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_AUDIO_PUBLISH_STATE_CHANGED:
@@ -364,19 +364,19 @@ class AliRtcEngineImpl(AliRTCEngineInterface):
                     newState = AliEnginePublishState(parsed_message['newState'])
                     elapseSinceLastState = parsed_message['elapseSinceLastState']
                     channel = parsed_message['channel']
-                    self.__logger.info('[Python] on {uid}\'s a pub state changed, oldState: {oldState.value}, newState: {newState.value}')
+                    self.__logger.info(f'[Python] on a pub state changed, oldState: {oldState.value}, newState: {newState.value}')
                     self.__eventHandler.OnAudioPublishStateChanged(oldState, newState, elapseSinceLastState, channel)
 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_UPDATE_ROLE_NOTIFY:
                     oldRole = AliEngineClientRole(parsed_message['oldRole'])
                     newRole = AliEngineClientRole(parsed_message['newRole'])
-                    self.__logger.info('[Python] on update role, oldRole: {oldRole.value}, newRole: {newRole.value}')
+                    self.__logger.info(f'[Python] on update role, oldRole: {oldRole.value}, newRole: {newRole.value}')
                     self.__eventHandler.OnUpdateRoleNotify(oldRole, newRole)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_CONNECTION_STATUS_CHANGE:
                     netStatus = AliEngineConnectionStatus(parsed_message['status'])
                     netReason = AliEngineConnectionStatusChangeReason(parsed_message['reason'])
-                    self.__logger.info('[Python] on connection status changed, status: {netStatus.value}. reason: {netReason.value}')
+                    self.__logger.info(f'[Python] on connection status changed, status: {netStatus.value}. reason: {netReason.value}')
                     self.__eventHandler.OnConnectionStatusChanged(netStatus, netReason)
                 
                 elif parsed_message[self.__REQSTRING] == self.__CALLBACK_ON_MEDIA_EXTENSION_MSG:

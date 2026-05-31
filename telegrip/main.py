@@ -38,7 +38,6 @@ from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
 from .inputs.vr_handler import VRHandler
 from .inputs.ws_client import VRWebSocketClient
-from .inputs.webrtc_streamer import WebRTCStreamer
 from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
 import src.rtc_video as rtc_video
@@ -71,10 +70,6 @@ class TelegripSystem:
         
         self.vr_ws_client = VRWebSocketClient(config, self.vr_handler, self.motor_router)
         MotorRouter.set_ws_client(self.vr_ws_client)  # 设置 ws_client 引用
-        
-        # 初始化 WebRTC 推流器
-        self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, config)
-        self.vr_ws_client.webrtc_streamer = self.webrtc_streamer  # 关联到 ws_client
         
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
@@ -211,10 +206,6 @@ class TelegripSystem:
             
             self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler, self.motor_router)
             MotorRouter.set_ws_client(self.vr_ws_client)
-            
-            # 重新初始化 WebRTC 推流器
-            self.webrtc_streamer = WebRTCStreamer(self.vr_ws_client, self.config)
-            self.vr_ws_client.webrtc_streamer = self.webrtc_streamer
             
             self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
@@ -369,13 +360,6 @@ class TelegripSystem:
         except Exception as e:
             print(f"断开 VR WebSocket 客户端时出错: {e}")
         
-        # 停止 WebRTC 推流
-        if self.webrtc_streamer:
-            try:
-                await self.webrtc_streamer.stop_streaming()
-            except Exception as e:
-                print(f"停止 WebRTC 推流器时出错: {e}")
-
         # 停止 AliRTC 推流
         rtc_video.stopSignal = True
 

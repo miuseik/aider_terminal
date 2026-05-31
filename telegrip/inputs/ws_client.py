@@ -23,7 +23,6 @@ class VRWebSocketClient:
         self.motor_router = motor_router
         self.transport = WSTransport(config)
         self.client_id = "terminal"  # Terminal 始终使用此 ID
-        self.webrtc_streamer = None  # WebRTC 推流器
         
         # 注册消息回调
         self.transport.on_message(self._handle_message)
@@ -40,19 +39,6 @@ class VRWebSocketClient:
         """处理来自传输层的传入消息。"""
         try:
             data = decode_message(raw_message)
-            
-            # 检查是否为 WebRTC Answer
-            if data.get('type') == 'answer':
-                if self.webrtc_streamer:
-                    await self.webrtc_streamer.handle_answer(data)
-                return
-            
-            # 检查是否为重连请求(UI 刷新后触发)
-            if data.get('type') == 'reconnect':
-                print("🔄 收到重连请求,重新发送 WebRTC Offer")
-                if self.webrtc_streamer:
-                    await self.webrtc_streamer.restart_streaming()
-                return
             
             # 检查是否为 API 命令
             if data.get('type') == 'api_command':

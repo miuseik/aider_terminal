@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "启用了阿里云的Rtc";git push
+git add ./;git commit -m "删除自己写的rtc，使用artc";git push
 ```
 
 ```bash
