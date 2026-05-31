@@ -19,7 +19,7 @@ ssh gaoda@192.168.110.90
 conda activate aider
 ```
 ```bash
-pip install -e .
+pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ### 开发/测试模式
@@ -89,6 +89,15 @@ https://github.com/user-attachments/assets/e21168b5-e9b4-4c83-ab4d-a15cb470d11b
 1. **机器人硬件**：一个或两个带有 USB-串行连接的 SO100 机械臂
 2. **Python 环境**：Python 3.8+ 及所需包
 3. **VR 设置**（可选）：支持 WebXR 的 Meta Quest 或其他头显（无需安装应用！）
+4. **编译工具**：`pybullet` 和 `evdev` 包含 C/C++ 扩展，需要编译工具
+
+   ```bash
+   # 方式一：通过系统包管理器安装
+   sudo apt-get install -y build-essential gcc g++
+
+   # 方式二：通过 conda 安装（无需 sudo）
+   conda install -c conda-forge gcc gxx -y
+   ```
 
 
 
