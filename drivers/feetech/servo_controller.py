@@ -362,7 +362,7 @@ class ServoController:
         try:
             self.port_handler = PortHandler(self.port)
             self.packet_handler = sms_sts(self.port_handler)
-
+            
             if not self.port_handler.openPort():
                 return False, f"Cannot open port {self.port}"
 

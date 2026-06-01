@@ -106,23 +106,16 @@ class ST3215Driver:
         offset = self.id_to_offset.get(servo_id, 0.0)
         angle_with_offset = angle + offset
         
-        # print(f"   [DEBUG] ID={servo_id}, 角度={angle}°, 偏移={offset:.2f}°, 实际={angle_with_offset:.2f}°")
-        
         # ✅ 角度转脉冲值 (-180°~180° -> 0-4095)
-        # 先将 -180~180 映射到 0~360，再转换为脉冲
         normalized_angle = angle_with_offset + 180  # -180~180 -> 0~360
         position = int((normalized_angle / 360.0) * 4095)
-        
-        # 限制位置范围在 0-4095 之间
         position = max(0, min(4095, position))
         
-        if position != int(((angle_with_offset + 180) / 360.0) * 4095):
-            print(f"   ⚠️ 位置已限制到有效范围: {position}")
-        
-        # Print 发送的指令
-        # print(f"📤 [ST3215] 发送角度指令 → ID={servo_id}, Angle={angle}°, Position={position}, Time={time_ms}ms, Port={self.port}")
-        
         return self.set_position(servo_id, position, time_ms)
+    
+    def set_angle(self, servo_id: int, angle_deg: float, time_ms: int = 500) -> bool:
+        """统一的角度控制接口（别名，兼容 motor_controller）"""
+        return self.move_to_angle(servo_id, angle_deg, time_ms)
     
     def set_velocity_mode(self, servo_id: int) -> bool:
         """设置为速度模式（轮式模式，连续旋转）"""
@@ -272,3 +265,33 @@ class ST3215Driver:
         except Exception as e:
             print(f"❌ 重置舵机失败: {e}")
             return False
+    
+    def read_status(self, servo_id: int) -> Optional[Dict]:
+        """读取舵机状态"""
+        if not self.is_connected:
+            return None
+        try:
+            status = self.controller.read_status(servo_id)
+            if status:
+                position = status.get('position', 0)
+                angle = (position / 4095.0) * 360.0 - 180.0
+                return {
+                    'servo_id': servo_id,
+                    'port': self.port,
+                    'position': position,
+                    'angle': round(angle, 2),
+                    'voltage': status.get('voltage', 0),
+                    'temperature': status.get('temperature', 0),
+                    'current': status.get('present_current', 0),
+                    'speed': status.get('speed', 0),
+                    'load': status.get('load', 0),
+                    'mode': 'position',
+                    'torque_enabled': True
+                }
+            return None
+        except Exception:
+            return None
+    
+    def get_status(self, servo_id: int) -> Optional[Dict]:
+        """统一的状态查询接口（别名，兼容 motor_controller）"""
+        return self.read_status(servo_id)
