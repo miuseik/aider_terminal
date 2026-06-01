@@ -11,6 +11,10 @@ pynput
 aiortc
 requests
 opencv-python
+<<<<<<< HEAD
+=======
+# feetech-servo-sdk 已 vendored 到 drivers/feetech/scservo_sdk/ (避免外部依赖风险)
+>>>>>>> 78103c8 (ling zu shidai)
 # RobStride 灵足电机驱动（基于官方 el_a3_sdk，无需额外 pip 安装）
 # 注意：需要配置 SocketCAN 接口和 Canable USB2CAN 适配器
 # 系统依赖: sudo apt-get install can-utils

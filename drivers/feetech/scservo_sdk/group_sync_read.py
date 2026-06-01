@@ -3,7 +3,12 @@
 from .scservo_def import *
 
 class GroupSyncRead:
+<<<<<<< HEAD
     def __init__(self, ph, start_address, data_length):
+=======
+    def __init__(self, port, ph, start_address, data_length):
+        self.port = port
+>>>>>>> 78103c8 (ling zu shidai)
         self.ph = ph
         self.start_address = start_address
         self.data_length = data_length
@@ -46,22 +51,34 @@ class GroupSyncRead:
 
     def txPacket(self):
         if len(self.data_dict.keys()) == 0:
+<<<<<<< HEAD
 
+=======
+>>>>>>> 78103c8 (ling zu shidai)
             return COMM_NOT_AVAILABLE
 
         if self.is_param_changed is True or not self.param:
             self.makeParam()
 
+<<<<<<< HEAD
         return self.ph.syncReadTx(self.start_address, self.data_length, self.param, len(self.data_dict.keys()))
 
     def rxPacket(self):
         self.last_result = True
+=======
+        return self.ph.syncReadTx(self.port, self.start_address, self.data_length, self.param,
+                                  len(self.data_dict.keys()) * 1)
+
+    def rxPacket(self):
+        self.last_result = False
+>>>>>>> 78103c8 (ling zu shidai)
 
         result = COMM_RX_FAIL
 
         if len(self.data_dict.keys()) == 0:
             return COMM_NOT_AVAILABLE
 
+<<<<<<< HEAD
         result, rxpacket = self.ph.syncReadRx(self.data_length, len(self.data_dict.keys()))
         # print(rxpacket)
         if len(rxpacket) >= (self.data_length+6):
@@ -73,6 +90,16 @@ class GroupSyncRead:
         else:
             self.last_result = False
         # print(self.last_result)
+=======
+        for scs_id in self.data_dict:
+            self.data_dict[scs_id], result, _ = self.ph.readRx(self.port, scs_id, self.data_length)
+            if result != COMM_SUCCESS:
+                return result
+
+        if result == COMM_SUCCESS:
+            self.last_result = True
+
+>>>>>>> 78103c8 (ling zu shidai)
         return result
 
     def txRxPacket(self):
@@ -82,6 +109,7 @@ class GroupSyncRead:
 
         return self.rxPacket()
 
+<<<<<<< HEAD
     def readRx(self, rxpacket, scs_id, data_length):
         # print(scs_id)
         # print(rxpacket)
@@ -149,3 +177,33 @@ class GroupSyncRead:
                                               self.data_dict[scs_id][address-self.start_address+4]))
         else:
             return 0
+=======
+    def isAvailable(self, scs_id, address, data_length):
+        #if self.last_result is False or scs_id not in self.data_dict:
+        if scs_id not in self.data_dict:
+            return False
+
+        if (address < self.start_address) or (self.start_address + self.data_length - data_length < address):
+            return False
+
+        if len(self.data_dict[scs_id])<data_length:
+            return False
+        return True
+
+    def getData(self, scs_id, address, data_length):
+        if not self.isAvailable(scs_id, address, data_length):
+            return 0
+
+        if data_length == 1:
+            return self.data_dict[scs_id][address - self.start_address]
+        elif data_length == 2:
+            return SCS_MAKEWORD(self.data_dict[scs_id][address - self.start_address],
+                                self.data_dict[scs_id][address - self.start_address + 1])
+        elif data_length == 4:
+            return SCS_MAKEDWORD(SCS_MAKEWORD(self.data_dict[scs_id][address - self.start_address + 0],
+                                              self.data_dict[scs_id][address - self.start_address + 1]),
+                                 SCS_MAKEWORD(self.data_dict[scs_id][address - self.start_address + 2],
+                                              self.data_dict[scs_id][address - self.start_address + 3]))
+        else:
+            return 0
+>>>>>>> 78103c8 (ling zu shidai)

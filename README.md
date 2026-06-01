@@ -90,8 +90,20 @@ https://github.com/user-attachments/assets/e21168b5-e9b4-4c83-ab4d-a15cb470d11b
 2. **Python 环境**：Python 3.8+ 及所需包
 3. **VR 设置**（可选）：支持 WebXR 的 Meta Quest 或其他头显（无需安装应用！）
 
+### 依赖说明
 
+#### feetech-servo-sdk (ST3215 舵机驱动)
 
+`scservo_sdk` 模块已 **vendored**（内置）到项目中，位于 `drivers/feetech/scservo_sdk/`。
+
+**优势：**
+- ✅ 无需额外安装步骤
+- ✅ 不依赖外部 GitHub 仓库（避免删库风险）
+- ✅ 版本固定，保证稳定性
+- ✅ `pip install -r requirements.txt` 即可使用
+
+**原始来源**：https://github.com/Adam-Software/FEETECH-Servo-Python-SDK  
+**用途**：ST3215 舵机通信和控制
 
 ### 包安装
 

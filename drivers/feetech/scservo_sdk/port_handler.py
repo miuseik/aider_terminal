@@ -5,8 +5,14 @@ import serial
 import sys
 import platform
 
+<<<<<<< HEAD
 DEFAULT_BAUDRATE = 1000000
 LATENCY_TIMER = 50 
+=======
+LATENCY_TIMER = 16
+DEFAULT_BAUDRATE = 1000000
+
+>>>>>>> 78103c8 (ling zu shidai)
 
 class PortHandler(object):
     def __init__(self, port_name):
@@ -64,7 +70,11 @@ class PortHandler(object):
 
     def setPacketTimeout(self, packet_length):
         self.packet_start_time = self.getCurrentTime()
+<<<<<<< HEAD
         self.packet_timeout = (self.tx_time_per_byte * packet_length) + (self.tx_time_per_byte * 3.0) + LATENCY_TIMER
+=======
+        self.packet_timeout = (self.tx_time_per_byte * packet_length) + (LATENCY_TIMER * 2.0) + 2.0
+>>>>>>> 78103c8 (ling zu shidai)
 
     def setPacketTimeoutMillis(self, msec):
         self.packet_start_time = self.getCurrentTime()

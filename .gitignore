@@ -87,3 +87,6 @@ cert.pem
 
 # AI-assistant notes
 CLAUDE.md
+
+# Runtime logs
+terminal.log

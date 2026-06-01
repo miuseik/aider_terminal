@@ -4,8 +4,16 @@
 import threading
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, asdict
+<<<<<<< HEAD
 from .scservo_sdk import PortHandler, sms_sts
 from .scservo_sdk.scservo_def import COMM_SUCCESS
+=======
+# 飞特 ST3215 舵机 SDK (vendored)
+# 来源: https://github.com/Adam-Software/FEETECH-Servo-Python-SDK
+# 已复制到项目 drivers/feetech/scservo_sdk/ 目录，避免外部依赖风险
+from .scservo_sdk import PortHandler, PacketHandler, COMM_SUCCESS
+# import feetech-servo-sdk.scservo_sdk as scs
+>>>>>>> 78103c8 (ling zu shidai)
 
 # SCS 舵机寄存器地址 (EEPROM - 持久化，写入需要解锁)
 ADDR_SCS_ID = 5                    # 舵机ID (1-253)
