@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "删除自己写的rtc，使用artc";git push
+git add ./;git commit -m "视频添加了暂停功能";git push
 ```
 
 ```bash

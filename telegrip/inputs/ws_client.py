@@ -3,13 +3,12 @@ WebSocket 客户端 - 连接到 Aider Server。
 处理 VR 客户端和服务器之间的双向消息转发。
 """
 
-import asyncio
 import json
 import logging
-from typing import Optional
 
 from .socket.ws_transport import WSTransport
 from .socket.ws_protocol import encode_message, decode_message
+from controller.video_controller import VideoController
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,9 @@ class VRWebSocketClient:
         self.motor_router = motor_router
         self.transport = WSTransport(config)
         self.client_id = "terminal"  # Terminal 始终使用此 ID
+        
+        # 初始化视频控制器
+        self.video_controller = VideoController()
         
         # 注册消息回调
         self.transport.on_message(self._handle_message)
@@ -68,11 +70,15 @@ class VRWebSocketClient:
     async def handle_api_command(self, data: dict):
         """处理来自服务器的 API 命令。"""
         category = data.get('category')
-        print(f"😃来活了",data)
+        action = data.get('action', '')
+        print(f"😃来活了", data)
         
         if category == 'motor':
             print("处理 motor 数据", data)
             self.motor_router.route(data)
+        elif category == 'video':
+            # ws_client 的使命结束，剩下的交给视频控制器
+            self.video_controller.handle_command(action)
         elif hasattr(self.vr_handler, 'process_message'):
             print("处理 键盘 数据", data)
             await self.vr_handler.process_message(json.dumps(data))
