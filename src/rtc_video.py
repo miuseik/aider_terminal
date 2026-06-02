@@ -14,6 +14,7 @@ from AliRTCLinuxSdkDefine import *
 import AliRTCEngine
 
 stopSignal = False
+isRunning = False  # 新增：跟踪视频流是否运行中
 PushAudioFull, PushVideoFull = False, False
 startPush = False
 
@@ -107,6 +108,10 @@ def sleepFor(seconds: float) -> None:
     loop.run_until_complete(internalSleep(seconds))
 
 def main():
+    # 必须在函数体最开始声明所有全局变量
+    global isRunning, PushVideoFull, PushAudioFull, startPush, stopSignal
+    isRunning = True
+
     # Python 3.10+ 不会自动创建事件循环，需要手动创建
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -173,72 +178,84 @@ def main():
     v_ts, a_ts = 0, 0
     
     # 打开真实摄像头
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("[Python] 摄像头打开失败！")
-        return
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-    cap.set(cv2.CAP_PROP_FPS, fps)
-    videoWidth = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    videoHeight = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[Python] 摄像头已打开: {videoWidth}x{videoHeight}")
-    frameSize = videoWidth * videoHeight * 3
-    
-    # 静音音频帧
-    frameLength = (audioSampleRate // 1000) * sampleMs * 2 * audioSampleChannel
-    silenceFrame = b'\x00' * frameLength
-    
-    frameInterval = 1.0 / fps
-    lastPushTime = 0
-    
-    while True:
-        if stopSignal:
-            break
-        
-        elapsed = time.time() - lastPushTime
-        
-        # 按帧率推视频帧
-        if not PushVideoFull and elapsed >= frameInterval:
-            ret, frame = cap.read()
-            if not ret:
-                print("[Python] 读帧失败，停止推流")
-                break
-            # OpenCV 读出来是 BGR，直接推 BGR 避免 RGB 转换开销
-            # 注意：BGR24 格式需要 SDK 支持，若不支持请保留 BGR→RGB 转换
-            videoSample = VideoDataSample()
-            videoSample.width = videoWidth
-            videoSample.height = videoHeight
-            videoSample.strideY = videoSample.width
-            videoSample.strideU = videoSample.width
-            videoSample.strideV = videoSample.width
-            videoSample.dataLen = frameSize
-            videoSample.format = VideoDataFormat.VideoDataFormatBGR24
-            videoSample.bufferType = VideoBufferType.VideoBufferTypeRawData
-            videoSample.rotation = 0
-            videoSample.data = frame.tobytes()
-            videoSample.timeStamp = v_ts
-            linuxEngine.PushExternalVideoFrame(videoSample, VideoSource.VideoSourceCamera)
-            v_ts += 1000 // fps
-            lastPushTime = time.time()
-        
-        # 推音频帧（按音频速率推送，避免每循环都推）
-        if not PushAudioFull:
-            linuxEngine.PushExternalAudioFrameRawData(silenceFrame, frameLength, a_ts)
-            a_ts += sampleMs
-        
-        time.sleep(0.001)
-    
-    cap.release()
+    cap = None
+    try:
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("[Python] 摄像头打开失败！")
+        else:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+            cap.set(cv2.CAP_PROP_FPS, fps)
+            videoWidth = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            videoHeight = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            print(f"[Python] 摄像头已打开: {videoWidth}x{videoHeight}")
+            frameSize = videoWidth * videoHeight * 3
+            
+            # 静音音频帧
+            frameLength = (audioSampleRate // 1000) * sampleMs * 2 * audioSampleChannel
+            silenceFrame = b'\x00' * frameLength
+            
+            frameInterval = 1.0 / fps
+            lastPushTime = 0
+            
+            while True:
+                if stopSignal:
+                    break
+                
+                elapsed = time.time() - lastPushTime
+                
+                # 按帧率推视频帧
+                if not PushVideoFull and elapsed >= frameInterval:
+                    ret, frame = cap.read()
+                    if not ret:
+                        print("[Python] 读帧失败，停止推流")
+                        break
+                    # OpenCV 读出来是 BGR，直接推 BGR 避免 RGB 转换开销
+                    videoSample = VideoDataSample()
+                    videoSample.width = videoWidth
+                    videoSample.height = videoHeight
+                    videoSample.strideY = videoSample.width
+                    videoSample.strideU = videoSample.width
+                    videoSample.strideV = videoSample.width
+                    videoSample.dataLen = frameSize
+                    videoSample.format = VideoDataFormat.VideoDataFormatBGR24
+                    videoSample.bufferType = VideoBufferType.VideoBufferTypeRawData
+                    videoSample.rotation = 0
+                    videoSample.data = frame.tobytes()
+                    videoSample.timeStamp = v_ts
+                    linuxEngine.PushExternalVideoFrame(videoSample, VideoSource.VideoSourceCamera)
+                    v_ts += 1000 // fps
+                    lastPushTime = time.time()
+                
+                # 推音频帧（按音频速率推送，避免每循环都推）
+                if not PushAudioFull:
+                    linuxEngine.PushExternalAudioFrameRawData(silenceFrame, frameLength, a_ts)
+                    a_ts += sampleMs
+                
+                time.sleep(0.001)
+    finally:
+        if cap is not None:
+            cap.release()
+            print("[Python] 摄像头已释放")
 
-    input_thread.join()
+    # 注意：这里不调用 input_thread.join()，因为 input_thread 只是等待用户输入"exit"，
+    # 这个输入永远不会来，join() 会永远阻塞
+    # input_thread.join()
     # sleepFor(20) # 等待素材播放完成
+
+    isRunning = False  # 标记推流已停止
 
     linuxEngine.PublishLocalVideoStream(False)
     linuxEngine.PublishLocalAudioStream(False)
     linuxEngine.LeaveChannel()
 
-    while not stopSignal:
-        sleepFor(1)
-    linuxEngine.Release() # 建议离会后再释放资源
+    # 不再等待 stopSignal，因为我们已经处理完退出逻辑了
+    # linuxEngine.Release() 会释放资源
+    try:
+        print("[Python] 释放 AliRTC 引擎...")
+        linuxEngine.Release()
+        print("[Python] AliRTC 引擎已释放")
+    except Exception as e:
+        print(f"[Python] Release 时出错: {e}")
 
