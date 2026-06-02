@@ -165,16 +165,22 @@ class MotorController:
         """在指定串口/CAN接口扫描电机（自动识别品牌）"""
         found_servos = []
         brands_to_try = ['robstride'] if 'can' in port.lower() else ['feetech']
+        
+        print(f"🔍 开始扫描 {port}, 品牌: {brands_to_try}")
             
         for brand in brands_to_try:
             try:
                 driver = self._get_or_create_driver(port, brand)
+                print(f"   驱动状态: driver={driver is not None}, connected={driver.is_connected if driver else False}")
                 if not driver or not driver.is_connected:
+                    print(f"   ⚠️ 驱动未连接，跳过")
                     continue
                     
                 if brand.lower() == 'robstride':
                     # ✅ 调用驱动的扫描方法
+                    print(f"   🔄 调用 RobStride scan_motors({start_id}, {end_id})")
                     found_ids = driver.scan_motors(start_id, end_id)
+                    print(f"   ✅ 扫描返回 IDs: {found_ids}")
                     for motor_id in found_ids:
                         servo_info = ServoInfo(port=port, servo_id=motor_id, brand='robstride', model='RS-00', is_online=True)
                         found_servos.append(servo_info)
@@ -188,7 +194,10 @@ class MotorController:
                     
                 if found_servos:
                     break
-            except Exception:
+            except Exception as e:
+                print(f"   ❌ 扫描异常: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
             
         return found_servos
@@ -548,8 +557,8 @@ class MotorController:
                         self.drivers[port] = driver
                         return driver
                 elif brand.lower() == 'robstride':
-                    from drivers.robStride import RobStrideOfficialDriver
-                    driver = RobStrideOfficialDriver(can_interface='can0')
+                    from drivers.robStride.robstride_official_driver import RobStrideOfficialDriver
+                    driver = RobStrideOfficialDriver(can_interface=port if 'can' in port.lower() else 'can0')
                     # ✅ 不预先注册电机，让扫描时动态添加
                     if driver.connect():
                         self.drivers[port] = driver

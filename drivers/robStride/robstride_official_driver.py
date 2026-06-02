@@ -174,43 +174,47 @@ class RobStrideOfficialDriver:
             return False
     
     def ping(self, motor_id: int) -> bool:
-        """Ping 电机（快速检测是否存在）"""
+        """Ping 电机（使用官方 SDK）"""
         if not self._connected:
+            print(f"   ⚠️ Ping {motor_id}: 驱动未连接")
             return False
         try:
-            # ✅ 使用官方 SDK 的 ping_by_id，快速且不需要使能
-            result = self._bus.ping_by_id(motor_id, timeout=0.1)
-            return result is not None
+            # ✅ 临时注册电机到 bus.motors
+            from .robstride_dynamics import Motor as RSDMotor
+            motor_key = f"motor_{motor_id}"
+            
+            # 保存旧 motors，避免影响其他操作
+            old_motors = dict(self._bus.motors)
+            self._bus.motors.clear()
+            self._bus.motors[motor_key] = RSDMotor(id=motor_id, model='rs-02')
+            
+            # 使用官方 SDK 的 ping_by_id
+            result = self._bus.ping_by_id(motor_id, timeout=0.05)
+            
+            # 恢复旧 motors
+            self._bus.motors.clear()
+            self._bus.motors.update(old_motors)
+            
+            success = result is not None
+            if success:
+                print(f"   ✅ Ping {motor_id}: 成功")
+            return success
         except Exception as e:
+            print(f"   ❌ Ping {motor_id} 异常: {e}")
             return False
     
     def scan_motors(self, start_id: int = 1, end_id: int = 253) -> list:
-        """扫描电机（先试 127，再扫范围）"""
-        from .robstride_dynamics import Motor as RSDMotor
+        """扫描电机（直接 ping，不注册到 motors）"""
         found_ids = []
         
-        # ✅ 清空旧 motors，避免 ID 冲突
-        self._bus.motors.clear()
-        
-        # 1. 先试 ID 127
-        self._bus.motors['motor_127'] = RSDMotor(id=127, model='rs-02')
-        if self.ping(127):
-            state = self.get_feedback(127)
-            if state:
-                found_ids.append(127)
-        
-        # 2. 再扫指定范围（排除已找到的）
+        # 扫描指定范围
         for motor_id in range(start_id, end_id + 1):
-            if motor_id in found_ids:
-                continue
-            # 注册当前 motor
-            motor_key = f"motor_{motor_id}"
-            self._bus.motors[motor_key] = RSDMotor(id=motor_id, model='rs-02')
-            
             if self.ping(motor_id):
+                # ✅ 找到后获取反馈信息验证
                 state = self.get_feedback(motor_id)
                 if state:
                     found_ids.append(motor_id)
+                    print(f"   🎯 找到电机 ID: {motor_id}")
         
         return found_ids
     
