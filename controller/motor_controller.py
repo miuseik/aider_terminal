@@ -103,7 +103,7 @@ class MotorController:
         从 Server API 加载舵机配置（只调用一次，缓存结果）
         """
         try:
-            from api.server_api_client import ServerAPIClient
+            from comm.api.client import ServerAPIClient
             api_client = ServerAPIClient()
             self._servo_config_cache = api_client.get_servo_ids_config()
             

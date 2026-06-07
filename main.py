@@ -4,11 +4,17 @@ Telegrip Terminal 启动脚本。
 直接运行此文件即可启动终端控制系统。
 
 用法:
-    python main.py [--no-robot] [--log-level LEVEL]
+    python main.py [--no-robot] [--log-level LEVEL] [--robot-type TYPE]
 
 选项:
     --no-robot      无机器人模式(仅仿真)
     --log-level     日志级别 (debug/info/warning/error/critical)
+    --robot-type    机器人类型 (aider/aloha/openarmx/custom)
+
+示例:
+    python main.py --robot-type aider        # 控制 Aider 机器人
+    python main.py --robot-type aloha        # 控制 Aloha 机器人
+    python main.py --robot-type openarmx     # 控制 OpenArmX 机器人
 """
 
 import sys
@@ -63,10 +69,10 @@ os.environ['CUDA_VISIBLE_DEVICES'] = ''
 # 解决 PyTorch OpenMP 库冲突问题
 # os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-# 确保可以导入 telegrip 包
+# 确保可以导入 app 模块
 sys.path.insert(0, os.path.dirname(__file__))
 
-from telegrip.main import main
+from app import main
 
 if __name__ == "__main__":
     # 默认使用 info 日志级别

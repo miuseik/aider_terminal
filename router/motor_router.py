@@ -198,7 +198,7 @@ class MotorRouter:
             }
             
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
-                from telegrip.inputs.socket.ws_protocol import encode_message
+                from comm.websocket.protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
                 print(f"✅ 舵机信息已发送到 Server")
             else:
@@ -286,7 +286,7 @@ class MotorRouter:
             }
             
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
-                from telegrip.inputs.socket.ws_protocol import encode_message
+                from comm.websocket.protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
                 print(f"✅ 舵机 ID 配置已发送到 Server")
             else:
@@ -317,7 +317,7 @@ class MotorRouter:
             }
             
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
-                from telegrip.inputs.socket.ws_protocol import encode_message
+                from comm.websocket.protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
                 print(f"✅ 网络信息已发送到 Server")
             else:
@@ -391,7 +391,7 @@ class MotorRouter:
             }
             
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
-                from telegrip.inputs.socket.ws_protocol import encode_message
+                from comm.websocket.protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
                 print(f"✅ 扫描结果已发送到 Server")
             else:
@@ -431,7 +431,7 @@ class MotorRouter:
             }
             
             if MotorRouter._ws_client and hasattr(MotorRouter._ws_client, 'transport'):
-                from telegrip.inputs.socket.ws_protocol import encode_message
+                from comm.websocket.protocol import encode_message
                 await MotorRouter._ws_client.transport.send_raw(encode_message(result_message))
                 print(f"✅ 串口列表已发送到 Server")
             else:
