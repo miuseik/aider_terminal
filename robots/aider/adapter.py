@@ -238,6 +238,18 @@ class AiderAdapter:
         self.base_vy = vy
         self.base_vtheta = vtheta
 
+    def _compute_wheel_omegas(self) -> np.ndarray:
+        """计算四轮当前角速度（rad/s），用于仿真轮子旋转。"""
+        theta_scaled = self.base_vtheta * ROTATION_GAIN
+        k = MECANUM_K
+        v_linear = np.array([
+            self.base_vx - self.base_vy - k * theta_scaled,
+            self.base_vx + self.base_vy + k * theta_scaled,
+            self.base_vx + self.base_vy - k * theta_scaled,
+            self.base_vx - self.base_vy + k * theta_scaled,
+        ])
+        return v_linear / WHEEL_RADIUS
+
     def compute_wheel_speeds(self, vx: float = None, vy: float = None,
                              vtheta: float = None) -> Dict[str, int]:
         """底盘速度 → 四轮原始速度指令 (Feetech 寄存器值)。
@@ -541,8 +553,11 @@ class AiderAdapter:
         new_height = self.step_lift_height(dt)
         self.update_lift_sim(visualizer, new_height)
 
-        # 2. 底盘
+        # 2. 底盘 + 轮子旋转
         self.update_base_sim(visualizer, dt)
+        wheel_omegas = self._compute_wheel_omegas()
+        for wname, w_radps in zip(WHEEL_NAMES, wheel_omegas):
+            visualizer.update_wheel_rotation(wname, w_radps, dt)
 
         # 3. 双臂姿态
         for arm in ["left", "right"]:
