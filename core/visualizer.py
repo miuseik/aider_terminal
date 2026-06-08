@@ -48,7 +48,7 @@ class PyBulletVisualizer:
         # Windows 不需要 X11 检查，直接返回 True
         if os.name == 'nt':  # Windows
             return True
-            
+
         display = os.environ.get('DISPLAY')
         if not display:
             return False
@@ -101,12 +101,12 @@ class PyBulletVisualizer:
             else:
                 self.physics_client = p.connect(p.DIRECT)
         except p.error as e:
-            print(f"Could not connect to PyBullet: {e}")
+            print(f"PyBullet 连接失败: {e}")
             try:
                 self.physics_client = p.connect(p.DIRECT)
-                print("Fallback to DIRECT mode")
+                print("已回退到 DIRECT 模式 - 仿真运行但无可视化窗口")
             except p.error:
-                print("Failed to connect to PyBullet")
+                print("PyBullet 连接完全失败")
                 return False
         
         if self.physics_client < 0:
