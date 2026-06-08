@@ -31,7 +31,8 @@ import numpy as np
 import math
 from typing import Optional, Dict, List, Tuple
 
-from core.ik_computer import DualArmIKComputer, FKComputer
+from core.kinematic.custom.fk_computer import FKComputer
+from core.kinematic.custom.ik_computer import DualArmIKComputer
 from config.settings import (
     TelegripConfig, NUM_JOINTS, NUM_IK_JOINTS,
     GRIPPER_INDEX, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT,

@@ -13,7 +13,7 @@ from scipy.spatial.transform import Rotation as R
 
 from inputs.base import BaseInputProvider, ControlGoal, ControlMode
 from config.settings import TelegripConfig
-from core.kinematics import compute_relative_position
+from core.kinematic.pybullet.utils import compute_relative_position
 
 logger = logging.getLogger(__name__)
 

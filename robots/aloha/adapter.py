@@ -14,7 +14,7 @@ import numpy as np
 import math
 from typing import Optional, Dict
 
-from core.kinematics import ForwardKinematics, IKSolver
+from core.kinematic.pybullet.fk_ik import ForwardKinematics, IKSolver
 from config.settings import (
     TelegripConfig, NUM_JOINTS, NUM_IK_JOINTS,
     GRIPPER_OPEN_ANGLE, GRIPPER_CLOSED_ANGLE, GRIPPER_INDEX,

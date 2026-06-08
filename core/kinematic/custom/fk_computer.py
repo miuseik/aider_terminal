@@ -12,8 +12,9 @@ from typing import Dict, Tuple, List, Optional
 import numpy as np
 
 # URDF 文件位于 aider_terminal/URDF/aider/ 目录
-URDF_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "URDF", "aider")
+# 通过 kinematic 包的 _PROJ_ROOT 定位项目根，避免数 dirname 层数
+from .. import _PROJ_ROOT
+URDF_DIR = os.path.join(_PROJ_ROOT, "URDF", "aider")
 URDF_PATH = os.path.join(URDF_DIR, "urdf", "aider_pro.SLDASM.urdf")
 
 

@@ -40,13 +40,12 @@ class IKComputer:
         body_avoid_weight: float = 0.3,
     ):
         self.fk = fk
-        self.joint_names = joint_names          # 参与 IK 优化的关节
-        self.ee_link = ee_link                  # 末端连杆名
+        self.joint_names = joint_names
+        self.ee_link = ee_link
         self.max_iter = max_iter
         self.tol = tol
         self.damping = damping
         self.dt = dt
-        # 身体避碰
         self.body_avoid_links = body_avoid_links or []
         self.body_radius = body_radius
         self.body_avoid_weight = body_avoid_weight
@@ -61,12 +60,10 @@ class IKComputer:
         current_joint_values 应包含所有关节（包括 shared）的值，
         但只优化 self.joint_names 中的关节。
         """
-        # 提取当前臂关节角
         n = len(self.joint_names)
         q = np.array([current_joint_values.get(j, 0.0) for j in self.joint_names])
 
         for _ in range(self.max_iter):
-            # 当前末端位置
             jv = dict(current_joint_values)
             for i, name in enumerate(self.joint_names):
                 jv[name] = float(q[i])
@@ -76,21 +73,17 @@ class IKComputer:
             if np.linalg.norm(error) < self.tol:
                 break
 
-            # 数值 Jacobian: 3×n
             J = self._numerical_jacobian(jv, epsilon=1e-4)
 
-            # DLS: Δq = J^T (J J^T + λ²I)⁻¹ e
             I3 = np.eye(3)
             JJt = J @ J.T + self.damping ** 2 * I3
             try:
                 Jt_pinv = J.T @ np.linalg.solve(JJt, np.eye(3))
             except np.linalg.LinAlgError:
-                # 退化回退到简单伪逆
                 Jt_pinv = J.T @ np.linalg.pinv(JJt)
 
             delta_q = Jt_pinv @ error * self.dt
 
-            # 限制单步最大变化
             max_step = 0.3
             if np.max(np.abs(delta_q)) > max_step:
                 delta_q = delta_q * (max_step / np.max(np.abs(delta_q)))
@@ -102,16 +95,12 @@ class IKComputer:
                 avoid_grad = self._avoidance_gradient(jv)
                 grad_norm = float(np.linalg.norm(avoid_grad))
                 if grad_norm > 1e-8:
-                    # 将避碰梯度投影到末端 Jacobian 的 null-space
-                    # N = I - J⁺J, 确保不干扰末端精度
                     N = np.eye(n) - Jt_pinv @ J
                     q_avoid = N @ avoid_grad * self.body_avoid_weight * self.dt
                     q = q + q_avoid
 
-            # clamp 到关节限位
             q = self._clamp(q)
 
-        # 组装结果
         result: Dict[str, float] = {}
         for i, name in enumerate(self.joint_names):
             result[name] = float(q[i])
@@ -134,7 +123,7 @@ class IKComputer:
 
             J[:, i] = (pos_plus - pos_minus) / (2 * epsilon)
 
-            jv[name] = orig  # 恢复
+            jv[name] = orig
 
         return J
 
@@ -152,11 +141,7 @@ class IKComputer:
     # ── 身体避碰 ──────────────────────────────────────
 
     def _avoidance_gradient(self, jv: Dict[str, float]) -> np.ndarray:
-        """计算身体避碰梯度 (关节空间下降方向)。
-
-        将 body_avoid_links 中进入身体圆柱 (半径 body_radius,
-        中心为 Z 轴) 的连杆推出。返回值是关节更新方向 Δq。
-        """
+        """计算身体避碰梯度 (关节空间下降方向)。"""
         n = len(self.joint_names)
         grad = np.zeros(n)
 
@@ -164,16 +149,14 @@ class IKComputer:
             if link_name not in self.fk._links:
                 continue
             pos = np.array(self.fk.pos(link_name, jv))
-            r = float(np.linalg.norm(pos[:2]))  # XY 平面到身体中心的距离
+            r = float(np.linalg.norm(pos[:2]))
 
             if r >= self.body_radius or r < 1e-8:
                 continue
 
-            # 排斥力: 沿连杆当前位置向外, 大小正比于侵入深度
             penetration = self.body_radius - r
-            direction_xy = pos[:2] / r  # 背离 Z 轴的单位向量
+            direction_xy = pos[:2] / r
 
-            # 数值 Jacobian: 连杆 XY 位置对各关节的偏导 (2×n)
             for i, name in enumerate(self.joint_names):
                 orig = jv[name]
                 eps = 1e-4
@@ -184,7 +167,6 @@ class IKComputer:
                 jv[name] = orig
 
                 dpos_xy = (pos_plus[:2] - pos_minus[:2]) / (2 * eps)
-                # 若关节点增大使连杆移离身体, dot > 0 → grad > 0 (增关节)
                 grad[i] += penetration * float(np.dot(direction_xy, dpos_xy))
 
         return grad
@@ -227,7 +209,7 @@ class DualArmIKComputer:
         """求解双臂 IK。
 
         返回: {
-            "joint_values": {joint_name: value, ...},  # 全量关节值（含 lift/waist 不动）
+            "joint_values": {joint_name: value, ...},
             "left_reached": bool,
             "right_reached": bool,
             "left_error": float,
@@ -247,7 +229,6 @@ class DualArmIKComputer:
         if right_sol:
             result_jv.update(right_sol)
 
-        # 计算最终误差
         left_err = right_err = -1.0
         fk_jv = dict(result_jv)
         if "left_arm8" in self.fk._links:
