@@ -1,6 +1,8 @@
 """
-SO100 遥操作系统的机器人接口模块。
+机器人接口模块。
 提供带安全检查的机器人设备封装和便捷方法。
+
+架构: 计算逻辑委托给 robots/aloha/adapter.py，本模块负责硬件通信和流程编排。
 """
 
 import numpy as np
@@ -12,27 +14,25 @@ import yaml
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
-# New lerobot structure imports
-
 from config.settings import (
     TelegripConfig, NUM_JOINTS, JOINT_NAMES,
     GRIPPER_OPEN_ANGLE, GRIPPER_CLOSED_ANGLE,
     WRIST_FLEX_INDEX, URDF_TO_INTERNAL_NAME_MAP
 )
-from .kinematics import ForwardKinematics, IKSolver
+
 
 class RobotInterface:
-    """带安全功能的 SO100 机器人控制高级接口。"""
+    """机器人控制高级接口。硬件通信在此，计算逻辑委托给 AlohaAdapter。"""
 
     def __init__(self, config: TelegripConfig):
         self.config = config
         self.left_robot = None
         self.right_robot = None
-        self.base_robot = None  # ✅ 底盘驱动实例
+        self.base_robot = None
         self.is_connected = False
-        self.is_engaged = False  # 电机使能状态
+        self.is_engaged = False
         
-        # 初始化底层电机控制器（用于直接控制真机）
+        # 底层电机控制器
         from controller.motor_controller import MotorController
         self.motor_controller = MotorController()
 
@@ -40,36 +40,32 @@ class RobotInterface:
         self.left_arm_connected = False
         self.right_arm_connected = False
         
-        # 舵机 ID 配置（由 Server 下发，初始为空）
+        # 舵机 ID 配置
         self.servo_ids = {}
         
         # 底盘和升降轴状态
         self.base_motors = []
         self.lift_motor = None
 
-        # 关节状态
-        self.left_arm_angles = np.zeros(NUM_JOINTS)
-        self.right_arm_angles = np.zeros(NUM_JOINTS)
+        # ---- 机器人适配器 (解耦：所有 IK/轮子/Aloha 计算在此) ----
+        from robots.aloha import AlohaAdapter
+        self.adapter = AlohaAdapter()
 
-        # 关节限位(由可视化器设置)
+        # 关节限位 (由 adapter 管理，此处为向后兼容)
         self.joint_limits_min_deg = np.full(NUM_JOINTS, -180.0)
         self.joint_limits_max_deg = np.full(NUM_JOINTS, 180.0)
-
-        # 运动学解算器(PyBullet 设置后初始化)
-        self.fk_solvers = {'left': None, 'right': None}
-        self.ik_solvers = {'left': None, 'right': None}
 
         # 控制时序
         self.last_send_time = 0
 
-        # 错误跟踪 - 各机械臂独立
+        # 错误跟踪
         self.left_arm_errors = 0
         self.right_arm_errors = 0
         self.general_errors = 0
-        self.max_arm_errors = 3  # 每个机械臂允许的错误次数上限
-        self.max_general_errors = 8  # 总错误次数上限
+        self.max_arm_errors = 3
+        self.max_general_errors = 8
 
-        # 安全关机的初始位置
+        # 安全关机初始位置
         self.initial_left_arm = np.array([0, -100, 100, 60, 0, 0])
         self.initial_right_arm = np.array([0, -100, 100, 60, 0, 0])
 
@@ -79,14 +75,32 @@ class RobotInterface:
 
         # 升降轴状态 (由 control_loop 更新)
         self.lift_connected = False
-        self.lift_height_mm = 0  # 升降轴高度(毫米)
-        self.lift_velocity = 0  # ✅ 升降轴速度（-1000~1000，负=升，正=降）
+        self.lift_height_mm = 0
+        self.lift_velocity = 0
 
         # 仿真相关状态 (由 control_loop 更新)
-        self.vr_raw_data = {}  # VR 原始数据
-        self.left_arm_state = None  # 左臂状态对象
-        self.right_arm_state = None  # 右臂状态对象
-        self.visualizer = None  # PyBullet 可视化器
+        self.vr_raw_data = {}
+        self.left_arm_state = None
+        self.right_arm_state = None
+        self.visualizer = None
+
+    # ---- 属性：向后兼容（委托给 adapter） ----
+
+    @property
+    def left_arm_angles(self):
+        return self.adapter.left_angles
+
+    @left_arm_angles.setter
+    def left_arm_angles(self, value):
+        self.adapter.left_angles = value
+
+    @property
+    def right_arm_angles(self):
+        return self.adapter.right_angles
+
+    @right_arm_angles.setter
+    def right_arm_angles(self, value):
+        self.adapter.right_angles = value
     
     def set_servo_ids_config(self, config: dict):
         """设置舵机 ID 配置（从 Server 获取）"""
@@ -345,108 +359,29 @@ class RobotInterface:
     def setup_kinematics(self, physics_client, robot_ids: Dict, joint_indices: Dict,
                          end_effector_link_indices: Dict, joint_limits_min_deg: np.ndarray,
                          joint_limits_max_deg: np.ndarray):
-        """使用 PyBullet 组件为两个机械臂设置运动学解算器。"""
+        """设置运动学解算器。委托给 AlohaAdapter。"""
         self.joint_limits_min_deg = joint_limits_min_deg.copy()
         self.joint_limits_max_deg = joint_limits_max_deg.copy()
 
-        # 为两个机械臂设置解算器
-        for arm in ['left', 'right']:
-            self.fk_solvers[arm] = ForwardKinematics(
-                physics_client, robot_ids[arm], joint_indices[arm], end_effector_link_indices[arm]
-            )
-
-            self.ik_solvers[arm] = IKSolver(
-                physics_client, robot_ids[arm], joint_indices[arm], end_effector_link_indices[arm],
-                joint_limits_min_deg, joint_limits_max_deg, arm_name=arm
-            )
-
-        print("两个机械臂的运动学解算器已初始化")
+        # 委托给适配器初始化 IK/FK
+        # 注意: self.visualizer 必须在 control_loop.setup() 中提前设置
+        self.adapter.setup(self.visualizer, self.config)
+        print("[RobotInterface] AlohaAdapter 已初始化 (SO100 IK + Aloha 底盘)")
 
     def get_current_end_effector_position(self, arm: str) -> np.ndarray:
-        """获取指定机械臂的当前末端执行器位置。"""
-        if arm == "left":
-            angles = self.left_arm_angles
-        elif arm == "right":
-            angles = self.right_arm_angles
-        else:
-            raise ValueError(f"无效的机械臂: {arm}")
-
-        if self.fk_solvers[arm]:
-            position, _ = self.fk_solvers[arm].compute(angles)
-            return position
-        else:
-            default_position = np.array([0.2, 0.0, 0.15])
-            return default_position
+        """获取指定机械臂的末端位置。委托给 AlohaAdapter。"""
+        angles = self.get_arm_angles(arm)
+        return self.adapter.compute_fk(arm, angles)
 
     def solve_ik(self, arm: str, target_position: np.ndarray,
                  target_orientation: Optional[np.ndarray] = None) -> np.ndarray:
-        """求解指定机械臂的逆运动学。"""
-        if arm == "left":
-            current_angles = self.left_arm_angles
-        elif arm == "right":
-            current_angles = self.right_arm_angles
-        else:
-            raise ValueError(f"无效的机械臂: {arm}")
-
-        if self.ik_solvers[arm]:
-            return self.ik_solvers[arm].solve(target_position, target_orientation, current_angles)
-        else:
-            return current_angles[:3]  # 如果没有 IK 解算器，返回当前角度
-
-    def clamp_joint_angles(self, joint_angles: np.ndarray) -> np.ndarray:
-        """将关节角度限制在安全范围内，对问题关节留出余量。"""
-        # 创建副本以避免修改原始数据
-        processed_angles = joint_angles.copy()
-
-        # 首先，规范化可以环绕的角度(如 shoulder_pan)
-        # 检查第一个关节 (shoulder_pan) 是否超出限位但可以环绕
-        shoulder_pan_idx = 0
-        shoulder_pan_angle = processed_angles[shoulder_pan_idx]
-        min_limit = self.joint_limits_min_deg[shoulder_pan_idx]  # -120.3°
-        max_limit = self.joint_limits_max_deg[shoulder_pan_idx]  # +120.3°
-
-        # 尝试将角度环绕到限位内的等效角度
-        if shoulder_pan_angle < min_limit or shoulder_pan_angle > max_limit:
-            # 尝试 ±360° 环绕
-            for offset in [-360.0, 360.0]:
-                wrapped_angle = shoulder_pan_angle + offset
-                if min_limit <= wrapped_angle <= max_limit:
-                    print(f"将 shoulder_pan 从 {shoulder_pan_angle:.1f}° 环绕到 {wrapped_angle:.1f}°")
-                    processed_angles[shoulder_pan_idx] = wrapped_angle
-                    break
-
-        # 对所有关节应用标准关节限位
-        return np.clip(processed_angles, self.joint_limits_min_deg, self.joint_limits_max_deg)
+        """逆运动学求解。委托给 AlohaAdapter。"""
+        current_angles = self.get_arm_angles(arm)
+        return self.adapter.solve_ik(arm, target_position, current_angles)
 
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float):
-        """使用 IK 解和直接腕部/夹爪控制更新指定机械臂的关节角度。"""
-        if arm == "left":
-            target_angles = self.left_arm_angles
-        elif arm == "right":
-            target_angles = self.right_arm_angles
-        else:
-            raise ValueError(f"无效的机械臂: {arm}")
-
-        # 用 IK 解更新前 3 个关节
-        target_angles[:3] = ik_angles
-
-        # 直接设置腕部角度
-        target_angles[3] = wrist_flex
-        target_angles[4] = wrist_roll
-
-        # 单独处理夹爪(限制在夹爪限位内)
-        target_angles[5] = np.clip(gripper, GRIPPER_OPEN_ANGLE, GRIPPER_CLOSED_ANGLE)
-
-        # 对所有关节应用关节限位(除了我们特殊处理的夹爪)
-        clamped_angles = self.clamp_joint_angles(target_angles)
-
-        # 保留夹爪控制(如果有意设置则不限制夹爪)
-        clamped_angles[5] = target_angles[5]
-
-        if arm == "left":
-            self.left_arm_angles = clamped_angles
-        else:
-            self.right_arm_angles = clamped_angles
+        """更新关节角度（含限位钳制）。委托给 AlohaAdapter。"""
+        self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper)
 
     def engage(self) -> bool:
         """使能机器人电机(开始发送指令)。"""
@@ -614,58 +549,12 @@ class RobotInterface:
             print(f"禁能力矩错误: {e}")
 
     def build_robot_action(self) -> dict:
-        """
-        构造完整的机器人动作字典（真机和仿真共用）。
-        包含：双臂角度、三轮底盘速度、升降轴速度。
-        """
-        from config.settings import GRIPPER_INDEX
-
-        # 1. 机械臂部分（应用夹爪映射）
-        left_angles = self.left_arm_angles.copy()
-        right_angles = self.right_arm_angles.copy()
-
-        # 夹爪线性映射：VR trigger 0-1 → 角度 0°~-90°
-        left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
-        right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
-
-        if left_trigger is not None and len(left_angles) > GRIPPER_INDEX:
-            left_angles[GRIPPER_INDEX] = -left_trigger * 90.0
-
-        if right_trigger is not None and len(right_angles) > GRIPPER_INDEX:
-            right_angles[GRIPPER_INDEX] = -right_trigger * 90.0
-
-        # 2. 底盘部分（三轮全向轮运动学）
-        from .wheels import body_to_wheel_raw
-
-        # ✅ 统一提高旋转速度增益（同时影响 VR 和键盘）
-        ROTATION_GAIN = 100.0
-        theta_scaled = self.base_velocity_target["theta"] * ROTATION_GAIN
-
-        wheel_speeds = body_to_wheel_raw(
-            self.base_velocity_target["x"],
-            self.base_velocity_target["y"],
-            theta_scaled  # 使用放大后的旋转速度
+        """构造完整的机器人动作字典。委托给 AlohaAdapter。"""
+        return self.adapter.build_action(
+            vr_raw_data=self.vr_raw_data,
+            base_vel=self.base_velocity_target,
+            lift_vel=self.lift_velocity,
         )
-
-        # 🔍 调试：打印运动学转换结果
-        if abs(self.base_velocity_target["x"]) > 0.01 or abs(self.base_velocity_target["theta"]) > 0.01:
-            print(f"🔧 运动学转换: x={self.base_velocity_target['x']}, y={self.base_velocity_target['y']}, theta={self.base_velocity_target['theta']}")
-            print(f"   → front={wheel_speeds.get('base_back_wheel', 0)}, left={wheel_speeds.get('base_left_wheel', 0)}, right={wheel_speeds.get('base_right_wheel', 0)}")
-
-        # 3. 组装完整 action
-        action = {
-            # 双臂角度
-            "left_arm_angles": left_angles,
-            "right_arm_angles": right_angles,
-            # 底盘速度（与 servo_ids.yaml 中的键名对应）
-            "base.front_wheel.vel": wheel_speeds["base_back_wheel"],   # 后轮输出 -> 前轮舵机
-            "base.left_wheel.vel": wheel_speeds["base_left_wheel"],    # 左轮输出 -> 左轮舵机
-            "base.right_wheel.vel": wheel_speeds["base_right_wheel"],  # 右轮输出 -> 右轮舵机
-            # ✅ 升降轴速度（逆时针=升，顺时针=降）
-            "lift.axis1.vel": self.lift_velocity,
-        }
-
-        return action
 
     def _send_to_hardware(self):
         """发送指令到真机硬件（双臂 + 底盘 + 升降轴）。"""
@@ -722,7 +611,6 @@ class RobotInterface:
                         
                         # ✅ 关键：先切换到速度模式（只切换一次）
                         if not hasattr(self, '_base_servos_mode_set') or not self._base_servos_mode_set:
-                            print(f"🔄 切换底盘舵机 {servo_id} 到速度模式")
                             self.motor_controller.set_velocity_mode(base_port, servo_id)
                         
                         # ✅ 保留速度符号，负数=逆时针，正数=顺时针
@@ -762,88 +650,72 @@ class RobotInterface:
                     self.motor_controller.sync_write_speeds(lift_port, speed_targets)
 
     def _update_simulation(self):
-        """更新仿真可视化（使用 build_robot_action 统一构建的数据）。"""
+        """更新仿真可视化。委托给 AlohaAdapter。"""
         if not self.visualizer:
-            print("⚠️ visualizer 未初始化，跳过仿真更新")
             return
 
-        # 1. 构建完整的机器人动作（包含夹爪映射）
-        action = self.build_robot_action()
+        # ---- 诊断: 首次进入打印 ----
+        if not hasattr(self, '_sim_diag_printed'):
+            self._sim_diag_printed = True
+            print(f"[DIAG] _update_simulation 首次进入 | "
+                  f"adapter.is_setup={self.adapter.is_setup} | "
+                  f"left_angles={self.adapter.left_angles.round(1)} | "
+                  f"right_angles={self.adapter.right_angles.round(1)} | "
+                  f"base_vel=({self.base_velocity_target['x']:.3f}, "
+                  f"{self.base_velocity_target['y']:.3f}, "
+                  f"{self.base_velocity_target['theta']:.3f})")
 
-        # ✅ 2. 仿真专用：根据升降轴速度积分计算高度（仅用于可视化）
-        if self.config.aloha_enabled and hasattr(self, 'lift_velocity'):
-            # 速度范围 -1000~1000，转换为 m/s
-            MAX_LIFT_SPEED_MPS = 0.1  # 最大升降速度 0.1 m/s
-            lift_speed_mps = (self.lift_velocity / 1000.0) * MAX_LIFT_SPEED_MPS
-            
-            # 积分计算高度：h = h + v * dt（使用浮点数避免精度丢失）
-            from config.settings import TelegripConfig
-            dt = TelegripConfig().send_interval  # 时间步长 0.02s
-            delta_m = lift_speed_mps * dt  # 每帧变化量（米）
-            old_height_m = self.lift_height_mm / 1000.0
-            new_height_m = old_height_m + delta_m
-            self.lift_height_mm = new_height_m * 1000  # 存储为毫米（浮点数）
-            
-            # 更新仿真中的升降轴高度
-            if self.visualizer:
-                self.visualizer.set_aloha_height(new_height_m)
-                # 只在速度非零时打印日志
-                if self.lift_velocity != 0:
-                    print(f"📊 仿真升降轴: {old_height_m*1000:.1f}mm → {self.lift_height_mm:.1f}mm (Δ={delta_m*1000:.2f}mm, vel={self.lift_velocity}, height={new_height_m:.4f}m)")
+        # 1. 同步状态到 adapter
+        self._sync_to_adapter()
 
-        # 3. 更新仿真中的底盘位置
-        if self.config.aloha_enabled:
-            sim_action = {
-                "base.vx": self.base_velocity_target["x"],
-                "base.vy": self.base_velocity_target["y"],
-                "base.vtheta": self.base_velocity_target["theta"],
-            }
-            self.visualizer.update_mobile_base_simulation(sim_action)
+        # 2. 委托 adapter 更新可视化
+        state = {
+            "dt": self.config.send_interval,
+            "vr_raw_data": self.vr_raw_data,
+        }
+        self.adapter.update_visualization(self.visualizer, state)
 
-        # 4. 提取双臂角度用于更新姿态
-        left_angles = action["left_arm_angles"]
-        right_angles = action["right_arm_angles"]
+        # 3. 从 adapter 同步状态回去
+        self._sync_from_adapter()
 
-        # 5. 更新 SO100 机器人姿态
-        self.visualizer.update_robot_pose(left_angles, 'left')
-        self.visualizer.update_robot_pose(right_angles, 'right')
+        # 4. 更新标记点
+        self._update_markers()
 
-        # 6. 如果启用了 Aloha,将 SO100 IK 结果映射到 Aloha 双臂
-        if self.config.aloha_enabled and self.visualizer.aloha_id is not None:
-            self.visualizer.update_aloha_arm_pose(left_angles, 'left')
-            self.visualizer.update_aloha_arm_pose(right_angles, 'right')
-
-        # 7. 更新可视化标记点
-        from inputs.base import ControlMode
-        if self.left_arm_state and self.left_arm_state.mode == ControlMode.POSITION_CONTROL:
-            if self.left_arm_state.target_position is not None:
-                current_pos = self.get_current_end_effector_position("left")
-                self.visualizer.update_marker_position("left_target", current_pos)
-                self.visualizer.update_coordinate_frame("left_target_frame", current_pos)
-
-            if self.left_arm_state.goal_position is not None:
-                self.visualizer.update_marker_position("left_goal", self.left_arm_state.goal_position)
-                self.visualizer.update_coordinate_frame("left_goal_frame", self.left_arm_state.goal_position)
-        else:
-            self.visualizer.hide_marker("left_target")
-            self.visualizer.hide_marker("left_goal")
-            self.visualizer.hide_frame("left_target_frame")
-            self.visualizer.hide_frame("left_goal_frame")
-
-        if self.right_arm_state and self.right_arm_state.mode == ControlMode.POSITION_CONTROL:
-            if self.right_arm_state.target_position is not None:
-                current_pos = self.get_current_end_effector_position("right")
-                self.visualizer.update_marker_position("right_target", current_pos)
-                self.visualizer.update_coordinate_frame("right_target_frame", current_pos)
-
-            if self.right_arm_state.goal_position is not None:
-                self.visualizer.update_marker_position("right_goal", self.right_arm_state.goal_position)
-                self.visualizer.update_coordinate_frame("right_goal_frame", self.right_arm_state.goal_position)
-        else:
-            self.visualizer.hide_marker("right_target")
-            self.visualizer.hide_marker("right_goal")
-            self.visualizer.hide_frame("right_target_frame")
-            self.visualizer.hide_frame("right_goal_frame")
-
-        # 8. 推进仿真
+        # 5. 推进仿真
         self.visualizer.step_simulation()
+
+    def _sync_to_adapter(self):
+        """同步 robot_interface 状态 → adapter。"""
+        self.adapter.set_base_velocity(
+            self.base_velocity_target["x"],
+            self.base_velocity_target["y"],
+            self.base_velocity_target["theta"],
+        )
+        self.adapter.set_lift_velocity(self.lift_velocity)
+
+    def _sync_from_adapter(self):
+        """同步 adapter 状态 → robot_interface。"""
+        self.lift_height_mm = self.adapter.lift_height_mm
+
+    def _update_markers(self):
+        """更新目标/位姿标记点。"""
+        if not self.visualizer:
+            return
+
+        from inputs.base import ControlMode
+
+        for arm in ["left", "right"]:
+            arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
+            if arm_state and arm_state.mode == ControlMode.POSITION_CONTROL:
+                if arm_state.target_position is not None:
+                    current_pos = self.get_current_end_effector_position(arm)
+                    self.visualizer.update_marker_position(f"{arm}_target", current_pos)
+                    self.visualizer.update_coordinate_frame(f"{arm}_target_frame", current_pos)
+                if arm_state.goal_position is not None:
+                    self.visualizer.update_marker_position(f"{arm}_goal", arm_state.goal_position)
+                    self.visualizer.update_coordinate_frame(f"{arm}_goal_frame", arm_state.goal_position)
+            else:
+                self.visualizer.hide_marker(f"{arm}_target")
+                self.visualizer.hide_marker(f"{arm}_goal")
+                self.visualizer.hide_frame(f"{arm}_target_frame")
+                self.visualizer.hide_frame(f"{arm}_goal_frame")

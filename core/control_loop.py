@@ -23,7 +23,6 @@ from controller.motor_controller import MotorController
 from router.motor_router import MotorRouter
 # PyBulletVisualizer will be imported on demand
 from inputs.base import ControlGoal, ControlMode
-from core.wheels import body_to_wheel_raw
 # WebKeyboardHandler will be imported on demand to avoid circular imports
 
 logger = logging.getLogger(__name__)
@@ -176,6 +175,10 @@ class ControlLoop:
                     print(error_msg)
                     self.visualizer = None
                 else:
+                    # ✅ 关键：提前把 visualizer 注入 robot_interface，
+                    # 否则 setup_kinematics 内部 adapter.setup() 永远不会执行
+                    self.robot_interface.visualizer = self.visualizer
+
                     # 将运动学解算器连接到机器人接口
                     # FK(正运动学): 关节角度 → 末端位置
                     # IK(逆运动学): 末端位置 → 关节角度
@@ -189,20 +192,30 @@ class ControlLoop:
                         joint_limits_max    # 关节最大限位
                     )
                     
+                    # ---- 诊断: 检查 adapter 初始化状态 ----
+                    adapter = self.robot_interface.adapter
+                    print(f"[DIAG] adapter.is_setup={adapter.is_setup} | "
+                          f"FK求解器={list(adapter.fk_solvers.keys())} | "
+                          f"IK求解器={list(adapter.ik_solvers.keys())}")
+                    print(f"[DIAG] aloha_enabled={self.config.aloha_enabled} | "
+                          f"aloha_id={self.visualizer.aloha_id} | "
+                          f"robot_ids={list(self.visualizer.robot_ids.keys()) if self.visualizer.robot_ids else 'None'}")
+                    
                     # 如果启用了 Aloha,设置初始高度
                     if self.config.aloha_enabled and self.visualizer.aloha_id is not None:
                         self.visualizer.set_aloha_height(self.config.aloha_initial_height)
                         print(f"Aloha底盘已初始化，高度: {self.config.aloha_initial_height}m")
+                    elif self.config.aloha_enabled and self.visualizer.aloha_id is None:
+                        print("⚠️ [DIAG] aloha_enabled=True 但 aloha_id=None, 底盘/升降轴不会更新")
             except Exception as e:
                 error_msg = f"PyBullet visualizer setup failed with exception: {e}"
                 print(error_msg)
                 self.visualizer = None
 
         
-        # 在 Web 键盘处理器上设置机器人接口,使其能获取当前位置
+            # 在 Web 键盘处理器上设置机器人接口,使其能获取当前位置
         if self.web_keyboard_handler and self.robot_interface:
             self.web_keyboard_handler.set_robot_interface(self.robot_interface)
-            print("Set robot interface on web keyboard handler")
         
         # 初始化仿真可视化控制器
         self.visualizer_controller = VisualizerController(visualizer=self.visualizer)
@@ -307,63 +320,44 @@ class ControlLoop:
     async def _handle_command(self, command):
         """处理单个命令。"""
         action = command.get('action', '')
-        print(f"🔌 处理控制命令，action: {action}")
         
         if action == 'enable_keyboard':
             if self.web_keyboard_handler:
                 await self.web_keyboard_handler.start()
-                print("🎮loop 通过API启用键盘控制")
+                print("🎮 键盘控制已启用")
         elif action == 'disable_keyboard':
             if self.web_keyboard_handler:
                 await self.web_keyboard_handler.stop()
-                print("🎮loop 通过API禁用键盘控制")
+                print("🎮 键盘控制已禁用")
         elif action == 'web_keypress':
-            # 处理网页按键事件
             key = command.get('key')
             event = command.get('event')  # 'press' or 'release'
-
             if self.web_keyboard_handler and self.web_keyboard_handler.is_enabled:
-                print(f"🌐 处理网页按键: {key}_{event}")
                 if event == 'press':
                     self.web_keyboard_handler.on_key_press(key)
                 elif event == 'release':
                     self.web_keyboard_handler.on_key_release(key)
-            else:
-                print("🎮loop Web键盘处理器未启用")
         elif action == 'robot_connect':
-            print(f"🔌 处理机器人连接命令,当前连接状态是: {self.robot_interface.is_connected}")
             if self.robot_interface:
-                # 如果未连接，先建立连接
                 if not self.robot_interface.is_connected:
-                    print("🔌 机器人未连接，尝试连接...")
                     success = self.robot_interface.connect()
                     if not success:
                         print("❌ 机器人连接失败")
                         return
-                
-                # 已连接，使能电机
-                print(f"🔌 机器人已连接: {self.robot_interface.is_connected}")
                 success = self.robot_interface.engage()
                 if success:
-                    print("🔌 通过API使能机器人电机")
-                    # 无需同步键盘目标 - 统一系统自动处理
+                    print("🔌 机器人已使能")
                 else:
-                    print("❌ 使能机器人电机失败")
+                    print("❌ 使能失败")
             else:
-                print(f"无法使能机器人: 接口={self.robot_interface is not None}, 连接={self.robot_interface.is_connected if self.robot_interface else False}")
+                print("❌ 无机器人接口")
         elif action == 'robot_disconnect':
-            print("🔌 处理机器人断开命令")
             if self.robot_interface:
-                print(f"🔌 机器人接口可用")
                 success = self.robot_interface.disengage()
                 if success:
-                    print("🔌 通过API禁能机器人电机")
-                    # 机器人断开时将机械臂状态重置为 IDLE
+                    print("🔌 机器人已禁能")
                     self.left_arm.reset()
                     self.right_arm.reset()
-                    print("🔓 双臂：机器人断开后停用位置控制")
-                    
-                    # 隐藏可视化标记点
                     if self.visualizer:
                         for arm in ["left", "right"]:
                             self.visualizer.hide_marker(f"{arm}_goal")
@@ -371,20 +365,15 @@ class ControlLoop:
                             self.visualizer.hide_marker(f"{arm}_target")
                             self.visualizer.hide_frame(f"{arm}_target_frame")
                 else:
-                    print("❌ 禁能机器人电机失败")
+                    print("❌ 禁能失败")
             else:
-                print("无法禁能机器人：无机器人接口")
+                print("❌ 无机器人接口")
         elif action.startswith('control_') or action == 'calibrate_motor':
-            # API控制命令,交给路由器处理
             if not self.api_router:
                 print("⚠️ API命令路由器未初始化")
                 return
-            
-            success = self.api_router.route(command)
-            if not success:
-                print(f"❌ 处理API命令失败: {action}")
-        else:
-            print(f"未知命令: {action}")
+            self.api_router.route(command)
+        # 其余命令静默处理（web_keypress 等高频命令不打印）
 
     async def _execute_goal(self, goal: ControlGoal):
         """执行控制目标。"""
@@ -503,7 +492,7 @@ class ControlLoop:
                 self.base_velocity_target["x"] = goal.metadata.get("velocity_x", 0)
                 self.base_velocity_target["y"] = goal.metadata.get("velocity_y", 0)
                 self.base_velocity_target["theta"] = goal.metadata.get("velocity_theta", 0)
-                print(f"🎮loop 收到底盘控制: x={self.base_velocity_target['x']}, y={self.base_velocity_target['y']}, theta={self.base_velocity_target['theta']}")
+                pass  # 底盘控制已接收（不打印，避免刷屏）
             else:
                 # VR joystick control: store joystick data
                 hand = goal.metadata.get("hand", "left")
@@ -519,44 +508,21 @@ class ControlLoop:
                         self.vr_raw_data[controller_key]['trigger'] = trigger_value
     
     def _update_mobile_base(self, vr_data: dict):
-        """根据 VR 摇杆数据更新移动底盘（轮子）和升降轴的状态。"""
-        # 1. 提取真实的摇杆数据
-        left_joy = vr_data.get("leftController", {}).get("joystick", {"x": 0, "y": 0})
-        right_joy = vr_data.get("rightController", {}).get("joystick", {"x": 0, "y": 0})
-        
-        lx, ly = left_joy.get("x", 0), left_joy.get("y", 0)
-        rx, ry = right_joy.get("x", 0), right_joy.get("y", 0)
+        """根据 VR 摇杆数据更新底盘和升降轴状态。
 
-        # 2. 设置死区 (Deadzone)，防止摇杆漂移导致底盘微动
-        DEADZONE = 0.1
-        def apply_deadzone(val):
-            return val if abs(val) > DEADZONE else 0.0
+        委托给 AlohaAdapter 处理摇杆→速度映射。
+        """
+        if not self.robot_interface:
+            return
 
-        lx, ly = apply_deadzone(lx), apply_deadzone(ly)
-        rx, ry = apply_deadzone(rx), apply_deadzone(ry)
+        adapter = self.robot_interface.adapter
+        adapter.update_from_vr_joystick(vr_data)
 
-        # 3. 映射到底盘速度 (m/s 和 deg/s)
-        # ✅ 与键盘控制保持一致：平移慢，旋转快
-        MAX_LIN_SPEED = 0.1   # 线速度（0.1 × 0.3 缩放）
-        MAX_ANG_SPEED = 1.0   # 角速度（60 × 1.5 缩放，与键盘 velocity_theta=60 对应）
-        
-        # 左摇杆 Y: 前推(-1)/后推(1) -> 前进/后退（✅ 取反修正方向）
-        self.base_velocity_target["x"] = -ly * MAX_LIN_SPEED
-        
-        # 左摇杆 X: 左推(-1)/右推(1) -> 左移/右移
-        self.base_velocity_target["y"] = -lx * MAX_LIN_SPEED
-        
-        # 右摇杆 X: 左推(-1)/右推(1) -> 左转/右转
-        self.base_velocity_target["theta"] = -rx * MAX_ANG_SPEED
-
-        # 4. 处理升降轴速度 (使用右摇杆 Y 轴直接控制速度)
-        if abs(ry) > DEADZONE:
-            # ✅ 直接设置速度：负=逆时针（升），正=顺时针（降）（✅ 取反修正方向）
-            MAX_LIFT_SPEED = 1500  # 最大速度（提高升降速度）
-            self.robot_interface.lift_velocity = int(ry * MAX_LIFT_SPEED)
-        else:
-            # 摇杆回中时停止
-            self.robot_interface.lift_velocity = 0
+        # 同步回 control_loop 的本地状态
+        self.base_velocity_target["x"] = adapter.base_vx
+        self.base_velocity_target["y"] = adapter.base_vy
+        self.base_velocity_target["theta"] = adapter.base_vtheta
+        self.robot_interface.lift_velocity = adapter.lift_velocity
 
     def _update_robot_safely(self):
         """用当前控制目标更新机器人(带错误处理)。"""
@@ -589,8 +555,6 @@ class ControlLoop:
         if not has_keyboard_base_control:
             # 只有在没有键盘控制时才处理 VR 摇杆
             self._update_mobile_base(vr_data)
-        else:
-            print(f"🎮loop 使用键盘底盘控制，跳过VR摇杆")
 
         # 4. 更新左臂（始终更新，用于仿真可视化）
         if (self.left_arm.mode == ControlMode.POSITION_CONTROL and 
@@ -598,17 +562,17 @@ class ControlLoop:
             # 求解 IK
             ik_solution = self.robot_interface.solve_ik("left", self.left_arm.target_position)
             
-            # 更新机器人角度
+            # 更新关节角度（委托给 adapter）
             current_gripper = self.robot_interface.get_arm_angles("left")[GRIPPER_INDEX]
             self.robot_interface.update_arm_angles("left", ik_solution, 
                                                  self.left_arm.current_wrist_flex, 
                                                  self.left_arm.current_wrist_roll, 
                                                  current_gripper)
             
-            # 【夹爪线性控制】替换第6个关节角度
+            # 【夹爪线性控制】通过 adapter 应用 VR 扳机
             left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
             if left_trigger is not None:
-                self.robot_interface.left_arm_angles[GRIPPER_INDEX] = -left_trigger * 90.0
+                self.robot_interface.adapter.apply_gripper_from_trigger("left", left_trigger)
 
         # 更新右臂（始终更新，用于仿真可视化）
         if (self.right_arm.mode == ControlMode.POSITION_CONTROL and 
@@ -616,17 +580,17 @@ class ControlLoop:
             # 求解 IK
             ik_solution = self.robot_interface.solve_ik("right", self.right_arm.target_position)
             
-            # 更新机器人角度
+            # 更新关节角度（委托给 adapter）
             current_gripper = self.robot_interface.get_arm_angles("right")[GRIPPER_INDEX]
             self.robot_interface.update_arm_angles("right", ik_solution, 
                                                   self.right_arm.current_wrist_flex, 
                                                   self.right_arm.current_wrist_roll, 
                                                   current_gripper)
             
-            # 【夹爪线性控制】替换第6个关节角度
+            # 【夹爪线性控制】通过 adapter 应用 VR 扳机
             right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
             if right_trigger is not None:
-                self.robot_interface.right_arm_angles[GRIPPER_INDEX] = -right_trigger * 90.0
+                self.robot_interface.adapter.apply_gripper_from_trigger("right", right_trigger)
 
 
         # === 同步状态到 robot_interface (用于 send_command 内部使用) ===
@@ -651,21 +615,29 @@ class ControlLoop:
         self.robot_interface.send_command()
 
     def _periodic_logging(self):
-        """定期记录状态信息。"""
+        """定期打印诊断信息（每2秒一次）。"""
         current_time = time.time()
-        if current_time - self.last_log_time >= self.log_interval:
+        if current_time - self.last_log_time >= 2.0:
             self.last_log_time = current_time
             
-            active_arms = []
-            if self.left_arm.mode == ControlMode.POSITION_CONTROL:
-                active_arms.append("LEFT")
-            if self.right_arm.mode == ControlMode.POSITION_CONTROL:
-                active_arms.append("RIGHT")
+            # 检查 IK 是否在工作
+            left_ik_ok = (self.left_arm.mode == ControlMode.POSITION_CONTROL and self.left_arm.target_position is not None)
+            right_ik_ok = (self.right_arm.mode == ControlMode.POSITION_CONTROL and self.right_arm.target_position is not None)
             
-            if active_arms and self.robot_interface:
-                left_angles = self.robot_interface.get_arm_angles("left")
-                right_angles = self.robot_interface.get_arm_angles("right")
-                # print(f"🤖 活跃控制: {', '.join(active_arms)} | 左: {left_angles.round(1)} | 右: {right_angles.round(1)}")
+            # 检查 adapter 状态
+            adapter = self.robot_interface.adapter if self.robot_interface else None
+            ik_solver_count = len(adapter.ik_solvers) if adapter else 0
+            
+            # 底盘速度
+            bv = self.base_velocity_target
+            base_active = abs(bv["x"]) > 0.001 or abs(bv["y"]) > 0.001 or abs(bv["theta"]) > 0.001
+            
+            print(f"[DIAG] IK解算器={ik_solver_count} | "
+                  f"左臂={'🟢' if left_ik_ok else '🔴'} | "
+                  f"右臂={'🟢' if right_ik_ok else '🔴'} | "
+                  f"底盘={'🟢' if base_active else '🔴'} "
+                  f"(vx={bv['x']:.3f} vy={bv['y']:.3f} vt={bv['theta']:.3f}) | "
+                  f"aloha_enabled={self.config.aloha_enabled}")
     
     @property
     def status(self) -> Dict:
