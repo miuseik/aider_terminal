@@ -12,11 +12,10 @@ import json
 import os
 from pathlib import Path
 
-from config.settings import (
-    NUM_JOINTS, NUM_IK_JOINTS, 
-    USE_REFERENCE_POSES, REFERENCE_POSES_FILE, IK_POSITION_ERROR_THRESHOLD,
-    IK_HYSTERESIS_THRESHOLD, IK_MOVEMENT_PENALTY_WEIGHT
-)
+import config.settings as _settings
+# 注意: 不能用 from config.settings import NUM_JOINTS, NUM_IK_JOINTS
+# 因为 set_robot_type() 运行时会改变这些值,静态导入会缓存旧值
+# 所有用到 NUM_JOINTS / NUM_IK_JOINTS 的地方都通过 _settings.NUM_JOINTS 访问
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ class ForwardKinematics:
         
         # 设置关节位置
         joint_angles_rad = np.deg2rad(fk_state_angles)
-        for i in range(NUM_JOINTS):
+        for i in range(_settings.NUM_JOINTS):
             if i < len(self.joint_indices) and self.joint_indices[i] is not None:
                 p.resetJointState(self.robot_id, self.joint_indices[i], joint_angles_rad[i])
         
@@ -75,9 +74,9 @@ class IKSolver:
         self.joint_limits_max_deg = joint_limits_max_deg
         self.arm_name = arm_name
         
-        # 预计算前 NUM_IK_JOINTS 个关节的 IK 限制
-        self.ik_lower_limits = np.deg2rad(joint_limits_min_deg[:NUM_IK_JOINTS])
-        self.ik_upper_limits = np.deg2rad(joint_limits_max_deg[:NUM_IK_JOINTS])
+        # 预计算前 _settings.NUM_IK_JOINTS 个关节的 IK 限制
+        self.ik_lower_limits = np.deg2rad(joint_limits_min_deg[:_settings.NUM_IK_JOINTS])
+        self.ik_upper_limits = np.deg2rad(joint_limits_max_deg[:_settings.NUM_IK_JOINTS])
         self.ik_ranges = self.ik_upper_limits - self.ik_lower_limits
         
         # 加载参考位姿
@@ -91,13 +90,13 @@ class IKSolver:
         reference_poses = []
         
         # Check if reference poses are enabled
-        if not USE_REFERENCE_POSES:
+        if not _settings.USE_REFERENCE_POSES:
             print("Reference poses disabled in configuration")
             return reference_poses
         
         try:
             from utils.common_utils import get_absolute_path
-            cache_file = get_absolute_path(REFERENCE_POSES_FILE)
+            cache_file = get_absolute_path(_settings.REFERENCE_POSES_FILE)
             if cache_file.exists():
                 with open(cache_file, 'r') as f:
                     data = json.load(f)
@@ -106,7 +105,7 @@ class IKSolver:
                 if arm_poses:
                     # 转换为 numpy 数组并仅提取前 3 个关节用于 IK
                     for pose in arm_poses:
-                        pose_array = np.array(pose[:NUM_IK_JOINTS])
+                        pose_array = np.array(pose[:_settings.NUM_IK_JOINTS])
                         pose_rad = np.deg2rad(pose_array)
                         reference_poses.append(pose_rad)
                     
@@ -135,8 +134,8 @@ class IKSolver:
         """
         try:
             # 将解转换为完整关节数组（其他关节保持为 0）
-            full_angles = np.zeros(NUM_JOINTS)
-            full_angles[:NUM_IK_JOINTS] = np.rad2deg(solution)
+            full_angles = np.zeros(_settings.NUM_JOINTS)
+            full_angles[:_settings.NUM_IK_JOINTS] = np.rad2deg(solution)
             
             # 计算正向运动学
             achieved_position, _ = self.fk_solver.compute(full_angles)
@@ -148,11 +147,11 @@ class IKSolver:
             movement_penalty = 0.0
             if current_joints_rad is not None:
                 # 计算关节空间距离（仅针对 IK 关节）
-                joint_diff = solution - current_joints_rad[:NUM_IK_JOINTS]
+                joint_diff = solution - current_joints_rad[:_settings.NUM_IK_JOINTS]
                 joint_movement = np.linalg.norm(joint_diff)
                 
                 # 将关节移动转换为位置等效惩罚
-                movement_penalty = joint_movement * IK_MOVEMENT_PENALTY_WEIGHT
+                movement_penalty = joint_movement * _settings.IK_MOVEMENT_PENALTY_WEIGHT
                 
             # 总代价结合位置误差和移动惩罚
             total_cost = position_error + movement_penalty
@@ -177,7 +176,7 @@ class IKSolver:
             前 NUM_IK_JOINTS 个关节的角度（度）
         """
         if self.physics_client is None or self.robot_id is None:
-            return current_angles_deg[:NUM_IK_JOINTS]
+            return current_angles_deg[:_settings.NUM_IK_JOINTS]
         
         # 获取当前实际机器人位置和误差
         current_actual_position, _ = self.fk_solver.compute(current_angles_deg)
@@ -192,15 +191,15 @@ class IKSolver:
         # 状态管理辅助函数
         def set_robot_to_current_state():
             """辅助函数：将机器人设置为精确的当前状态"""
-            for i in range(NUM_JOINTS):
+            for i in range(_settings.NUM_JOINTS):
                 if i < len(self.joint_indices) and self.joint_indices[i] is not None:
                     p.resetJointState(self.robot_id, self.joint_indices[i], current_angles_rad[i])
         
         def set_robot_to_reference_state(ref_pose_rad: np.ndarray):
             """辅助函数：将机器人设置为参考位姿状态"""
             full_ref_state = current_angles_rad.copy()
-            full_ref_state[:NUM_IK_JOINTS] = ref_pose_rad
-            for i in range(NUM_JOINTS):
+            full_ref_state[:_settings.NUM_IK_JOINTS] = ref_pose_rad
+            for i in range(_settings.NUM_JOINTS):
                 if i < len(self.joint_indices) and self.joint_indices[i] is not None:
                     p.resetJointState(self.robot_id, self.joint_indices[i], full_ref_state[i])
         
@@ -208,7 +207,7 @@ class IKSolver:
         rest_poses_to_try = []
         
         # 1. 当前配置（最可能接近解）
-        current_rest_pose = np.deg2rad(current_angles_deg[:NUM_IK_JOINTS])
+        current_rest_pose = np.deg2rad(current_angles_deg[:_settings.NUM_IK_JOINTS])
         rest_poses_to_try.append(('current', current_rest_pose))
         
         # 2. 来自已记录配置的参考位姿
@@ -257,7 +256,7 @@ class IKSolver:
                 set_robot_to_current_state()
                 
                 # 评估此解
-                solution_array = np.array(ik_solution[:NUM_IK_JOINTS])
+                solution_array = np.array(ik_solution[:_settings.NUM_IK_JOINTS])
                 
                 # PyBullet 有时会忽略关节限制，因此需要钳制解
                 # 将限制转换回度进行比较
@@ -329,7 +328,7 @@ class IKSolver:
         # 比较纯位置误差（无移动惩罚）以判断 5cm 阈值
         if (best_reference_source is not None and current_actual_error is not None):
             position_improvement = current_actual_error - best_reference_position_error
-            if position_improvement > IK_HYSTERESIS_THRESHOLD:  # 位置精度需要提高 5cm
+            if position_improvement > _settings.IK_HYSTERESIS_THRESHOLD:  # 位置精度需要提高 5cm
                 final_solution = best_reference_solution
                 final_error = best_reference_error
                 final_source = best_reference_source
@@ -339,7 +338,7 @@ class IKSolver:
             return final_angles
         else:
             print("所有 IK 尝试均失败，返回当前角度")
-            return current_angles_deg[:NUM_IK_JOINTS]
+            return current_angles_deg[:_settings.NUM_IK_JOINTS]
 
 
 def vr_to_robot_coordinates(vr_pos: dict, scale: float = 1.0) -> np.ndarray:

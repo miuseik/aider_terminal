@@ -11,7 +11,8 @@ import time
 from typing import Dict, Optional
 
 from inputs.base import BaseInputProvider, ControlGoal, ControlMode
-from config.settings import TelegripConfig, POS_STEP, ANGLE_STEP, WRIST_ROLL_INDEX, WRIST_FLEX_INDEX
+from config.settings import TelegripConfig, POS_STEP, ANGLE_STEP
+import config.settings as _settings
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +123,8 @@ class WebKeyboardHandler(BaseInputProvider):
                 current_angles = self.robot_interface.get_arm_angles(arm)
 
                 arm_state["origin_position"] = current_position.copy()
-                arm_state["origin_wrist_roll"] = current_angles[WRIST_ROLL_INDEX]
-                arm_state["origin_wrist_flex"] = current_angles[WRIST_FLEX_INDEX]
+                arm_state["origin_wrist_roll"] = current_angles[_settings.WRIST_ROLL_INDEX]
+                arm_state["origin_wrist_flex"] = current_angles[_settings.WRIST_FLEX_INDEX]
 
                 # 重置当前偏移量
                 arm_state["current_offset"] = np.zeros(3)

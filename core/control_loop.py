@@ -16,12 +16,13 @@ import time
 import queue  # Add import for thread-safe queue
 from typing import Dict, Optional
 
-from config.settings import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX
+from config.settings import TelegripConfig
+import config.settings as _settings
 from core.robot_interface import RobotInterface
 from core.visualizer_controller import VisualizerController
 from controller.motor_controller import MotorController
 from router.motor_router import MotorRouter
-# PyBulletVisualizer will be imported on demand
+# Visualizer 工厂函数将在 setup() 中按需导入
 from inputs.base import ControlGoal, ControlMode
 # WebKeyboardHandler will be imported on demand to avoid circular imports
 
@@ -68,59 +69,53 @@ class ControlLoop:
     """
     
     def __init__(self, command_queue: asyncio.Queue, config: TelegripConfig, control_commands_queue: Optional[queue.Queue] = None):
-        """初始化控制循环。
-        
-        Args:
-            command_queue: 异步命令队列,接收 VR/键盘的控制指令
-            config: 系统配置对象
-            control_commands_queue: 可选的线程安全队列(暂未使用)
-        """
-        self.command_queue = command_queue  # 主命令队列
+        """初始化控制循环。"""
+        self.command_queue = command_queue
         self.control_commands_queue = control_commands_queue
-        self.config = config  # 系统配置
+        self.config = config
         
         # === 核心组件 ===
-        self.robot_interface = None  # 机器人硬件接口(连接真机)
-        self.motor_controller = None  # 电机控制器
-        self.api_router = None  # API命令路由器
-        self.visualizer = None  # PyBullet 可视化器(仿真环境)
-        self.web_keyboard_handler = None  # Web 键盘处理器引用
-        self.dispatcher = None  # 控制指令分发器
-        self.visualizer_controller = None  # 仿真可视化控制器
+        self.robot_interface = None
+        self.motor_controller = None
+        self.api_router = None
+        self.visualizer = None
+        self.web_keyboard_handler = None
+        self.dispatcher = None
+        self.visualizer_controller = None
         
         # === 机械臂状态 ===
-        self.left_arm = ArmState("left")   # 左臂状态
-        self.right_arm = ArmState("right") # 右臂状态
+        self.left_arm = ArmState("left")
+        self.right_arm = ArmState("right")
         
-        # === VR 原始数据存储 (用于底盘和升降轴控制) ===
-        # 存储左右手摇杆数据和扳机值,每帧读取并转换为底盘速度
+        # === VR 原始数据存储 ===
         self.vr_raw_data = {
             'leftController': {'joystick': {'x': 0, 'y': 0}, 'trigger': None},
             'rightController': {'joystick': {'x': 0, 'y': 0}, 'trigger': None}
         }
         
-        # === Aloha 移动底盘状态 ===
-        self.base_velocity_target = {"x": 0.0, "y": 0.0, "theta": 0.0}  # 底盘目标速度: x(前后), y(左右), theta(旋转)
-        self.aloha_height = self.config.aloha_initial_height if hasattr(self.config, 'aloha_initial_height') else 0.3  # 升降轴高度(米)
+        # === 底盘状态 ===
+        self.base_velocity_target = {"x": 0.0, "y": 0.0, "theta": 0.0}
+        
+        # === 身体关节状态 (腰 + 头) ===
+        self.body_joint_deltas = {}  # {joint_name: accumulated_delta_rad_per_tick}
         
         # === 控制时序 ===
         self.last_log_time = 0
-        self.log_interval = 1.0  # 每秒记录一次状态日志
+        self.log_interval = 1.0
         
         # === 调试标志 ===
         self._queue_debug_logged = False
         self._process_debug_logged = False
         
-        self.is_running = False  # 控制循环运行标志
+        self.is_running = False
     
     def setup(self) -> bool:
         """设置机器人接口和可视化器。
         
-        作用: 初始化所有硬件和仿真组件
+        初始化所有硬件和仿真组件:
         - 连接真机机器人(如果启用)
-        - 启动 PyBullet 仿真环境
+        - 启动 PyBullet 仿真加载机器人 URDF
         - 初始化运动学解算器(IK/FK)
-        - 设置 Aloha 底盘初始高度
         
         Returns:
             bool: 是否成功设置
@@ -159,14 +154,16 @@ class ControlLoop:
         # === 2. 设置 PyBullet 仿真、IK 和可视化器 ===
         if self.config.enable_pybullet:
             try:
-                # 按需导入 PyBulletVisualizer
-                from core.visualizer import PyBulletVisualizer
+                # 按需导入可视化器工厂
+                from core.visualizer import create_visualizer
                 
-                # 创建可视化器实例
-                self.visualizer = PyBulletVisualizer(
-                    self.config.get_absolute_urdf_path(),  # SO100 URDF 文件路径
-                    use_gui=self.config.enable_pybullet_gui,  # 是否显示 GUI 窗口
-                    log_level=self.config.log_level
+                # 创建可视化器实例（根据 robot_type 自动选择 Aider 或 Aloha）
+                self.visualizer = create_visualizer(
+                    robot_type=self.config.robot_type,
+                    urdf_path=self.config.get_absolute_urdf_path(),
+                    use_gui=self.config.enable_pybullet_gui,
+                    log_level=self.config.log_level,
+                    aloha_urdf_path=self.config.get_absolute_aloha_urdf_path() if hasattr(self.config, 'aloha_urdf_path') else None,
                 )
                 
                 # 启动 PyBullet 仿真环境
@@ -195,18 +192,7 @@ class ControlLoop:
                     # ---- 诊断: 检查 adapter 初始化状态 ----
                     adapter = self.robot_interface.adapter
                     print(f"[DIAG] adapter.is_setup={adapter.is_setup} | "
-                          f"FK求解器={list(adapter.fk_solvers.keys())} | "
-                          f"IK求解器={list(adapter.ik_solvers.keys())}")
-                    print(f"[DIAG] aloha_enabled={self.config.aloha_enabled} | "
-                          f"aloha_id={self.visualizer.aloha_id} | "
-                          f"robot_ids={list(self.visualizer.robot_ids.keys()) if self.visualizer.robot_ids else 'None'}")
-                    
-                    # 如果启用了 Aloha,设置初始高度
-                    if self.config.aloha_enabled and self.visualizer.aloha_id is not None:
-                        self.visualizer.set_aloha_height(self.config.aloha_initial_height)
-                        print(f"Aloha底盘已初始化，高度: {self.config.aloha_initial_height}m")
-                    elif self.config.aloha_enabled and self.visualizer.aloha_id is None:
-                        print("⚠️ [DIAG] aloha_enabled=True 但 aloha_id=None, 底盘/升降轴不会更新")
+                          f"{self.visualizer.get_diagnostic_info()}")
             except Exception as e:
                 error_msg = f"PyBullet visualizer setup failed with exception: {e}"
                 print(error_msg)
@@ -296,11 +282,11 @@ class ControlLoop:
             left_angles = self.robot_interface.get_arm_angles("left")
             right_angles = self.robot_interface.get_arm_angles("right")
             
-            self.left_arm.current_wrist_roll = left_angles[WRIST_ROLL_INDEX]
-            self.right_arm.current_wrist_roll = right_angles[WRIST_ROLL_INDEX]
+            self.left_arm.current_wrist_roll = left_angles[_settings.WRIST_ROLL_INDEX]
+            self.right_arm.current_wrist_roll = right_angles[_settings.WRIST_ROLL_INDEX]
             
-            self.left_arm.current_wrist_flex = left_angles[WRIST_FLEX_INDEX]
-            self.right_arm.current_wrist_flex = right_angles[WRIST_FLEX_INDEX]
+            self.left_arm.current_wrist_flex = left_angles[_settings.WRIST_FLEX_INDEX]
+            self.right_arm.current_wrist_flex = right_angles[_settings.WRIST_FLEX_INDEX]
             
             print(f"左臂初始位置: {left_pos.round(3)}")
             print(f"右臂初始位置: {right_pos.round(3)}")
@@ -378,13 +364,11 @@ class ControlLoop:
     async def _execute_goal(self, goal: ControlGoal):
         """执行控制目标。"""
         
-        # 1. 优先处理 Aloha 底盘的特殊控制指令
-        if goal.metadata and goal.metadata.get("action") == "set_aloha_height":
-            height_delta = goal.metadata.get("height_delta", 0)
-            self.aloha_height = max(0.0, min(0.7854, self.aloha_height + height_delta))
-            if self.visualizer:
-                self.visualizer.set_aloha_height(self.aloha_height)
-                print(f"⬆️ Aloha升降轴调整: {self.aloha_height:.3f}m (增量: {height_delta:.3f})")
+        # 0. 身体关节控制 (腰/头/升降)
+        if goal.metadata and "body_joint_name" in goal.metadata:
+            joint_name = goal.metadata["body_joint_name"]
+            delta_rad = goal.metadata.get("body_joint_delta", 0.0)
+            self.body_joint_deltas[joint_name] = self.body_joint_deltas.get(joint_name, 0.0) + delta_rad
             return
         
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm
@@ -399,10 +383,10 @@ class ControlLoop:
                 arm_state.target_position = current_position.copy()
                 arm_state.goal_position = current_position.copy()
                 arm_state.origin_position = current_position.copy()
-                arm_state.current_wrist_roll = current_angles[WRIST_ROLL_INDEX]
-                arm_state.current_wrist_flex = current_angles[WRIST_FLEX_INDEX]
-                arm_state.origin_wrist_roll_angle = current_angles[WRIST_ROLL_INDEX]
-                arm_state.origin_wrist_flex_angle = current_angles[WRIST_FLEX_INDEX]
+                arm_state.current_wrist_roll = current_angles[_settings.WRIST_ROLL_INDEX]
+                arm_state.current_wrist_flex = current_angles[_settings.WRIST_FLEX_INDEX]
+                arm_state.origin_wrist_roll_angle = current_angles[_settings.WRIST_ROLL_INDEX]
+                arm_state.origin_wrist_flex_angle = current_angles[_settings.WRIST_FLEX_INDEX]
                 
                 print(f"🔄 {goal.arm.upper()}臂: 目标位置重置为当前机器人位置（空闲超时）")
             return
@@ -421,10 +405,10 @@ class ControlLoop:
                     arm_state.target_position = current_position.copy()
                     arm_state.goal_position = current_position.copy()
                     arm_state.origin_position = current_position.copy()
-                    arm_state.current_wrist_roll = current_angles[WRIST_ROLL_INDEX]
-                    arm_state.current_wrist_flex = current_angles[WRIST_FLEX_INDEX]
-                    arm_state.origin_wrist_roll_angle = current_angles[WRIST_ROLL_INDEX]
-                    arm_state.origin_wrist_flex_angle = current_angles[WRIST_FLEX_INDEX]
+                    arm_state.current_wrist_roll = current_angles[_settings.WRIST_ROLL_INDEX]
+                    arm_state.current_wrist_flex = current_angles[_settings.WRIST_FLEX_INDEX]
+                    arm_state.origin_wrist_roll_angle = current_angles[_settings.WRIST_ROLL_INDEX]
+                    arm_state.origin_wrist_flex_angle = current_angles[_settings.WRIST_FLEX_INDEX]
                 
                 print(f"🔒 {goal.arm.upper()}握把激活 - 控制{goal.arm}臂（目标重置为当前位置）")
                 
@@ -508,10 +492,7 @@ class ControlLoop:
                         self.vr_raw_data[controller_key]['trigger'] = trigger_value
     
     def _update_mobile_base(self, vr_data: dict):
-        """根据 VR 摇杆数据更新底盘和升降轴状态。
-
-        委托给 AlohaAdapter 处理摇杆→速度映射。
-        """
+        """根据 VR 摇杆数据更新底盘和升降轴状态。委托给适配器处理。"""
         if not self.robot_interface:
             return
 
@@ -542,18 +523,23 @@ class ControlLoop:
         if not self.robot_interface:
             return
         
-        # 1. 获取最新的 VR 数据 (从共享存储中读取)
+        # 0. 应用身体关节增量 (腰/头/升降)
+        if self.body_joint_deltas:
+            adapter = self.robot_interface.adapter
+            for jname, delta in self.body_joint_deltas.items():
+                adapter.set_body_joint_delta(jname, delta)
+            self.body_joint_deltas.clear()
+        
+        # 1. 获取最新的 VR 数据
         vr_data = self.vr_raw_data
         
         # 2. 更新移动底盘和升降轴
-        # 检查是否有键盘底盘控制，如果有则跳过 VR 摇杆处理
         has_keyboard_base_control = (
             self.web_keyboard_handler and 
             self.web_keyboard_handler.base_state.get("base_control_active", False)
         )
         
         if not has_keyboard_base_control:
-            # 只有在没有键盘控制时才处理 VR 摇杆
             self._update_mobile_base(vr_data)
 
         # 4. 更新左臂（始终更新，用于仿真可视化）
@@ -563,7 +549,7 @@ class ControlLoop:
             ik_solution = self.robot_interface.solve_ik("left", self.left_arm.target_position)
             
             # 更新关节角度（委托给 adapter）
-            current_gripper = self.robot_interface.get_arm_angles("left")[GRIPPER_INDEX]
+            current_gripper = self.robot_interface.get_arm_angles("left")[_settings.GRIPPER_INDEX]
             self.robot_interface.update_arm_angles("left", ik_solution, 
                                                  self.left_arm.current_wrist_flex, 
                                                  self.left_arm.current_wrist_roll, 
@@ -581,7 +567,7 @@ class ControlLoop:
             ik_solution = self.robot_interface.solve_ik("right", self.right_arm.target_position)
             
             # 更新关节角度（委托给 adapter）
-            current_gripper = self.robot_interface.get_arm_angles("right")[GRIPPER_INDEX]
+            current_gripper = self.robot_interface.get_arm_angles("right")[_settings.GRIPPER_INDEX]
             self.robot_interface.update_arm_angles("right", ik_solution, 
                                                   self.right_arm.current_wrist_flex, 
                                                   self.right_arm.current_wrist_roll, 
@@ -626,7 +612,12 @@ class ControlLoop:
             
             # 检查 adapter 状态
             adapter = self.robot_interface.adapter if self.robot_interface else None
-            ik_solver_count = len(adapter.ik_solvers) if adapter else 0
+            ik_solver_count = 0
+            if adapter:
+                if hasattr(adapter, 'ik_solvers'):
+                    ik_solver_count = len(adapter.ik_solvers)
+                elif hasattr(adapter, 'ik_computer') and adapter.ik_computer is not None:
+                    ik_solver_count = 1  # AiderAdapter 使用统一的 DualArmIKComputer
             
             # 底盘速度
             bv = self.base_velocity_target
@@ -636,8 +627,7 @@ class ControlLoop:
                   f"左臂={'🟢' if left_ik_ok else '🔴'} | "
                   f"右臂={'🟢' if right_ik_ok else '🔴'} | "
                   f"底盘={'🟢' if base_active else '🔴'} "
-                  f"(vx={bv['x']:.3f} vy={bv['y']:.3f} vt={bv['theta']:.3f}) | "
-                  f"aloha_enabled={self.config.aloha_enabled}")
+                  f"(vx={bv['x']:.3f} vy={bv['y']:.3f} vt={bv['theta']:.3f})")
     
     @property
     def status(self) -> Dict:

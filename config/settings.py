@@ -1,6 +1,7 @@
 """
 统一遥操作系统的配置模块。
 从 config.yaml 文件加载配置，并提供默认值回退。
+支持多种机器人类型: aider (8-DOF), aloha (6-DOF via SO100)。
 """
 
 import os
@@ -14,7 +15,8 @@ from utils.common_utils import get_absolute_path, get_project_root
 
 logger = logging.getLogger(__name__)
 
-# 默认配置值（如果 YAML 文件不存在则使用）
+# =========================== 默认配置 ===========================
+
 DEFAULT_CONFIG = {
     "network": {
         "websocket_port": 8442,
@@ -50,7 +52,10 @@ DEFAULT_CONFIG = {
         }
     },
     "paths": {
-        "urdf_path": "URDF/SO100/so100.urdf"
+        "urdf_path": "URDF/aider/urdf/aider_pro.SLDASM.urdf",
+        "aider_urdf": "URDF/aider/urdf/aider_pro.SLDASM.urdf",
+        "aloha_urdf": "URDF/aloha/Aloha.urdf",
+        "so100_urdf": "URDF/SO100/so100.urdf",
     },
     "gripper": {
         "open_angle": 0.0,
@@ -134,57 +139,145 @@ POS_STEP = _config_data["control"]["keyboard"]["pos_step"]
 ANGLE_STEP = _config_data["control"]["keyboard"]["angle_step"]
 GRIPPER_STEP = _config_data["control"]["keyboard"]["gripper_step"]
 
-URDF_PATH = _config_data["paths"]["urdf_path"]
+# =========================== 机器人类型相关常量 ===========================
 
+# 各机器人类型的关节/URDF 配置
+_ROBOT_TYPE_CONFIGS = {
+    "aider": {
+        "num_joints": 8,
+        "num_ik_joints": 8,
+        "wrist_flex_index": 5,
+        "wrist_roll_index": 6,
+        "gripper_index": 7,
+        "joint_names": ["arm1", "arm2", "arm3", "arm4", "arm5", "arm6", "arm7", "arm8"],
+        "arm_joint_names_left": [f"left_arm{i}" for i in range(1, 9)],
+        "arm_joint_names_right": [f"right_arm{i}" for i in range(1, 9)],
+        "urdf_path": _config_data.get("paths", {}).get("aider_urdf", "URDF/aider/urdf/aider_pro.SLDASM.urdf"),
+        "end_effector_link_name": "left_arm8",
+        "common_motors": {
+            "arm1": [1, "sts3215"], "arm2": [2, "sts3215"], "arm3": [3, "sts3215"],
+            "arm4": [4, "sts3215"], "arm5": [5, "sts3215"], "arm6": [6, "sts3215"],
+            "arm7": [7, "sts3215"], "arm8": [8, "sts3215"],
+        },
+        "urdf_to_internal_name_map": {
+            "left_arm1": "arm1", "left_arm2": "arm2", "left_arm3": "arm3",
+            "left_arm4": "arm4", "left_arm5": "arm5", "left_arm6": "arm6",
+            "left_arm7": "arm7", "left_arm8": "arm8",
+            "right_arm1": "arm1", "right_arm2": "arm2", "right_arm3": "arm3",
+            "right_arm4": "arm4", "right_arm5": "arm5", "right_arm6": "arm6",
+            "right_arm7": "arm7", "right_arm8": "arm8",
+        },
+        "initial_left_arm": [0, -100, 100, 60, 0, 0, 0, 0],
+        "initial_right_arm": [0, -100, 100, 60, 0, 0, 0, 0],
+    },
+    "aloha": {
+        "num_joints": 6,
+        "num_ik_joints": 6,
+        "wrist_flex_index": 3,
+        "wrist_roll_index": 4,
+        "gripper_index": 5,
+        "joint_names": ["shoulder_pan", "shoulder_lift", "elbow_flex",
+                       "wrist_flex", "wrist_roll", "gripper"],
+        "arm_joint_names_left": ["1", "2", "3", "4", "5", "6"],
+        "arm_joint_names_right": ["1", "2", "3", "4", "5", "6"],
+        "urdf_path": _config_data.get("paths", {}).get("so100_urdf", "URDF/SO100/so100.urdf"),
+        "aloha_urdf_path": _config_data.get("paths", {}).get("aloha_urdf", "URDF/aloha/Aloha.urdf"),
+        "end_effector_link_name": "Fixed_Jaw_tip_joint",
+        "common_motors": {
+            "shoulder_pan": [1, "sts3215"], "shoulder_lift": [2, "sts3215"],
+            "elbow_flex": [3, "sts3215"], "wrist_flex": [4, "sts3215"],
+            "wrist_roll": [5, "sts3215"], "gripper": [6, "sts3215"],
+        },
+        "urdf_to_internal_name_map": {
+            "1": "shoulder_pan", "2": "shoulder_lift",
+            "3": "elbow_flex", "4": "wrist_flex",
+            "5": "wrist_roll", "6": "gripper",
+        },
+        "initial_left_arm": [0, -100, 100, 60, 0, 0],
+        "initial_right_arm": [0, -100, 100, 60, 0, 0],
+    },
+}
+
+# 当前活跃的机器人类型（由 set_robot_type() 设置）
+_ROBOT_TYPE: str = _config_data.get("robot", {}).get("type", "aider")
+
+
+def set_robot_type(robot_type: str) -> None:
+    """切换机器人类型并更新所有模块级常量。
+
+    必须在其他模块 import settings 的常量之前调用。
+    典型用法: 在 main.py 中解析 --robot-type 后立即调用。
+    """
+    global _ROBOT_TYPE, \
+        NUM_JOINTS, NUM_IK_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX, \
+        JOINT_NAMES, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT, \
+        URDF_PATH, ALOHA_URDF_PATH, END_EFFECTOR_LINK_NAME, \
+        COMMON_MOTORS, URDF_TO_INTERNAL_NAME_MAP
+
+    robot_type = robot_type.lower()
+    if robot_type not in _ROBOT_TYPE_CONFIGS:
+        print(f"⚠️ 未知机器人类型 '{robot_type}'，使用默认 'aider'")
+        robot_type = "aider"
+
+    _ROBOT_TYPE = robot_type
+    cfg = _ROBOT_TYPE_CONFIGS[robot_type]
+
+    NUM_JOINTS = cfg["num_joints"]
+    NUM_IK_JOINTS = cfg["num_ik_joints"]
+    WRIST_FLEX_INDEX = cfg["wrist_flex_index"]
+    WRIST_ROLL_INDEX = cfg["wrist_roll_index"]
+    GRIPPER_INDEX = cfg["gripper_index"]
+    JOINT_NAMES = cfg["joint_names"]
+    ARM_JOINT_NAMES_LEFT = cfg["arm_joint_names_left"]
+    ARM_JOINT_NAMES_RIGHT = cfg["arm_joint_names_right"]
+    URDF_PATH = cfg["urdf_path"]
+    ALOHA_URDF_PATH = cfg.get("aloha_urdf_path", "URDF/aloha/Aloha.urdf")
+    END_EFFECTOR_LINK_NAME = cfg["end_effector_link_name"]
+    COMMON_MOTORS = cfg["common_motors"]
+    URDF_TO_INTERNAL_NAME_MAP = cfg["urdf_to_internal_name_map"]
+
+    print(f"✅ 机器人类型已设为: {robot_type} (NUM_JOINTS={NUM_JOINTS}, IK={NUM_IK_JOINTS})")
+
+
+def get_robot_type() -> str:
+    return _ROBOT_TYPE
+
+
+def get_robot_initial_arm(arm: str) -> list:
+    cfg = _ROBOT_TYPE_CONFIGS.get(_ROBOT_TYPE, _ROBOT_TYPE_CONFIGS["aider"])
+    return cfg[f"initial_{arm}_arm"]
+
+
+# --- 默认初始化 (aider) ---
+# 模块加载时设默认值，main.py 会调用 set_robot_type() 覆盖
+NUM_JOINTS = _ROBOT_TYPE_CONFIGS["aider"]["num_joints"]
+NUM_IK_JOINTS = _ROBOT_TYPE_CONFIGS["aider"]["num_ik_joints"]
+WRIST_FLEX_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["wrist_flex_index"]
+WRIST_ROLL_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["wrist_roll_index"]
+GRIPPER_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["gripper_index"]
+JOINT_NAMES = _ROBOT_TYPE_CONFIGS["aider"]["joint_names"]
+ARM_JOINT_NAMES_LEFT = _ROBOT_TYPE_CONFIGS["aider"]["arm_joint_names_left"]
+ARM_JOINT_NAMES_RIGHT = _ROBOT_TYPE_CONFIGS["aider"]["arm_joint_names_right"]
+URDF_PATH = _ROBOT_TYPE_CONFIGS["aider"]["urdf_path"]
+ALOHA_URDF_PATH = _ROBOT_TYPE_CONFIGS["aloha"].get("aloha_urdf_path", "URDF/aloha/Aloha.urdf")
+END_EFFECTOR_LINK_NAME = _ROBOT_TYPE_CONFIGS["aider"]["end_effector_link_name"]
+COMMON_MOTORS = _ROBOT_TYPE_CONFIGS["aider"]["common_motors"]
+URDF_TO_INTERNAL_NAME_MAP = _ROBOT_TYPE_CONFIGS["aider"]["urdf_to_internal_name_map"]
+
+# 夹爪通用配置
 GRIPPER_OPEN_ANGLE = _config_data["gripper"]["open_angle"]
 GRIPPER_CLOSED_ANGLE = _config_data["gripper"]["closed_angle"]
 
-# IK 配置
+# IK 通用配置
 USE_REFERENCE_POSES = _config_data["ik"]["use_reference_poses"]
 REFERENCE_POSES_FILE = _config_data["ik"]["reference_poses_file"]
 IK_POSITION_ERROR_THRESHOLD = _config_data["ik"]["position_error_threshold"]
 IK_HYSTERESIS_THRESHOLD = _config_data["ik"]["hysteresis_threshold"]
 IK_MOVEMENT_PENALTY_WEIGHT = _config_data["ik"]["movement_penalty_weight"]
 
-# Aloha 配置
+# Aloha 通用配置
 ALOHA_ENABLED = _config_data["aloha"]["enabled"]
 ALOHA_INITIAL_HEIGHT = _config_data["aloha"]["initial_height"]
-
-# --- 关节配置 ---
-JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
-NUM_JOINTS = len(JOINT_NAMES)
-NUM_IK_JOINTS = 3  # Use only first 3 joints for IK (Rotation, Pitch, Elbow)
-WRIST_FLEX_INDEX = 3
-WRIST_ROLL_INDEX = 4
-GRIPPER_INDEX = 5
-
-# SO100 电机配置
-COMMON_MOTORS = {
-    "shoulder_pan": [1, "sts3215"],
-    "shoulder_lift": [2, "sts3215"], 
-    "elbow_flex": [3, "sts3215"],
-    "wrist_flex": [4, "sts3215"],
-    "wrist_roll": [5, "sts3215"],
-    "gripper": [6, "sts3215"],
-}
-
-# URDF 关节名称映射
-URDF_TO_INTERNAL_NAME_MAP = {
-    "1": "shoulder_pan",
-    "2": "shoulder_lift",
-    "3": "elbow_flex",
-    "4": "wrist_flex",
-    "5": "wrist_roll",
-    "6": "gripper",
-}
-
-# --- PyBullet 配置 ---
-END_EFFECTOR_LINK_NAME = "Fixed_Jaw_tip"
-
-# --- 键盘控制 ---
-POS_STEP = 0.01  # meters
-ANGLE_STEP = 5.0 # degrees
-GRIPPER_STEP = 10.0 # degrees
 
 # --- 设备端口 ---
 DEFAULT_FOLLOWER_PORTS = {
@@ -196,6 +289,7 @@ DEFAULT_FOLLOWER_PORTS = {
     "right_baudrate": _config_data["robot"]["right_arm"].get("baudrate", 1000000)
 }
 
+
 @dataclass
 class TelegripConfig:
     """遥操作系统的主配置类。"""
@@ -203,13 +297,13 @@ class TelegripConfig:
     # 网络设置
     websocket_port: int = WEBSOCKET_PORT
     host_ip: str = HOST_IP
-    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")  # WebSocket Server 地址
-    api_host: str = os.getenv("TELEGRIP_API_HOST", "www.houqicg.com")  # API Server 地址
-    enable_webrtc: bool = True  # 启用 WebRTC 视频推流
-    video_source: str = "/dev/video0"  # 摄像头设备路径
+    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")
+    api_host: str = os.getenv("TELEGRIP_API_HOST", "www.houqicg.com")
+    enable_webrtc: bool = True
+    video_source: str = "/dev/video0"
     
     # 机器人设置
-    robot_type: str = _config_data.get("robot", {}).get("type", "aider")  # 机器人类型
+    robot_type: str = _config_data.get("robot", {}).get("type", "aider")
     vr_to_robot_scale: float = VR_TO_ROBOT_SCALE
     send_interval: float = SEND_INTERVAL
     
@@ -227,6 +321,7 @@ class TelegripConfig:
     
     # 路径
     urdf_path: str = URDF_PATH
+    aloha_urdf_path: str = ALOHA_URDF_PATH
     webapp_dir: str = "webapp"
     
     # IK 设置
@@ -240,24 +335,18 @@ class TelegripConfig:
     gripper_open_angle: float = GRIPPER_OPEN_ANGLE
     gripper_closed_angle: float = GRIPPER_CLOSED_ANGLE
     
-    # 键盘控制
-    pos_step: float = POS_STEP
-    angle_step: float = ANGLE_STEP
-    gripper_step: float = GRIPPER_STEP
+    # 键盘控制 (复用 IK 中的配置)
     
     # Aloha 设置
     aloha_enabled: bool = ALOHA_ENABLED
     aloha_initial_height: float = ALOHA_INITIAL_HEIGHT
     
     def __post_init__(self):
-        # 如果未设置则初始化 follower_ports
         if self.follower_ports is None:
             self.follower_ports = {
                 "left": _config_data["robot"]["left_arm"]["port"],
                 "right": _config_data["robot"]["right_arm"]["port"]
             }
-        
-        # 确保端口不为 None
         if self.follower_ports["left"] is None:
             self.follower_ports["left"] = "/dev/ttyACM0"
         if self.follower_ports["right"] is None:
@@ -265,22 +354,21 @@ class TelegripConfig:
     
     @property
     def urdf_exists(self) -> bool:
-        """检查 URDF 文件是否存在。"""
         urdf_path = get_absolute_path(self.urdf_path)
         return urdf_path.exists()
     
     @property
     def webapp_exists(self) -> bool:
-        """检查 webapp 目录是否存在。"""
         webapp_path = get_absolute_path(self.webapp_dir)
         return webapp_path.exists()
     
     def get_absolute_urdf_path(self) -> str:
-        """获取 URDF 文件的绝对路径。"""
         return str(get_absolute_path(self.urdf_path))
     
+    def get_absolute_aloha_urdf_path(self) -> str:
+        return str(get_absolute_path(self.aloha_urdf_path))
+    
     def get_absolute_reference_poses_path(self) -> str:
-        """获取参考姿态文件的绝对路径。"""
         return str(get_absolute_path(self.reference_poses_file))
 
 def get_config_data():

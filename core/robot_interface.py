@@ -2,7 +2,8 @@
 机器人接口模块。
 提供带安全检查的机器人设备封装和便捷方法。
 
-架构: 计算逻辑委托给 robots/aloha/adapter.py，本模块负责硬件通信和流程编排。
+架构: 计算逻辑委托给 robots/ 下的适配器（AiderAdapter 或 AlohaAdapter），
+本模块负责硬件通信和流程编排。
 """
 
 import numpy as np
@@ -17,15 +18,17 @@ from typing import Optional, Dict, Tuple
 from config.settings import (
     TelegripConfig, NUM_JOINTS, JOINT_NAMES,
     GRIPPER_OPEN_ANGLE, GRIPPER_CLOSED_ANGLE,
-    WRIST_FLEX_INDEX, URDF_TO_INTERNAL_NAME_MAP
+    WRIST_FLEX_INDEX, URDF_TO_INTERNAL_NAME_MAP,
+    get_robot_type,
 )
 
 
 class RobotInterface:
-    """机器人控制高级接口。硬件通信在此，计算逻辑委托给 AlohaAdapter。"""
+    """机器人控制高级接口。硬件通信在此，计算逻辑委托给机器人适配器。"""
 
     def __init__(self, config: TelegripConfig):
         self.config = config
+        self.robot_type = config.robot_type
         self.left_robot = None
         self.right_robot = None
         self.base_robot = None
@@ -47,9 +50,8 @@ class RobotInterface:
         self.base_motors = []
         self.lift_motor = None
 
-        # ---- 机器人适配器 (解耦：所有 IK/轮子/Aloha 计算在此) ----
-        from robots.aloha import AlohaAdapter
-        self.adapter = AlohaAdapter()
+        # ---- 机器人适配器 (根据类型动态选择) ----
+        self._load_adapter()
 
         # 关节限位 (由 adapter 管理，此处为向后兼容)
         self.joint_limits_min_deg = np.full(NUM_JOINTS, -180.0)
@@ -65,9 +67,11 @@ class RobotInterface:
         self.max_arm_errors = 3
         self.max_general_errors = 8
 
-        # 安全关机初始位置
-        self.initial_left_arm = np.array([0, -100, 100, 60, 0, 0])
-        self.initial_right_arm = np.array([0, -100, 100, 60, 0, 0])
+        # 安全关机初始位置 (由适配器类型决定)
+        from config.settings import _ROBOT_TYPE_CONFIGS
+        rt_cfg = _ROBOT_TYPE_CONFIGS.get(self.robot_type, _ROBOT_TYPE_CONFIGS["aider"])
+        self.initial_left_arm = np.array(rt_cfg["initial_left_arm"])
+        self.initial_right_arm = np.array(rt_cfg["initial_right_arm"])
 
         # 底盘状态 (由 control_loop 更新)
         self.base_connected = False
@@ -83,6 +87,17 @@ class RobotInterface:
         self.left_arm_state = None
         self.right_arm_state = None
         self.visualizer = None
+
+    def _load_adapter(self):
+        """根据 robot_type 动态加载对应的适配器。"""
+        if self.robot_type == "aloha":
+            from robots.aloha import AlohaAdapter
+            self.adapter = AlohaAdapter()
+            print("[RobotInterface] 使用 AlohaAdapter (6-DOF, SO100)")
+        else:
+            from robots.aider import AiderAdapter
+            self.adapter = AiderAdapter()
+            print("[RobotInterface] 使用 AiderAdapter (8-DOF)")
 
     # ---- 属性：向后兼容（委托给 adapter） ----
 
@@ -117,11 +132,8 @@ class RobotInterface:
             lift_config = config.get('base_lift_bus', {}).get('lift_axis', {})
             
             if base_config:
-                self.base_motors = [
-                    base_config.get('front_wheel', {}).get('id'),
-                    base_config.get('left_wheel', {}).get('id'),
-                    base_config.get('right_wheel', {}).get('id')
-                ]
+                self.base_motors = list(base_config.keys())
+                print(f"✅ 底盘舵机配置: {self.base_motors}")
             
             if lift_config and 'axis1' in lift_config:
                 self.lift_motor = lift_config['axis1'].get('id')
@@ -359,28 +371,26 @@ class RobotInterface:
     def setup_kinematics(self, physics_client, robot_ids: Dict, joint_indices: Dict,
                          end_effector_link_indices: Dict, joint_limits_min_deg: np.ndarray,
                          joint_limits_max_deg: np.ndarray):
-        """设置运动学解算器。委托给 AlohaAdapter。"""
+        """设置运动学解算器。委托给对应的适配器。"""
         self.joint_limits_min_deg = joint_limits_min_deg.copy()
         self.joint_limits_max_deg = joint_limits_max_deg.copy()
 
-        # 委托给适配器初始化 IK/FK
-        # 注意: self.visualizer 必须在 control_loop.setup() 中提前设置
         self.adapter.setup(self.visualizer, self.config)
-        print("[RobotInterface] AlohaAdapter 已初始化 (SO100 IK + Aloha 底盘)")
+        print(f"[RobotInterface] 适配器已初始化 ({self.robot_type}, {NUM_JOINTS}-DOF)")
 
     def get_current_end_effector_position(self, arm: str) -> np.ndarray:
-        """获取指定机械臂的末端位置。委托给 AlohaAdapter。"""
+        """获取指定机械臂的末端位置。委托给适配器。"""
         angles = self.get_arm_angles(arm)
         return self.adapter.compute_fk(arm, angles)
 
     def solve_ik(self, arm: str, target_position: np.ndarray,
                  target_orientation: Optional[np.ndarray] = None) -> np.ndarray:
-        """逆运动学求解。委托给 AlohaAdapter。"""
+        """逆运动学求解。委托给适配器。"""
         current_angles = self.get_arm_angles(arm)
         return self.adapter.solve_ik(arm, target_position, current_angles)
 
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float):
-        """更新关节角度（含限位钳制）。委托给 AlohaAdapter。"""
+        """更新关节角度（含限位钳制）。委托给适配器。"""
         self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper)
 
     def engage(self) -> bool:
@@ -549,7 +559,7 @@ class RobotInterface:
             print(f"禁能力矩错误: {e}")
 
     def build_robot_action(self) -> dict:
-        """构造完整的机器人动作字典。委托给 AlohaAdapter。"""
+        """[兼容] 构建机器人动作字典。保留供外部调用，真机发送请用 _send_to_hardware。"""
         return self.adapter.build_action(
             vr_raw_data=self.vr_raw_data,
             base_vel=self.base_velocity_target,
@@ -557,100 +567,39 @@ class RobotInterface:
         )
 
     def _send_to_hardware(self):
-        """发送指令到真机硬件（双臂 + 底盘 + 升降轴）。"""
-        # ✅ 复用 motor_controller 的批量同步控制
+        """发送指令到真机硬件。
+        
+        委托 adapter 构建结构化的硬件命令（位置 + 速度），
+        本方法只负责无脑派发，不包含任何机器人特有的底盘/轮子逻辑。
+        """
         if not self.motor_controller:
             return
         
-        # 构建完整的动作字典
-        action = self.build_robot_action()
-        
-        # ✅ 1. 收集左臂舵机角度
-        left_targets = {}
-        left_arm_config = self.servo_ids.get('left_bus', {}).get('left_arm', {})
-        left_angles = action.get("left_arm_angles", [])
-        for i, (joint_name, joint_info) in enumerate(left_arm_config.items()):
-            if i < len(left_angles):
-                servo_id = joint_info['id']
-                angle = left_angles[i]
-                left_targets[servo_id] = angle
-        
-        # ✅ 2. 收集右臂舵机角度
-        right_targets = {}
-        right_arm_config = self.servo_ids.get('right_bus', {}).get('right_arm', {})
-        right_angles = action.get("right_arm_angles", [])
-        for i, (joint_name, joint_info) in enumerate(right_arm_config.items()):
-            if i < len(right_angles):
-                servo_id = joint_info['id']
-                angle = right_angles[i]
-                right_targets[servo_id] = angle
-        
-        # ✅ 3. 批量同步写入左臂（50ms 运动时间）
-        if left_targets:
-            left_port = self.servo_ids.get('left_bus', {}).get('port')
-            if left_port:
-                self.motor_controller.sync_write_positions(left_port, left_targets, time_ms=0)
-        
-        # ✅ 4. 批量同步写入右臂（50ms 运动时间）
-        if right_targets:
-            right_port = self.servo_ids.get('right_bus', {}).get('port')
-            if right_port:
-                self.motor_controller.sync_write_positions(right_port, right_targets, time_ms=0)
-        
-        # ✅ 5. 处理底盘速度（如果配置了）
-        base_config = self.servo_ids.get('base_lift_bus', {}).get('base', {})
-        if base_config:
-            base_port = self.servo_ids.get('base_lift_bus', {}).get('port')
-            if base_port and hasattr(self.motor_controller, 'sync_write_speeds'):
-                speed_targets = {}
-                for joint_name, joint_info in base_config.items():
-                    vel_key = f"base.{joint_name}.vel"
-                    if vel_key in action:
-                        vel = int(action[vel_key])
-                        servo_id = joint_info['id']
-                        
-                        # ✅ 关键：先切换到速度模式（只切换一次）
-                        if not hasattr(self, '_base_servos_mode_set') or not self._base_servos_mode_set:
-                            self.motor_controller.set_velocity_mode(base_port, servo_id)
-                        
-                        # ✅ 保留速度符号，负数=逆时针，正数=顺时针
-                        speed_targets[servo_id] = vel
-                    else:
-                        print(f"⚠️ 未找到底盘速度键: {vel_key}")
-                
-                # 标记底盘舵机已切换到速度模式
-                if speed_targets:
-                    self._base_servos_mode_set = True
-                    self.motor_controller.sync_write_speeds(base_port, speed_targets)
-                else:
-                    print(f"⚠️ 底盘速度目标为空，action keys: {list(action.keys())}")
-        
-        # ✅ 6. 处理升降轴速度（如果配置了）
-        lift_axis_config = self.servo_ids.get('base_lift_bus', {}).get('lift_axis', {})
-        if lift_axis_config:
-            lift_port = self.servo_ids.get('base_lift_bus', {}).get('port')
-            if lift_port and hasattr(self.motor_controller, 'sync_write_speeds'):
-                speed_targets = {}
-                for axis_name, axis_info in lift_axis_config.items():
-                    vel_key = f"lift.{axis_name}.vel"
-                    if vel_key in action:
-                        vel = int(action[vel_key])
-                        servo_id = axis_info['id']
-                        
-                        # ✅ 关键：先切换到速度模式（只切换一次）
-                        if not hasattr(self, '_lift_axis_mode_set') or not self._lift_axis_mode_set:
-                            print(f"🔄 切换升降轴舵机 {servo_id} 到速度模式")
-                            self.motor_controller.set_velocity_mode(lift_port, servo_id)
-                            self._lift_axis_mode_set = True
-                        
-                        # ✅ 保留速度符号，负数=逆时针（升），正数=顺时针（降）
-                        speed_targets[servo_id] = vel
-                
-                if speed_targets:
-                    self.motor_controller.sync_write_speeds(lift_port, speed_targets)
+        actions = self.adapter.build_hardware_actions(self.servo_ids)
+
+        # 派发位置命令（双臂关节角度）
+        for cmd in actions.get("position_commands", []):
+            if cmd.get("targets"):
+                self.motor_controller.sync_write_positions(cmd["port"], cmd["targets"], time_ms=0)
+
+        # 派发速度命令（底盘轮子 + 升降轴）
+        for cmd in actions.get("speed_commands", []):
+            if not cmd.get("targets"):
+                continue
+            port = cmd["port"]
+            for servo_id in cmd["targets"]:
+                self._ensure_speed_mode(port, servo_id)
+            self.motor_controller.sync_write_speeds(port, cmd["targets"])
+
+    def _ensure_speed_mode(self, port, servo_id):
+        """确保指定舵机处于速度模式（同一 port+servo 只切换一次）。"""
+        key = f"_speed_mode_{port}_{servo_id}"
+        if not hasattr(self, key):
+            self.motor_controller.set_velocity_mode(port, servo_id)
+            setattr(self, key, True)
 
     def _update_simulation(self):
-        """更新仿真可视化。委托给 AlohaAdapter。"""
+        """更新仿真可视化。委托给适配器。"""
         if not self.visualizer:
             return
 

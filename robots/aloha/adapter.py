@@ -270,15 +270,78 @@ class AlohaAdapter:
         self.lift_height_mm = new_m * 1000.0
         return new_m
 
-    # ======================== 动作字典构建 ========================
+    # ======================== 硬件命令构建 ========================
+
+    def build_hardware_actions(self, servo_ids: dict) -> dict:
+        """根据当前状态和舵机配置，构建结构化的硬件命令。
+
+        本方法完全封装 Aloha 特有的底盘/轮子/升降轴映射逻辑，
+        调用方（robot_interface）只需无脑派发返回的命令。
+
+        Returns:
+            {
+                "position_commands": [{"port": str, "targets": {servo_id: angle}}, ...],
+                "speed_commands":    [{"port": str, "targets": {servo_id: speed}}, ...],
+            }
+        """
+        actions = {"position_commands": [], "speed_commands": []}
+
+        # --- 左臂（位置控制） ---
+        left_bus = servo_ids.get("left_bus", {})
+        left_port = left_bus.get("port")
+        if left_port:
+            targets = {}
+            for i, (_jname, jinfo) in enumerate(left_bus.get("left_arm", {}).items()):
+                if i < len(self.left_angles):
+                    targets[jinfo["id"]] = float(self.left_angles[i])
+            if targets:
+                actions["position_commands"].append({"port": left_port, "targets": targets})
+
+        # --- 右臂（位置控制） ---
+        right_bus = servo_ids.get("right_bus", {})
+        right_port = right_bus.get("port")
+        if right_port:
+            targets = {}
+            for i, (_jname, jinfo) in enumerate(right_bus.get("right_arm", {}).items()):
+                if i < len(self.right_angles):
+                    targets[jinfo["id"]] = float(self.right_angles[i])
+            if targets:
+                actions["position_commands"].append({"port": right_port, "targets": targets})
+
+        # --- 底盘 + 升降轴（速度控制） ---
+        base_bus = servo_ids.get("base_lift_bus", {})
+        base_port = base_bus.get("port")
+        if base_port:
+            speed_targets = {}
+            # Aloha 三轮: compute_wheel_speeds 返回 base_left_wheel / base_back_wheel / base_right_wheel
+            wheel_speeds = self.compute_wheel_speeds()
+            base_config = base_bus.get("base", {})
+            # 适配器轮名 → servo_ids 键名的映射
+            wheel_key_map = {
+                "base_left_wheel": "left_wheel",
+                "base_back_wheel": "front_wheel",
+                "base_right_wheel": "right_wheel",
+            }
+            for adapter_name, speed_val in wheel_speeds.items():
+                config_key = wheel_key_map.get(adapter_name, adapter_name)
+                wheel_info = base_config.get(config_key)
+                if wheel_info:
+                    speed_targets[wheel_info["id"]] = int(speed_val)
+
+            # 升降轴
+            lift_config = base_bus.get("lift_axis", {})
+            for _axis_name, axis_info in lift_config.items():
+                speed_targets[axis_info["id"]] = int(self.lift_velocity)
+
+            if speed_targets:
+                actions["speed_commands"].append({"port": base_port, "targets": speed_targets})
+
+        return actions
 
     def build_action(self, vr_raw_data: dict,
                      base_vel: dict = None,
                      lift_vel: float = None) -> dict:
-        """构建完整的机器人动作字典（真机 + 仿真共用）。
-
-        包含: 双臂角度（含夹爪映射）、底盘三轮速度、升降轴速度
-        """
+        """[兼容] 构建完整的机器人动作字典（已被 build_hardware_actions 替代）。"""
         # 1. 双臂角度（应用 VR 扳机 → 夹爪映射）
         left_angles = self.left_angles.copy()
         right_angles = self.right_angles.copy()

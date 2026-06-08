@@ -11,6 +11,9 @@
   具体计算逻辑全部委托给此目录下的适配器。
 """
 
-from .aloha.adapter import AlohaAdapter
+try:
+    from .aloha.adapter import AlohaAdapter
+except ImportError:
+    AlohaAdapter = None
 
 __all__ = ["AlohaAdapter"]

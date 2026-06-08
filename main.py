@@ -4,17 +4,21 @@ Telegrip Terminal 启动脚本。
 直接运行此文件即可启动终端控制系统。
 
 用法:
-    python main.py [--no-robot] [--log-level LEVEL] [--robot-type TYPE]
+    python main.py [--no-robot] [--log-level LEVEL] [--role-aider|--role-aloha|--robot-type TYPE]
 
 选项:
     --no-robot      无机器人模式(仅仿真)
     --log-level     日志级别 (debug/info/warning/error/critical)
     --robot-type    机器人类型 (aider/aloha/openarmx/custom)
+    --role          --robot-type 的别名 (aider/aloha)
+    --role-aider    快捷方式，等同于 --role aider
+    --role-aloha    快捷方式，等同于 --role aloha
 
 示例:
-    python main.py --robot-type aider        # 控制 Aider 机器人
-    python main.py --robot-type aloha        # 控制 Aloha 机器人
-    python main.py --robot-type openarmx     # 控制 OpenArmX 机器人
+    python main.py --role-aider          # 启动 Aider 机器人
+    python main.py --role-aloha          # 启动 Aloha 机器人
+    python main.py --role aider          # 启动 Aider 机器人
+    python main.py --robot-type aloha    # 启动 Aloha 机器人
 """
 
 import sys

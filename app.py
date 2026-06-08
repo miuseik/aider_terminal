@@ -447,13 +447,18 @@ def parse_arguments():
     parser.add_argument("--right-port", help="Right arm serial port (overrides config file)")
     parser.add_argument("--robot-type", default=None, choices=["aider", "aloha", "openarmx", "custom"],
                        help="Robot type to control (overrides config file)")
+    parser.add_argument("--role", default=None, choices=["aider", "aloha", "openarmx", "custom"],
+                       help="Alias for --robot-type (which robot to control)")
+    parser.add_argument("--role-aider", dest="role_aider", action="store_true",
+                       help="Shortcut for --role aider")
+    parser.add_argument("--role-aloha", dest="role_aloha", action="store_true",
+                       help="Shortcut for --role aloha")
     
     return parser.parse_args()
 
 
 def create_config_from_args(args) -> TelegripConfig:
     """从命令行参数创建配置对象。"""
-    # 首先加载配置文件
     config_data = get_config_data()
     config = TelegripConfig()
     
@@ -469,29 +474,41 @@ def create_config_from_args(args) -> TelegripConfig:
     config.websocket_port = args.ws_port
     config.host_ip = args.host
     
-    # 处理环境配置
     if args.env_dev:
-        # 开发环境：使用 localhost（除非命令行明确指定了其他地址）
         config.server_host = args.server_host if args.server_host else 'localhost'
         config.api_host = args.api_host if args.api_host else 'localhost'
     else:
-        # 生产环境：使用命令行参数或保持默认值
         if args.server_host:
             config.server_host = args.server_host
         if args.api_host:
             config.api_host = args.api_host
     
-    config.urdf_path = args.urdf
-    
-    # 处理机器人类型 - 优先使用命令行参数，否则使用配置文件值
-    if args.robot_type:
+    # 处理机器人类型 - 优先级: --role > --role-aider/--role-aloha > --robot-type > 配置文件
+    if args.role:
+        config.robot_type = args.role
+        print(f"🤖 机器人类型: {args.role} (--role 指定)")
+    elif getattr(args, 'role_aider', False):
+        config.robot_type = "aider"
+        print(f"🤖 机器人类型: aider (--role-aider)")
+    elif getattr(args, 'role_aloha', False):
+        config.robot_type = "aloha"
+        print(f"🤖 机器人类型: aloha (--role-aloha)")
+    elif args.robot_type:
         config.robot_type = args.robot_type
-        print(f"🤖 机器人类型: {args.robot_type} (命令行指定)")
+        print(f"🤖 机器人类型: {args.robot_type} (--robot-type 指定)")
     else:
         config.robot_type = config_data.get("robot", {}).get("type", "aider")
         print(f"🤖 机器人类型: {config.robot_type} (配置文件)")
     
-    # 处理端口配置 - 如果提供则使用命令行参数，否则使用配置文件值
+    # 根据机器人类型设置 URDF 路径
+    from config.settings import set_robot_type, _ROBOT_TYPE_CONFIGS
+    set_robot_type(config.robot_type)
+    rt_cfg = _ROBOT_TYPE_CONFIGS.get(config.robot_type, _ROBOT_TYPE_CONFIGS["aider"])
+    config.urdf_path = args.urdf if args.urdf != "URDF/SO100/so100.urdf" else rt_cfg["urdf_path"]
+    if hasattr(config, 'aloha_urdf_path'):
+        config.aloha_urdf_path = rt_cfg.get("aloha_urdf_path", config.aloha_urdf_path)
+    
+    # 处理端口配置
     if args.left_port or args.right_port:
         config.follower_ports = {
             "left": args.left_port if args.left_port else config_data["robot"]["left_arm"]["port"],
