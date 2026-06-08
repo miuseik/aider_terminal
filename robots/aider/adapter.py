@@ -36,6 +36,7 @@ from core.kinematic.custom.ik_computer import DualArmIKComputer
 from config.settings import (
     TelegripConfig, NUM_JOINTS, NUM_IK_JOINTS,
     GRIPPER_INDEX, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT,
+    get_joint_limits_deg,
 )
 
 # ======================== 麦克纳姆轮常量 ========================
@@ -126,16 +127,26 @@ class AiderAdapter:
         self.fk_computer = FKComputer()
         self.ik_computer = DualArmIKComputer(fk=self.fk_computer)
 
-        # 读取 URDF 关节限位
+        # 读取关节限位 (优先级: settings > URDF > [-π,π])
+        limits_cfg = get_joint_limits_deg()
         jinfo = self.fk_computer.joint_info()
-        for i, name in enumerate(ARM_JOINT_NAMES_LEFT):
-            if name in jinfo:
-                lo = jinfo[name].get("lower", -math.pi)
-                hi = jinfo[name].get("upper", math.pi)
+        for i, internal_name in enumerate(ARM_JOINT_NAMES_LEFT):
+            # internal_name 如 "left_arm1"
+            if internal_name in jinfo:
+                lo = jinfo[internal_name].get("lower", -math.pi)
+                hi = jinfo[internal_name].get("upper", math.pi)
                 if lo == 0 and hi == 0:
                     lo, hi = -math.pi, math.pi
                 self.joint_limits_lower[i] = lo
                 self.joint_limits_upper[i] = hi
+
+        # 用 settings 中的限位覆盖 URDF 默认值
+        for internal_name, lim in limits_cfg.items():
+            # internal_name 是 "arm1".."arm8"
+            idx = int(internal_name.replace("arm", "")) - 1
+            if 0 <= idx < NUM_JOINTS:
+                self.joint_limits_lower[idx] = math.radians(lim["lower"])
+                self.joint_limits_upper[idx] = math.radians(lim["upper"])
 
         if visualizer and visualizer.is_connected:
             self._physics_client = visualizer.physics_client

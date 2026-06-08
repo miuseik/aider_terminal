@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from .fk_computer import FKComputer
+from config.settings import get_joint_limits_deg
 
 
 # 左右臂各自的关节链（不含 lift/waist，这些在 IK 中固定）
@@ -128,13 +129,31 @@ class IKComputer:
         return J
 
     def _clamp(self, q: np.ndarray) -> np.ndarray:
-        """限制关节值在 URDF 定义的范围内."""
-        for i, name in enumerate(self.joint_names):
-            jinfo = self.fk._joints.get(name, {})
-            lo = jinfo.get("lower", -math.pi)
-            hi = jinfo.get("upper", math.pi)
-            if lo == 0 and hi == 0:
-                lo, hi = -math.pi, math.pi
+        """限制关节值在限位范围内。
+        
+        优先级: settings.py 中的 joint_limits_deg > URDF 值 > [-π, π] 回退。
+        """
+        limits_cfg = get_joint_limits_deg()  # {"arm1": {lower, upper}, ...}
+        # 构建 internal_name → limit 映射 (arm1, arm2, ...)
+        limits_by_internal = {}
+        for joint_name, lim in limits_cfg.items():
+            limits_by_internal[joint_name] = (math.radians(lim["lower"]),
+                                               math.radians(lim["upper"]))
+
+        for i, urdf_name in enumerate(self.joint_names):
+            # urdf_name 如 "left_arm3" → internal 名 "arm3"
+            internal = urdf_name.split("_", 1)[1] if "_" in urdf_name else urdf_name
+
+            if internal in limits_by_internal:
+                lo, hi = limits_by_internal[internal]
+            else:
+                # 回退: URDF 或 [-π, π]
+                jinfo = self.fk._joints.get(urdf_name, {})
+                lo = jinfo.get("lower", -math.pi)
+                hi = jinfo.get("upper", math.pi)
+                if lo == 0 and hi == 0:
+                    lo, hi = -math.pi, math.pi
+
             q[i] = max(lo, min(hi, q[i]))
         return q
 

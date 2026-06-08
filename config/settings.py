@@ -170,6 +170,32 @@ _ROBOT_TYPE_CONFIGS = {
         },
         "initial_left_arm": [0, -100, 100, 60, 0, 0, 0, 0],
         "initial_right_arm": [0, -100, 100, 60, 0, 0, 0, 0],
+        # 关节限位 (度), 参考人体结构
+        "joint_limits_deg": {
+            # arm1: 肩部水平旋转 (X轴) — 人体外展/内收约 -90°~90°
+            "arm1": {"lower": -90, "upper": 90},
+            # arm2: 肩部上举 (Y轴) — 人体屈曲/伸展约 -150°~30°
+            "arm2": {"lower": -150, "upper": 30},
+            # arm3: 肘部弯曲 (Z轴) — 0°=直臂, 负=曲臂, 人体肘屈约 0°~145°
+            "arm3": {"lower": -150, "upper": 30},
+            # arm4: 前臂旋转 (X轴) — 人体旋前/旋后约 ±90°
+            "arm4": {"lower": -90, "upper": 90},
+            # arm5: 腕部翻滚 (Z轴) — 人体桡偏/尺偏约 -30°~40°, 机械放宽
+            "arm5": {"lower": -45, "upper": 45},
+            # arm6: 腕部俯仰 (X轴) — 人体腕屈/腕伸约 -80°~70°
+            "arm6": {"lower": -70, "upper": 70},
+            # arm7: 腕部偏航 (Y轴) — 人体腕部独立偏航范围小, 放宽至 ±45°
+            "arm7": {"lower": -45, "upper": 45},
+            # arm8: 夹爪 (X轴) — 张开=0°, 闭合=-90°
+            "arm8": {"lower": -90, "upper": 0},
+        },
+        # 身体关节限位
+        "body_joint_limits": {
+            "waist_Link":  {"lower_deg": -90, "upper_deg": 90},
+            "head_Link":   {"lower_deg": -60, "upper_deg": 60},
+            "head_Link2":  {"lower_deg": -30, "upper_deg": 45},
+            "lift_Link":   {"lower_m":    0.0, "upper_m":  0.5},
+        },
     },
     "aloha": {
         "num_joints": 6,
@@ -249,6 +275,18 @@ def get_robot_type() -> str:
 def get_robot_initial_arm(arm: str) -> list:
     cfg = _ROBOT_TYPE_CONFIGS.get(_ROBOT_TYPE, _ROBOT_TYPE_CONFIGS["aider"])
     return cfg[f"initial_{arm}_arm"]
+
+
+def get_joint_limits_deg() -> dict:
+    """返回当前机器人类型的关节限位字典 {joint_name: {lower, upper}} (度)。"""
+    cfg = _ROBOT_TYPE_CONFIGS.get(_ROBOT_TYPE, _ROBOT_TYPE_CONFIGS["aider"])
+    return cfg.get("joint_limits_deg", {})
+
+
+def get_body_joint_limits() -> dict:
+    """返回身体关节限位字典。"""
+    cfg = _ROBOT_TYPE_CONFIGS.get(_ROBOT_TYPE, _ROBOT_TYPE_CONFIGS["aider"])
+    return cfg.get("body_joint_limits", {})
 
 
 # --- 默认初始化 (aider) ---
