@@ -23,6 +23,48 @@ Telegrip Terminal 启动脚本。
 
 import sys
 import os
+
+# ════════════════════════════════════════════════════════════
+# 自动依赖安装：启动时检查 pyproject.toml 声明的所有依赖，
+# 缺失的自动 pip install，保证零手动操作
+# ════════════════════════════════════════════════════════════
+def _auto_install_deps():
+    """读取 pyproject.toml 的 dependencies，自动安装缺失的包（毫秒级检查）。"""
+    import subprocess, re
+    base_dir = os.path.dirname(__file__)
+    pyproject_path = os.path.join(base_dir, "pyproject.toml")
+    if not os.path.exists(pyproject_path):
+        return
+
+    with open(pyproject_path, encoding="utf-8") as f:
+        content = f.read()
+
+    deps = re.findall(r'^\s+"(.+?)"(?:,?\s*#.*)?$', content, re.MULTILINE)
+    if not deps:
+        return
+
+    missing = []
+    for dep in deps:
+        # 提取纯包名（去掉版本约束，如 "numpy>=1.20" → "numpy"）
+        name = re.split(r'[>=<!~\[\]]', dep)[0].strip().strip('"\'')
+        if not name:
+            continue
+        try:
+            __import__(name.replace("-", "_"))
+        except ImportError:
+            missing.append(name)
+
+    if not missing:
+        return
+
+    print(f"📦 正在安装 {len(missing)} 个缺失依赖: {', '.join(missing)}")
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install"] + missing + ["--quiet"])
+    print("✅ 依赖安装完成")
+
+_auto_install_deps()
+# ════════════════════════════════════════════════════════════
+
 import asyncio
 from datetime import datetime
 

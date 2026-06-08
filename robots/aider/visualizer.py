@@ -114,7 +114,7 @@ class AiderVisualizer:
         aider_pkg_dir = os.path.dirname(urdf_dir)           # .../URDF/aider/
         mesh_dir = os.path.join(aider_pkg_dir, "meshes")    # .../URDF/aider/meshes/
 
-        # ---- 自动压缩大 STL ----
+        # ---- 自动压缩大 STL（缺失依赖会自动安装） ----
         from utils.mesh_compressor import compress_directory
         saved, msg = compress_directory(mesh_dir, max_single_mb=2.0, total_budget_mb=150.0)
         if saved > 0:

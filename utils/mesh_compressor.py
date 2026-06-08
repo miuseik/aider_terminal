@@ -6,9 +6,10 @@ STL 网格压缩模块。
 import os
 import sys
 import time
-import trimesh
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+
+import trimesh
 
 
 # ---- 默认阈值 ----

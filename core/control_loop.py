@@ -635,8 +635,8 @@ class ControlLoop:
             if adapter:
                 if hasattr(adapter, 'ik_solvers'):
                     ik_solver_count = len(adapter.ik_solvers)
-                elif hasattr(adapter, 'ik_computer') and adapter.ik_computer is not None:
-                    ik_solver_count = 1  # AiderAdapter 使用统一的 DualArmIKComputer
+                elif hasattr(adapter, 'ik_solver') and adapter.ik_solver is not None:
+                    ik_solver_count = 1  # AiderAdapter 使用 Pink IK
             
             # 底盘速度
             bv = self.base_velocity_target

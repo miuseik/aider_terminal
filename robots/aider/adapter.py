@@ -31,12 +31,10 @@ import numpy as np
 import math
 from typing import Optional, Dict, List, Tuple
 
-from core.kinematic.custom.fk_computer import FKComputer
-from core.kinematic.custom.ik_computer import DualArmIKComputer
+from core.kinematic.pink.aider_ik import AiderPinkSolver
 from config.settings import (
     TelegripConfig, NUM_JOINTS, NUM_IK_JOINTS,
     GRIPPER_INDEX, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT,
-    get_joint_limits_deg,
 )
 
 # ======================== 麦克纳姆轮常量 ========================
@@ -79,8 +77,7 @@ class AiderAdapter:
 
     def __init__(self):
         # ---- 运动学 ----
-        self.fk_computer: Optional[FKComputer] = None
-        self.ik_computer: Optional[DualArmIKComputer] = None
+        self.ik_solver: Optional[AiderPinkSolver] = None
 
         # ---- 8-DOF 关节状态 ----
         self.left_angles = np.zeros(NUM_JOINTS)
@@ -90,10 +87,6 @@ class AiderAdapter:
         self.waist_angle: float = 0.0     # 腰部旋转 (rad)
         self.head_yaw: float = 0.0        # 头 yaw (rad)
         self.head_pitch: float = 0.0      # 头 pitch (rad)
-
-        # ---- 关节限位 ----
-        self.joint_limits_lower = np.full(NUM_JOINTS, -math.pi)
-        self.joint_limits_upper = np.full(NUM_JOINTS, math.pi)
 
         # ---- 底盘速度 ----
         self.base_vx: float = 0.0
@@ -123,30 +116,12 @@ class AiderAdapter:
         self.config = config
         self.visualizer = visualizer
 
-        # 初始化纯 Python IK/FK（不依赖 PyBullet）
-        self.fk_computer = FKComputer()
-        self.ik_computer = DualArmIKComputer(fk=self.fk_computer)
+        # 初始化 Pink IK 求解器（自含 Pinocchio URDF 模型，限位来自 URDF）
+        self.ik_solver = AiderPinkSolver()
 
-        # 读取关节限位 (优先级: settings > URDF > [-π,π])
-        limits_cfg = get_joint_limits_deg()
-        jinfo = self.fk_computer.joint_info()
-        for i, internal_name in enumerate(ARM_JOINT_NAMES_LEFT):
-            # internal_name 如 "left_arm1"
-            if internal_name in jinfo:
-                lo = jinfo[internal_name].get("lower", -math.pi)
-                hi = jinfo[internal_name].get("upper", math.pi)
-                if lo == 0 and hi == 0:
-                    lo, hi = -math.pi, math.pi
-                self.joint_limits_lower[i] = lo
-                self.joint_limits_upper[i] = hi
-
-        # 用 settings 中的限位覆盖 URDF 默认值
-        for internal_name, lim in limits_cfg.items():
-            # internal_name 是 "arm1".."arm8"
-            idx = int(internal_name.replace("arm", "")) - 1
-            if 0 <= idx < NUM_JOINTS:
-                self.joint_limits_lower[idx] = math.radians(lim["lower"])
-                self.joint_limits_upper[idx] = math.radians(lim["upper"])
+        # 从 solver 的姿态偏好同步初始角度，启动就在舒适位
+        self.left_angles = self.ik_solver.get_posture("left")
+        self.right_angles = self.ik_solver.get_posture("right")
 
         if visualizer and visualizer.is_connected:
             self._physics_client = visualizer.physics_client
@@ -159,12 +134,18 @@ class AiderAdapter:
 
     def compute_fk(self, arm: str, angles_deg: np.ndarray) -> np.ndarray:
         """正运动学: 8 关节角度 → 末端位置 (base_link 坐标系, 米)。"""
-        if self.fk_computer is None:
+        if self.ik_solver is None:
             return np.array([0.3, 0.0, 0.5])
-        jv = self._build_joint_values(arm, angles_deg)
-        link = f"{arm}_arm8"
-        pos = self.fk_computer.pos(link, jv)
-        return np.array(pos)
+        body = {
+            "lift_Link": self.lift_height_mm / 1000.0,
+            "waist_Link": self.waist_angle,
+            "head_Link": self.head_yaw,
+            "head_Link2": self.head_pitch,
+        }
+        pos = self.ik_solver.forward_kinematics(arm, angles_deg, body)
+        if pos is None:
+            return np.array([0.3, 0.0, 0.5])
+        return pos
 
     def solve_ik(self, arm: str, target_position: np.ndarray,
                  current_angles: Optional[np.ndarray] = None) -> np.ndarray:
@@ -172,43 +153,26 @@ class AiderAdapter:
         if current_angles is None:
             current_angles = self._get_angles(arm)
 
-        if self.ik_computer is None:
+        if self.ik_solver is None:
             return current_angles
 
-        jv = self._build_joint_values(arm, current_angles)
-        prefix = f"{arm}_arm"
-        ik = self.ik_computer.left if arm == "left" else self.ik_computer.right
+        body = {
+            "lift_Link": self.lift_height_mm / 1000.0,
+            "waist_Link": self.waist_angle,
+            "head_Link": self.head_yaw,
+            "head_Link2": self.head_pitch,
+        }
 
-        sol = ik.solve(np.array(target_position), jv)
+        sol = self.ik_solver.solve(
+            arm=arm,
+            target_position=np.array(target_position),
+            current_angles=current_angles,
+            body_state=body,
+        )
+
         if sol is None:
             return current_angles
-
-        angles_out = np.zeros(NUM_JOINTS)
-        for i in range(NUM_JOINTS):
-            name = f"{prefix}{i+1}"
-            angles_out[i] = np.degrees(sol.get(name, 0.0))
-        return angles_out
-
-    def _build_joint_values(self, arm: str, angles_deg: np.ndarray) -> Dict[str, float]:
-        """构建完整关节值字典（用于 IK/FK）。"""
-        jv: Dict[str, float] = {
-            "lift_Link": float(self.lift_height_mm / 1000.0),
-            "waist_Link": float(self.waist_angle),
-            "head_Link": float(self.head_yaw),
-            "head_Link2": float(self.head_pitch),
-        }
-        prefix = f"{arm}_arm"
-        for i in range(min(NUM_JOINTS, len(angles_deg))):
-            jv[f"{prefix}{i+1}"] = float(np.radians(angles_deg[i]))
-
-        # 填充另一臂关节（用当前值）
-        other = "right" if arm == "left" else "left"
-        other_angles = self.right_angles if other == "right" else self.left_angles
-        oprefix = f"{other}_arm"
-        for i in range(NUM_JOINTS):
-            jv[f"{oprefix}{i+1}"] = float(np.radians(other_angles[i]))
-
-        return jv
+        return sol
 
     # ======================== 关节管理 ========================
 
@@ -236,15 +200,11 @@ class AiderAdapter:
         if len(angles) >= 8:
             angles[7] = gripper       # arm8 (夹爪)
 
-        # 限位钳制
-        clamped = np.clip(angles, np.degrees(self.joint_limits_lower),
-                          np.degrees(self.joint_limits_upper))
-
         if arm == "left":
-            self.left_angles = clamped
+            self.left_angles = angles
         else:
-            self.right_angles = clamped
-        return clamped
+            self.right_angles = angles
+        return angles
 
     def apply_gripper_from_trigger(self, arm: str, trigger_value: float) -> None:
         """根据 VR 扳机值 (0~1) 设置夹爪角度 (0°~-90°)。"""

@@ -20,6 +20,8 @@ dependencies = [
     "scipy",
     "pyyaml",
     "opencv-python",
+    "trimesh",
+    "pinocchio",
     # Pink IK Solver dependencies
     "meshcat_shapes",
     "qpsolvers",
