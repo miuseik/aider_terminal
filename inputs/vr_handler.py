@@ -37,6 +37,7 @@ class VRControllerState:
         # 腕部控制的旋转跟踪
         self.z_axis_rotation = 0.0  # 用于 wrist_roll
         self.x_axis_rotation = 0.0  # 用于 wrist_flex (俯仰)
+        self.y_axis_rotation = 0.0  # 用于 wrist_yaw (偏航)
         
         # 位置跟踪
         self.current_position = None
@@ -53,6 +54,7 @@ class VRControllerState:
         self.accumulated_rotation_quat = None
         self.z_axis_rotation = 0.0
         self.x_axis_rotation = 0.0
+        self.y_axis_rotation = 0.0
 
 
 class VRHandler(BaseInputProvider):
@@ -244,6 +246,7 @@ class VRHandler(BaseInputProvider):
                 controller.accumulated_rotation_quat = controller.origin_quaternion
                 controller.z_axis_rotation = 0.0
                 controller.x_axis_rotation = 0.0
+                controller.y_axis_rotation = 0.0
                 
                 # 向控制循环发送重置信号
                 reset_goal = ControlGoal(
@@ -282,6 +285,7 @@ class VRHandler(BaseInputProvider):
                     # 从四元数获取累积旋转
                     controller.z_axis_rotation = self.extract_roll_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
                     controller.x_axis_rotation = self.extract_pitch_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
+                    controller.y_axis_rotation = self.extract_yaw_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
                 
                 # 创建位置控制目标
                 # 注意：这里发送相对位置，control_loop 会处理将其添加到机器人当前位置
@@ -291,6 +295,7 @@ class VRHandler(BaseInputProvider):
                     target_position=relative_delta,
                     wrist_roll_deg=-controller.z_axis_rotation,
                     wrist_flex_deg=-controller.x_axis_rotation,
+                    wrist_yaw_deg=-controller.y_axis_rotation,
                     metadata={
                         "source": "vr_grip",
                         "relative_position": True,
@@ -364,50 +369,35 @@ class VRHandler(BaseInputProvider):
         # 存储当前四元数以计算累积旋转
         controller.accumulated_rotation_quat = current_quat
     
-    def extract_roll_from_quaternion(self, current_quat: np.ndarray, origin_quat: np.ndarray) -> float:
-        """从相对四元数旋转中提取绕 Z 轴的翻滚（roll）旋转。"""
+    def _extract_axis_angle(self, current_quat: np.ndarray, origin_quat: np.ndarray,
+                            axis_index: int, axis_name: str, negate: bool = False) -> float:
+        """从相对四元数旋转中提取指定轴的旋转角（度）。
+        
+        Args:
+            axis_index: 0=X(俯仰), 1=Y(偏航), 2=Z(翻滚)
+            axis_name: 用于错误日志
+            negate: 是否取反
+        """
         if current_quat is None or origin_quat is None:
             return 0.0
-        
         try:
-            # 计算相对旋转四元数（从原点到当前）
             origin_rotation = R.from_quat(origin_quat)
             current_rotation = R.from_quat(current_quat)
             relative_rotation = current_rotation * origin_rotation.inv()
-            
-            # 将相对旋转投影到 Z 轴（翻滚）
-            # 获取旋转向量（轴角表示）
             rotvec = relative_rotation.as_rotvec()
-
-            # 旋转向量的 Z 分量表示绕 Z 轴的旋转（翻滚）
-            z_rotation_rad = rotvec[2]
-            z_rotation_deg = -np.degrees(z_rotation_rad)
-            
-            return z_rotation_deg
+            deg = np.degrees(rotvec[axis_index])
+            return -deg if negate else deg
         except Exception as e:
-            print(f"从四元数提取翻滚角时出错: {e}")
+            print(f"从四元数提取{axis_name}角时出错: {e}")
             return 0.0
+
+    def extract_roll_from_quaternion(self, current_quat, origin_quat):
+        return self._extract_axis_angle(current_quat, origin_quat, 2, "翻滚", negate=True)
+
+    def extract_pitch_from_quaternion(self, current_quat, origin_quat):
+        return self._extract_axis_angle(current_quat, origin_quat, 0, "俯仰")
+
+    def extract_yaw_from_quaternion(self, current_quat, origin_quat):
+        return self._extract_axis_angle(current_quat, origin_quat, 1, "偏航")
+
     
-    def extract_pitch_from_quaternion(self, current_quat: np.ndarray, origin_quat: np.ndarray) -> float:
-        """从相对四元数旋转中提取绕 X 轴的俯仰（pitch）旋转。"""
-        if current_quat is None or origin_quat is None:
-            return 0.0
-        
-        try:
-            # 计算相对旋转四元数（从原点到当前）
-            origin_rotation = R.from_quat(origin_quat)
-            current_rotation = R.from_quat(current_quat)
-            relative_rotation = current_rotation * origin_rotation.inv()
-            
-            # 将相对旋转投影到 X 轴（俯仰）
-            # 获取旋转向量（轴角表示）
-            rotvec = relative_rotation.as_rotvec()
-
-            # 旋转向量的 X 分量表示绕 X 轴的旋转（俯仰）
-            x_rotation_rad = rotvec[0]
-            x_rotation_deg = np.degrees(x_rotation_rad)
-            
-            return x_rotation_deg
-        except Exception as e:
-            print(f"从四元数提取俯仰角时出错: {e}")
-            return 0.0

@@ -389,9 +389,9 @@ class RobotInterface:
         current_angles = self.get_arm_angles(arm)
         return self.adapter.solve_ik(arm, target_position, current_angles)
 
-    def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float):
+    def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float, wrist_yaw: float = 0.0):
         """更新关节角度（含限位钳制）。委托给适配器。"""
-        self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper)
+        self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper, wrist_yaw)
 
     def engage(self) -> bool:
         """使能机器人电机(开始发送指令)。"""

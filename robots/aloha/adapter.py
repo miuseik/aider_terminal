@@ -165,7 +165,7 @@ class AlohaAdapter:
 
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray,
                           wrist_flex: float, wrist_roll: float,
-                          gripper: float) -> np.ndarray:
+                          gripper: float = 0.0, wrist_yaw: float = 0.0) -> np.ndarray:
         """更新指定臂的关节角度（含限位钳制）。
 
         Returns:

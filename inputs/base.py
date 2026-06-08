@@ -20,8 +20,9 @@ class ControlGoal:
     arm: Literal["left", "right"]          # 机械臂标识: 左/右
     mode: Optional[ControlMode] = None     # 控制模式 (None = 不改变模式)
     target_position: Optional[np.ndarray] = None  # 机器人坐标系中的3D位置
-    wrist_roll_deg: Optional[float] = None        # 腕部翻滚角度(度)
-    wrist_flex_deg: Optional[float] = None        # 腕部弯曲(俯仰)角度(度)
+    wrist_roll_deg: Optional[float] = None        # 腕部翻滚角度(度) arm5 Z轴
+    wrist_flex_deg: Optional[float] = None        # 腕部弯曲(俯仰)角度(度) arm6 X轴
+    wrist_yaw_deg: Optional[float] = None         # 腕部偏航角度(度) arm7 Y轴
     gripper_closed: Optional[bool] = None         # 夹爪状态 (None = 不改变)
     
     # 用于调试/监控的附加数据

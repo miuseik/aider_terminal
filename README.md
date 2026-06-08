@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "非常好aider和aloha的逻辑都没问题";git push
+git add ./;git commit -m "偏航也有了";git push
 ```
 
 ```bash

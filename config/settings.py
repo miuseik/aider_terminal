@@ -147,7 +147,8 @@ _ROBOT_TYPE_CONFIGS = {
         "num_joints": 8,
         "num_ik_joints": 8,
         "wrist_flex_index": 5,
-        "wrist_roll_index": 6,
+        "wrist_roll_index": 4,
+        "wrist_yaw_index": 6,
         "gripper_index": 7,
         "joint_names": ["arm1", "arm2", "arm3", "arm4", "arm5", "arm6", "arm7", "arm8"],
         "arm_joint_names_left": [f"left_arm{i}" for i in range(1, 9)],
@@ -175,6 +176,7 @@ _ROBOT_TYPE_CONFIGS = {
         "num_ik_joints": 6,
         "wrist_flex_index": 3,
         "wrist_roll_index": 4,
+        "wrist_yaw_index": 0,
         "gripper_index": 5,
         "joint_names": ["shoulder_pan", "shoulder_lift", "elbow_flex",
                        "wrist_flex", "wrist_roll", "gripper"],
@@ -209,7 +211,7 @@ def set_robot_type(robot_type: str) -> None:
     典型用法: 在 main.py 中解析 --robot-type 后立即调用。
     """
     global _ROBOT_TYPE, \
-        NUM_JOINTS, NUM_IK_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX, \
+        NUM_JOINTS, NUM_IK_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, WRIST_YAW_INDEX, GRIPPER_INDEX, \
         JOINT_NAMES, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT, \
         URDF_PATH, ALOHA_URDF_PATH, END_EFFECTOR_LINK_NAME, \
         COMMON_MOTORS, URDF_TO_INTERNAL_NAME_MAP
@@ -226,6 +228,7 @@ def set_robot_type(robot_type: str) -> None:
     NUM_IK_JOINTS = cfg["num_ik_joints"]
     WRIST_FLEX_INDEX = cfg["wrist_flex_index"]
     WRIST_ROLL_INDEX = cfg["wrist_roll_index"]
+    WRIST_YAW_INDEX = cfg.get("wrist_yaw_index", 6)
     GRIPPER_INDEX = cfg["gripper_index"]
     JOINT_NAMES = cfg["joint_names"]
     ARM_JOINT_NAMES_LEFT = cfg["arm_joint_names_left"]
@@ -254,6 +257,7 @@ NUM_JOINTS = _ROBOT_TYPE_CONFIGS["aider"]["num_joints"]
 NUM_IK_JOINTS = _ROBOT_TYPE_CONFIGS["aider"]["num_ik_joints"]
 WRIST_FLEX_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["wrist_flex_index"]
 WRIST_ROLL_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["wrist_roll_index"]
+WRIST_YAW_INDEX = _ROBOT_TYPE_CONFIGS["aider"].get("wrist_yaw_index", 6)
 GRIPPER_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["gripper_index"]
 JOINT_NAMES = _ROBOT_TYPE_CONFIGS["aider"]["joint_names"]
 ARM_JOINT_NAMES_LEFT = _ROBOT_TYPE_CONFIGS["aider"]["arm_joint_names_left"]

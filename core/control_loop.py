@@ -42,10 +42,12 @@ class ArmState:
         self.target_position = None  # IK 解算的目标位置 [x, y, z]
         self.goal_position = None  # 用于可视化的目标点
         self.origin_position = None  # 握把激活时的初始位置(相对位移的基准点)
-        self.origin_wrist_roll_angle = 0.0  # 握把激活时的腕部翻滚角
-        self.origin_wrist_flex_angle = 0.0  # 握把激活时的腕部弯曲角
+        self.origin_wrist_roll_angle = 0.0  # 握把激活时的腕部翻滚角 (arm5)
+        self.origin_wrist_flex_angle = 0.0  # 握把激活时的腕部弯曲角 (arm6)
+        self.origin_wrist_yaw_angle = 0.0   # 握把激活时的腕部偏航角 (arm7)
         self.current_wrist_roll = 0.0  # 当前腕部翻滚角
         self.current_wrist_flex = 0.0  # 当前腕部弯曲角
+        self.current_wrist_yaw = 0.0   # 当前腕部偏航角
         
     def reset(self):
         """重置机械臂状态为空闲。"""
@@ -55,6 +57,7 @@ class ArmState:
         self.origin_position = None
         self.origin_wrist_roll_angle = 0.0
         self.origin_wrist_flex_angle = 0.0
+        self.origin_wrist_yaw_angle = 0.0
 
 
 class ControlLoop:
@@ -288,6 +291,9 @@ class ControlLoop:
             self.left_arm.current_wrist_flex = left_angles[_settings.WRIST_FLEX_INDEX]
             self.right_arm.current_wrist_flex = right_angles[_settings.WRIST_FLEX_INDEX]
             
+            self.left_arm.current_wrist_yaw = left_angles[_settings.WRIST_YAW_INDEX]
+            self.right_arm.current_wrist_yaw = right_angles[_settings.WRIST_YAW_INDEX]
+            
             print(f"左臂初始位置: {left_pos.round(3)}")
             print(f"右臂初始位置: {right_pos.round(3)}")
     
@@ -385,8 +391,10 @@ class ControlLoop:
                 arm_state.origin_position = current_position.copy()
                 arm_state.current_wrist_roll = current_angles[_settings.WRIST_ROLL_INDEX]
                 arm_state.current_wrist_flex = current_angles[_settings.WRIST_FLEX_INDEX]
+                arm_state.current_wrist_yaw = current_angles[_settings.WRIST_YAW_INDEX]
                 arm_state.origin_wrist_roll_angle = current_angles[_settings.WRIST_ROLL_INDEX]
                 arm_state.origin_wrist_flex_angle = current_angles[_settings.WRIST_FLEX_INDEX]
+                arm_state.origin_wrist_yaw_angle = current_angles[_settings.WRIST_YAW_INDEX]
                 
                 print(f"🔄 {goal.arm.upper()}臂: 目标位置重置为当前机器人位置（空闲超时）")
             return
@@ -407,8 +415,10 @@ class ControlLoop:
                     arm_state.origin_position = current_position.copy()
                     arm_state.current_wrist_roll = current_angles[_settings.WRIST_ROLL_INDEX]
                     arm_state.current_wrist_flex = current_angles[_settings.WRIST_FLEX_INDEX]
+                    arm_state.current_wrist_yaw = current_angles[_settings.WRIST_YAW_INDEX]
                     arm_state.origin_wrist_roll_angle = current_angles[_settings.WRIST_ROLL_INDEX]
                     arm_state.origin_wrist_flex_angle = current_angles[_settings.WRIST_FLEX_INDEX]
+                    arm_state.origin_wrist_yaw_angle = current_angles[_settings.WRIST_YAW_INDEX]
                 
                 print(f"🔒 {goal.arm.upper()}握把激活 - 控制{goal.arm}臂（目标重置为当前位置）")
                 
@@ -458,6 +468,13 @@ class ControlLoop:
                 else:
                     # 绝对腕部弯曲(遗留)
                     arm_state.current_wrist_flex = goal.wrist_flex_deg
+            
+            # 处理腕部偏航 - VR 和键盘都发送相对于原点的绝对偏移
+            if goal.wrist_yaw_deg is not None:
+                if goal.metadata and goal.metadata.get("relative_position", False):
+                    arm_state.current_wrist_yaw = arm_state.origin_wrist_yaw_angle + goal.wrist_yaw_deg
+                else:
+                    arm_state.current_wrist_yaw = goal.wrist_yaw_deg
         
         # 处理夹爪控制(独立于模式)
         if goal.gripper_closed is not None and self.robot_interface:
@@ -550,10 +567,11 @@ class ControlLoop:
             
             # 更新关节角度（委托给 adapter）
             current_gripper = self.robot_interface.get_arm_angles("left")[_settings.GRIPPER_INDEX]
-            self.robot_interface.update_arm_angles("left", ik_solution, 
-                                                 self.left_arm.current_wrist_flex, 
-                                                 self.left_arm.current_wrist_roll, 
-                                                 current_gripper)
+            self.robot_interface.update_arm_angles("left", ik_solution,
+                                                 self.left_arm.current_wrist_flex,
+                                                 self.left_arm.current_wrist_roll,
+                                                 current_gripper,
+                                                 self.left_arm.current_wrist_yaw)
             
             # 【夹爪线性控制】通过 adapter 应用 VR 扳机
             left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
@@ -568,10 +586,11 @@ class ControlLoop:
             
             # 更新关节角度（委托给 adapter）
             current_gripper = self.robot_interface.get_arm_angles("right")[_settings.GRIPPER_INDEX]
-            self.robot_interface.update_arm_angles("right", ik_solution, 
-                                                  self.right_arm.current_wrist_flex, 
-                                                  self.right_arm.current_wrist_roll, 
-                                                  current_gripper)
+            self.robot_interface.update_arm_angles("right", ik_solution,
+                                                  self.right_arm.current_wrist_flex,
+                                                  self.right_arm.current_wrist_roll,
+                                                  current_gripper,
+                                                  self.right_arm.current_wrist_yaw)
             
             # 【夹爪线性控制】通过 adapter 应用 VR 扳机
             right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)

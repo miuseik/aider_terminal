@@ -208,18 +208,20 @@ class AiderAdapter:
 
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray,
                           wrist_flex: float, wrist_roll: float,
-                          gripper: float) -> np.ndarray:
+                          gripper: float, wrist_yaw: float = 0.0) -> np.ndarray:
         """更新指定臂的关节角度（含限位钳制）。
 
-        Aider 8-DOF: IK 解全部 8 关节，wrist_flex/roll/gripper 直接作用于 arm6/7/8。
+        Aider 8-DOF: IK 解全部 8 关节，wrist_roll/flex/yaw 覆盖 arm5/6/7。
         """
         angles = ik_angles.copy()
 
-        # arm6 = wrist flex, arm7 = wrist roll, arm8 = gripper
+        # arm5 = wrist roll (Z轴), arm6 = wrist flex (X轴), arm7 = wrist yaw (Y轴), arm8 = gripper
+        if len(angles) >= 5:
+            angles[4] = wrist_roll    # arm5 (Z轴, 前臂旋前/旋后)
         if len(angles) >= 6:
             angles[5] = wrist_flex    # arm6 (X轴)
         if len(angles) >= 7:
-            angles[6] = wrist_roll    # arm7 (Y轴)
+            angles[6] = wrist_yaw     # arm7 (Y轴, 偏航)
         if len(angles) >= 8:
             angles[7] = gripper       # arm8 (夹爪)
 
