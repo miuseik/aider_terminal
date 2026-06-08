@@ -217,13 +217,18 @@ class AiderAdapter:
     # ======================== 身体关节 ========================
 
     def set_body_joint_delta(self, joint_name: str, delta_rad: float) -> None:
-        """增量更新身体关节（腰/头）。"""
+        """增量更新身体关节（腰/头），钳制到 URDF 限位内。"""
+        limits = {
+            "waist_Link":  (-1.5708, 1.5708),   # ±90°
+            "head_Link":   (-1.0472, 1.0472),   # ±60°
+            "head_Link2":  (-0.5236, 0.7854),   # -30°~45°
+        }
         if joint_name == "waist_Link":
-            self.waist_angle += delta_rad
+            self.waist_angle = np.clip(self.waist_angle + delta_rad, *limits["waist_Link"])
         elif joint_name == "head_Link":
-            self.head_yaw += delta_rad
+            self.head_yaw = np.clip(self.head_yaw + delta_rad, *limits["head_Link"])
         elif joint_name == "head_Link2":
-            self.head_pitch += delta_rad
+            self.head_pitch = np.clip(self.head_pitch + delta_rad, *limits["head_Link2"])
 
     # ======================== 4 轮底盘运动学 ========================
 

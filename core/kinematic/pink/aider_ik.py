@@ -6,12 +6,15 @@ Aider 机器人 Pink IK 求解器。
 
 import os
 import time
+# import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
 import pinocchio as pin
 
 # 抑制 Pinocchio 内部限位警告（已通过钳制机制大幅减少，剩余不干扰求解）
+# logging.getLogger("root").setLevel(logging.ERROR)
+
 import pink
 from pink import solve_ik
 from pink.tasks import FrameTask, PostureTask
@@ -185,10 +188,12 @@ class AiderPinkSolver:
         q = self._current_q.copy()
 
         if body_state:
+            m = self.robot.model
             for joint_name, val in body_state.items():
                 qi = self._q_idx(joint_name)
                 if qi >= 0:
-                    q[qi] = val
+                    lo, hi = m.lowerPositionLimit[qi], m.upperPositionLimit[qi]
+                    q[qi] = np.clip(val, lo, hi)
 
         # 更新当前臂的角度
         for i, jname in enumerate(self.arm_joints[arm]):

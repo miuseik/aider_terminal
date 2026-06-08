@@ -76,6 +76,15 @@ class WebKeyboardHandler(BaseInputProvider):
             "mode_enabled": False   # 底盘控制模式开关
         }
 
+        # 身体关节控制状态 (腰/脖子)
+        # 键位: 1/2=腰, 3/4=脖子yaw, 5/6=脖子pitch
+        self.body_state: Dict[str, float] = {
+            "waist_Link": 0.0,
+            "head_Link": 0.0,
+            "head_Link2": 0.0,
+        }
+        self.body_step = 0.08  # rad/步, 同 demo 版
+
         # 空闲超时重新定位目标(秒)
         self.idle_timeout = 1.0
 
@@ -275,6 +284,20 @@ class WebKeyboardHandler(BaseInputProvider):
                 print(f"右夹爪: {'闭合' if self.right_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("right")
 
+            # 身体关节(腰/脖子) — 同 demo 版键位
+            elif key == '1':
+                self.body_state["waist_Link"] = self.body_step   # 腰左转
+            elif key == '2':
+                self.body_state["waist_Link"] = -self.body_step  # 腰右转
+            elif key == '3':
+                self.body_state["head_Link"] = self.body_step    # 头左转
+            elif key == '4':
+                self.body_state["head_Link"] = -self.body_step   # 头右转
+            elif key == '5':
+                self.body_state["head_Link2"] = self.body_step   # 头上仰
+            elif key == '6':
+                self.body_state["head_Link2"] = -self.body_step  # 头下俯
+
             # 底盘控制(方向键 + 数字键 + V/B)
             elif key == 'arrowup':
                 self.base_state["base_control_active"] = True
@@ -367,6 +390,14 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.right_arm_state["delta_wrist_flex"] = 0
                 self._check_if_all_keys_released("right")
             
+            # 身体关节 - 按键释放时清零
+            elif key in ('1', '2'):
+                self.body_state["waist_Link"] = 0.0
+            elif key in ('3', '4'):
+                self.body_state["head_Link"] = 0.0
+            elif key in ('5', '6'):
+                self.body_state["head_Link2"] = 0.0
+
             # 底盘 - 按键释放时重置速度
             elif key == 'arrowup' or key == 'arrowdown':
                 self.base_state["velocity_x"] = 0.0
@@ -472,6 +503,23 @@ class WebKeyboardHandler(BaseInputProvider):
                                 }
                             )
                             await self.send_goal(goal)
+
+                # 处理身体关节(腰/脖子)
+                active_body = {k: v for k, v in self.body_state.items() if v != 0.0}
+                for jname, delta in active_body.items():
+                    goal = ControlGoal(
+                        arm="body",
+                        mode=ControlMode.IDLE,
+                        metadata={
+                            "body_joint_name": jname,
+                            "body_joint_delta": delta,
+                            "source": "web_keyboard_body"
+                        }
+                    )
+                    try:
+                        self.command_queue.put_nowait(goal)
+                    except:
+                        pass
 
                 # 处理底盘控制
                 if self.base_state["base_control_active"]:
