@@ -40,7 +40,8 @@ from inputs.vr_handler import VRHandler
 from comm.websocket.client import VRWebSocketClient
 from inputs.keyboard_handler import WebKeyboardHandler
 from inputs.base import ControlGoal
-import controller.rtc_video as rtc_video
+import controller.rtc_controller as rtc_video
+from utils.can_setup import setup_can
 
 # Logger will be configured in main() based on command line arguments
 logger = logging.getLogger(__name__)
@@ -65,17 +66,13 @@ class TelegripSystem:
         self.vr_handler = VRHandler(self.command_queue, config)
         
         # 初始化 API 路由器
-        from router.motor_router import MotorRouter
-        self.motor_router = MotorRouter(control_loop=None)  # control_loop 稍后设置
+        from router.actuator_router import ActuatorRouter
+        self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
+        self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
         
-        self.vr_ws_client = VRWebSocketClient(config, self.vr_handler, self.motor_router)
-        MotorRouter.set_ws_client(self.vr_ws_client)  # 设置 ws_client 引用
+        self.vr_ws_client = VRWebSocketClient(config, self.vr_handler, self.actuator_router)
         
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
-        self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
-        
-        # 设置 control_loop 到 motor_router
-        self.motor_router.control_loop = self.control_loop
 
         # 设置交叉引用
         self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
@@ -89,8 +86,7 @@ class TelegripSystem:
         # 任务
         self.tasks = []
         self.is_running = False
-        self.main_loop = None  # 系统启动时将设置
-    
+
     def add_control_command(self, action: str):
         """添加控制命令到队列进行处理。"""
         try:
@@ -197,21 +193,18 @@ class TelegripSystem:
             self.command_queue = asyncio.Queue()
             self.control_commands_queue = queue.Queue(maxsize=10)
 
+            # 确保 CAN 接口已正确配置
+            setup_can()
+
             # 创建新组件
             self.vr_handler = VRHandler(self.command_queue, self.config)
             
             # 重新初始化 API 路由器
-            from router.motor_router import MotorRouter
-            self.motor_router = MotorRouter(control_loop=None)
-            
-            self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler, self.motor_router)
-            MotorRouter.set_ws_client(self.vr_ws_client)
-            
-            self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
+            from router.actuator_router import ActuatorRouter
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
+            self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
             
-            # 设置 control_loop 到 motor_router
-            self.motor_router.control_loop = self.control_loop
+            self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler, self.actuator_router)
 
             # 设置交叉引用
             self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
@@ -269,6 +262,9 @@ class TelegripSystem:
             
             # 存储主事件循环引用以用于重启功能
             self.main_loop = asyncio.get_event_loop()
+            
+            # 启动时确保 CAN 接口配置正确
+            setup_can()
             
             # HTTPS 服务器已禁用 - UI 已迁移到外部 Vue 项目
             # await self.https_server.start()

@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 class VRWebSocketClient:
     """WebSocket 业务层 - 处理 VR 数据和 API 命令"""
     
-    def __init__(self, config, vr_handler, motor_router=None):
+    def __init__(self, config, vr_handler, actuator_router=None):
         self.config = config
         self.vr_handler = vr_handler
-        self.motor_router = motor_router
+        self.actuator_router = actuator_router
         self.transport = WSTransport(config)
         self.client_id = "terminal"  # Terminal 始终使用此 ID
         
@@ -72,7 +72,7 @@ class VRWebSocketClient:
         
         if category == 'motor':
             print("处理 motor 数据", data)
-            self.motor_router.route(data)
+            await self.actuator_router.route_and_respond(data, self.transport)
         elif hasattr(self.vr_handler, 'process_message'):
             print("处理 键盘 数据", data)
             await self.vr_handler.process_message(json.dumps(data))

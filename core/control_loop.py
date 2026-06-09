@@ -19,8 +19,8 @@ from typing import Dict, Optional
 from config.settings import TelegripConfig
 import config.settings as _settings
 from core.robot_interface import RobotInterface
-from controller.motor_controller import MotorController
-from router.motor_router import MotorRouter
+from controller.actuator_controller import ActuatorController
+from router.actuator_router import ActuatorRouter
 # Visualizer 工厂函数将在 setup() 中按需导入
 from inputs.base import ControlGoal, ControlMode
 # WebKeyboardHandler will be imported on demand to avoid circular imports
@@ -136,13 +136,13 @@ class ControlLoop:
                 # if self.config.enable_robot:
                 #     success = False
             
-            # ✅ 关键修改：无论真机是否连接，都初始化 MotorController
+            # ✅ 关键修改：无论真机是否连接，都初始化 ActuatorController
             # 这样 API 命令（如扫描舵机）在 setup() 之前到达时也能正常工作
-            self.motor_controller = MotorController(robot_interface=self.robot_interface)
+            self.motor_controller = ActuatorController()
             print("✅ 电机控制器已初始化")
             
             # 初始化API命令路由器
-            self.motor_router = MotorRouter(
+            self.actuator_router = ActuatorRouter(
                 control_loop=self
             )
             print("✅ API命令路由器已初始化")
@@ -650,11 +650,15 @@ class ControlLoop:
             bv = self.base_velocity_target
             base_active = abs(bv["x"]) > 0.001 or abs(bv["y"]) > 0.001 or abs(bv["theta"]) > 0.001
             
-            print(f"[DIAG] IK解算器={ik_solver_count} | "
-                  f"左臂={'🟢' if left_ik_ok else '🔴'} | "
-                  f"右臂={'🟢' if right_ik_ok else '🔴'} | "
-                  f"底盘={'🟢' if base_active else '🔴'} "
-                  f"(vx={bv['x']:.3f} vy={bv['y']:.3f} vt={bv['theta']:.3f})")
+            # 只有在有控制动作时才打印DIAG信息，避免刷屏
+            left_active = self.left_arm.mode != ControlMode.IDLE if self.left_arm else False
+            right_active = self.right_arm.mode != ControlMode.IDLE if self.right_arm else False
+            if left_active or right_active or base_active:
+                print(f"[DIAG] IK解算器={ik_solver_count} | "
+                      f"左臂={'🟢' if left_ik_ok else '🔴'} | "
+                      f"右臂={'🟢' if right_ik_ok else '🔴'} | "
+                      f"底盘={'🟢' if base_active else '🔴'} "
+                      f"(vx={bv['x']:.3f} vy={bv['y']:.3f} vt={bv['theta']:.3f})")
     
     @property
     def status(self) -> Dict:
@@ -699,4 +703,4 @@ class ControlLoop:
                 "lift_connected": False
             })
         
-        return status 
+        return status

@@ -3,6 +3,6 @@
 处理从Server接收的各类控制命令路由
 """
 
-from .motor_router import MotorRouter
+from .actuator_router import ActuatorRouter
 
-__all__ = ['MotorRouter']
+__all__ = ['ActuatorRouter']

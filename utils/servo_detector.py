@@ -90,7 +90,7 @@ class ServoDetector:
     def _try_st3215(self, port: str, baudrates: list) -> Optional[Dict]:
         """尝试 Feetech ST3215 协议"""
         try:
-            from drivers.Feetech.st3215_driver import ST3215Driver
+            from drivers.actuator.feetech import ST3215Driver
             
             for baudrate in baudrates:
                 print(f"  尝试 ST3215 @ {baudrate}...")

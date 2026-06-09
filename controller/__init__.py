@@ -3,11 +3,9 @@
 包含各类硬件控制器
 """
 
-from .motor_controller import MotorController
-from .calibration_manager import CalibrationManager, MotorCalibration
+from .actuator_controller import ActuatorController, ActuatorInfo
 
 __all__ = [
-    'MotorController',
-    'CalibrationManager',
-    'MotorCalibration'
+    'ActuatorController',
+    'ActuatorInfo',
 ]

@@ -86,36 +86,9 @@ class MotorController:
             'wrist_roll': 4,
             'gripper': 5
         }
-        
-        # 缓存从 Server 获取的舵机配置（避免重复 API 调用）
-        self._servo_config_cache = None
-        self._load_servo_config()
-        
-        # 初始化底层驱动（如果传入配置，兼容旧代码）
-        self.driver = None
-        if config:
-            self._initialize_driver(config)
-        
+
         print("✅ 通用电机控制器初始化完成")
-    
-    def _load_servo_config(self):
-        """
-        从 Server API 加载舵机配置（只调用一次，缓存结果）
-        """
-        try:
-            from comm.api.client import ServerAPIClient
-            api_client = ServerAPIClient()
-            self._servo_config_cache = api_client.get_servo_ids_config()
-            
-            if self._servo_config_cache:
-                print(f"✅ 已从 Server 加载舵机配置（缓存）")
-            else:
-                print(f"⚠️ 未能从 Server 获取配置，将使用默认偏移量")
-        except Exception as e:
-            print(f"⚠️ 加载配置失败: {e}，将使用默认偏移量")
-            self._servo_config_cache = None
-    
-    # ==================== 1. 硬件发现与扫描 ====================
+
     
     def scan_available_ports(self) -> List[str]:
         """
@@ -240,69 +213,6 @@ class MotorController:
                 continue
         
         return id_to_port
-    
-    def auto_discover_ports_from_config(self, servo_config: dict) -> tuple[dict, bool]:
-        """
-        根据舵机配置自动发现并更新端口
-        
-        Args:
-            servo_config: 舵机配置字典（格式同 servo_ids.yaml）
-            
-        Returns:
-            (updated_config, has_changes): 更新后的配置和是否有修改
-        """
-        # 1. 收集所有需要查找的舵机 ID
-        target_ids = set()
-        for bus_name, bus_config in servo_config.items():
-            if not isinstance(bus_config, dict):
-                continue
-            for part_name, part_config in bus_config.items():
-                if part_name == 'port' or not isinstance(part_config, dict):
-                    continue
-                for joint_name, joint_info in part_config.items():
-                    if isinstance(joint_info, dict) and 'id' in joint_info:
-                        target_ids.add(joint_info['id'])
-        
-        if not target_ids:
-            return servo_config, False
-        
-        # 2. 发现 ID → Port 映射
-        id_to_port = self.discover_ports_by_ids(target_ids)
-        
-        if not id_to_port:
-            print("⚠️ 未检测到任何舵机，使用配置文件中的端口")
-            return servo_config, False
-        
-        # 3. 更新配置中的端口
-        updated = False
-        for bus_name, bus_config in servo_config.items():
-            if not isinstance(bus_config, dict):
-                continue
-            
-            # 找出该总线中所有 ID 所在的端口
-            ports_in_bus = set()
-            for part_name, part_config in bus_config.items():
-                if part_name == 'port' or not isinstance(part_config, dict):
-                    continue
-                for joint_name, joint_info in part_config.items():
-                    if isinstance(joint_info, dict) and 'id' in joint_info:
-                        sid = joint_info['id']
-                        if sid in id_to_port:
-                            ports_in_bus.add(id_to_port[sid])
-            
-            # 如果该总线的所有 ID 都在同一个端口，更新配置
-            if len(ports_in_bus) == 1:
-                detected_port = ports_in_bus.pop()
-                old_port = bus_config.get('port')
-                if old_port != detected_port:
-                    bus_config['port'] = detected_port
-                    print(f"🔄 {bus_name}: {old_port} → {detected_port}")
-                    updated = True
-        
-        if updated:
-            print("✅ 端口配置已自动更新")
-        
-        return servo_config, updated
     
     # ==================== 2. 舵机信息管理 ====================
     
@@ -553,30 +463,6 @@ class MotorController:
             # 降级为逐个发送
             return self.set_servos_angles(port, targets, time_ms)
     
-    def sync_write_speeds(self, port: str, targets: Dict[int, int]) -> bool:
-        """
-        同步速度控制
-        
-        Args:
-            targets: {servo_id: speed}
-        """
-        first_id = list(targets.keys())[0]
-        brand = self._get_servo_brand(port, first_id)
-        driver = self._get_or_create_driver(port, brand)
-        
-        if not driver:
-            return False
-        
-        if hasattr(driver, 'sync_write_speeds'):
-            return driver.sync_write_speeds(targets)
-        else:
-            # 降级为逐个发送
-            success_count = 0
-            for servo_id, speed in targets.items():
-                if self.set_servo_speed(port, servo_id, speed):
-                    success_count += 1
-            return success_count > 0
-    
     # ==================== 7. 状态读取 ====================
     
     def get_servo_info(self, servo_id: int, port: str = '/dev/ttyACM0') -> Optional[Dict]:
@@ -664,8 +550,8 @@ class MotorController:
             try:
                 # 使用 feetech-servo-sdk (官方 SDK)
                 if brand.lower() == 'feetech':
-                    from drivers.feetech.st3215_driver import ST3215Driver
-                    driver = ST3215Driver(port=port, baudrate=1000000, servo_config=self._servo_config_cache)
+                    from drivers.actuator.feetech import ST3215Driver
+                    driver = ST3215Driver(port=port, baudrate=1000000)
                     if driver.connect():
                         self.drivers[port] = driver
                         print(f"✅ 创建 ST3215 驱动: {brand} @ {port}")
@@ -677,9 +563,9 @@ class MotorController:
                 # 其他品牌直接导入驱动
                 if brand.lower() == 'robstride':
                     try:
-                        from drivers.robstride.robstride_driver import RobstrideDriver
+                        from drivers.actuator.robStride import RobStrideOfficialDriver
                         # Robstride 使用 CAN 接口，不是串口
-                        driver = RobstrideDriver(can_name='can0')
+                        driver = RobStrideOfficialDriver(can_name='can0')
                         if driver.connect():
                             self.drivers[port] = driver
                             print(f"✅ 创建 Robstride 驱动: {brand} @ {port}")
@@ -753,6 +639,3 @@ class MotorController:
         
         self.drivers.clear()
         print("🧹 资源清理完成")
-    
-# 全局实例
-motor_controller = MotorController()
