@@ -154,7 +154,7 @@ def compress_directory(mesh_dir: str, target_faces: int = TARGET_FACES,
     summary = (f"压缩完成: {count}/{len(big_files)} 文件, "
                f"{total_mb:.1f}MB → {new_total_mb:.1f}MB (节省 {saved_mb:.1f}MB)")
     print(f"✅ {summary}")
-    return saved_total, summary
+    return saved_mb, summary
 
 
 # ======================== 脚本入口 ========================

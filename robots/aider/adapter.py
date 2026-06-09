@@ -30,12 +30,14 @@ Aider 机器人完整适配器。
 import numpy as np
 import math
 from typing import Optional, Dict, List, Tuple
+from scipy.spatial.transform import Rotation as R
 
 from core.kinematic.pink.aider_ik import AiderPinkSolver
 from config.settings import (
     TelegripConfig, NUM_JOINTS, NUM_IK_JOINTS,
     GRIPPER_INDEX, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT,
 )
+from robots.aider.settings import JOINT_LIMIT_OVERRIDES
 
 # ======================== 麦克纳姆轮常量 ========================
 WHEEL_RADIUS: float = 0.05
@@ -88,6 +90,10 @@ class AiderAdapter:
         self.head_yaw: float = 0.0        # 头 yaw (rad)
         self.head_pitch: float = 0.0      # 头 pitch (rad)
 
+        # ---- 头显姿态基准 ----
+        self._headset_origin_quat: Optional[np.ndarray] = None
+        self._headset_origin_z: Optional[float] = None  # 坐标 Z 基准 (前/后)
+
         # ---- 底盘速度 ----
         self.base_vx: float = 0.0
         self.base_vy: float = 0.0
@@ -118,6 +124,18 @@ class AiderAdapter:
 
         # 初始化 Pink IK 求解器（自含 Pinocchio URDF 模型，限位来自 URDF）
         self.ik_solver = AiderPinkSolver()
+
+        # 从 IK 模型提取每个臂的关节限位（度），用于 update_arm_angles 钳制
+        # 限位与 settings.py 同步，是唯一数据源
+        m = self.ik_solver.robot.model
+        self._arm_limits_deg: Dict[str, np.ndarray] = {}
+        for arm in ("left", "right"):
+            limb = []
+            for jname in self.ik_solver.arm_joints[arm]:
+                qi = self.ik_solver._q_idx(jname)
+                limb.append([np.degrees(m.lowerPositionLimit[qi]),
+                            np.degrees(m.upperPositionLimit[qi])])
+            self._arm_limits_deg[arm] = np.array(limb)
 
         # 从 solver 的姿态偏好同步初始角度，启动就在舒适位
         self.left_angles = self.ik_solver.get_posture("left")
@@ -201,14 +219,26 @@ class AiderAdapter:
             angles[7] = gripper       # arm8 (夹爪)
 
         if arm == "left":
-            self.left_angles = angles
+            self.left_angles = self._clamp_arm_angles(arm, angles)
         else:
-            self.right_angles = angles
+            self.right_angles = self._clamp_arm_angles(arm, angles)
+        return angles
+
+    def _clamp_arm_angles(self, arm: str, angles: np.ndarray) -> np.ndarray:
+        """钳制臂关节角度到 URDF 限位（与 settings.py 同步）。"""
+        limits = self._arm_limits_deg.get(arm)
+        if limits is None:
+            return angles
+        for i in range(min(len(angles), len(limits))):
+            angles[i] = np.clip(angles[i], limits[i, 0], limits[i, 1])
         return angles
 
     def apply_gripper_from_trigger(self, arm: str, trigger_value: float) -> None:
-        """根据 VR 扳机值 (0~1) 设置夹爪角度 (0°~-90°)。"""
+        """根据 VR 扳机值 (0~1) 设置夹爪角度，钳制到 URDF 限位。"""
         gripper_angle = -trigger_value * 90.0
+        limits = self._arm_limits_deg.get(arm)
+        if limits is not None and len(limits) > GRIPPER_INDEX:
+            gripper_angle = np.clip(gripper_angle, limits[GRIPPER_INDEX, 0], limits[GRIPPER_INDEX, 1])
         if arm == "left" and len(self.left_angles) > GRIPPER_INDEX:
             self.left_angles[GRIPPER_INDEX] = gripper_angle
         elif arm == "right" and len(self.right_angles) > GRIPPER_INDEX:
@@ -218,17 +248,67 @@ class AiderAdapter:
 
     def set_body_joint_delta(self, joint_name: str, delta_rad: float) -> None:
         """增量更新身体关节（腰/头），钳制到 URDF 限位内。"""
-        limits = {
-            "waist_Link":  (-1.5708, 1.5708),   # ±90°
-            "head_Link":   (-1.0472, 1.0472),   # ±60°
-            "head_Link2":  (-0.5236, 0.7854),   # -30°~45°
-        }
+        lo_deg, hi_deg = JOINT_LIMIT_OVERRIDES.get(joint_name, (-180, 180))
+        lo, hi = math.radians(lo_deg), math.radians(hi_deg)
         if joint_name == "waist_Link":
-            self.waist_angle = np.clip(self.waist_angle + delta_rad, *limits["waist_Link"])
+            self.waist_angle = np.clip(self.waist_angle + delta_rad, lo, hi)
         elif joint_name == "head_Link":
-            self.head_yaw = np.clip(self.head_yaw + delta_rad, *limits["head_Link"])
+            self.head_yaw = np.clip(self.head_yaw + delta_rad, lo, hi)
         elif joint_name == "head_Link2":
-            self.head_pitch = np.clip(self.head_pitch + delta_rad, *limits["head_Link2"])
+            self.head_pitch = np.clip(self.head_pitch + delta_rad, lo, hi)
+    
+    def set_body_joint_absolute(self, joint_name: str, angle_rad: float) -> None:
+        """绝对设置身体关节角度（头显 VR），钳制到 URDF 限位内。"""
+        lo_deg, hi_deg = JOINT_LIMIT_OVERRIDES.get(joint_name, (-180, 180))
+        lo, hi = math.radians(lo_deg), math.radians(hi_deg)
+        val = float(np.clip(angle_rad, lo, hi))
+        if joint_name == "waist_Link":
+            self.waist_angle = val
+        elif joint_name == "head_Link":
+            self.head_yaw = val
+        elif joint_name == "head_Link2":
+            self.head_pitch = val
+
+    # ======================== 头显 → 身体关节映射 ========================
+    # 腰 (waist_Link):  绕X轴, 负值=鞠躬, 正值=下腰  1 DOF  -90°~0° (坐标→弯腰)
+    # 脖 (head_Link):   绕Z轴, 转头/偏航  1 DOF  ±60°
+    # 脖 (head_Link2):  绕X轴, 负值=低头, 正值=抬头  1 DOF  -30°~45° (俯仰→低头)
+    HEAD_YAW_TO_NECK   = 1.0   # 头显 yaw  → 脖子转头 (100%)
+    HEAD_PITCH_TO_NECK = 1.0   # 头显 pitch → 脖子低头 (100%)
+    HEAD_POS_TO_WAIST  = 3.0   # 头显坐标 → 弯腰 (增益)
+
+    def feed_headset_raw(self, headset: dict):
+        """头显原始数据 → 身体关节映射。
+        
+        坐标 → 腰 (waist_Link), 俯仰 → 脖子低头 (head_Link2), 偏航 → 脖子转头 (head_Link)
+        WebXR: +X=右, +Y=上, +Z=后
+        """
+        pos = headset.get('position') or {}
+        quat = headset.get('quaternion') or {}
+
+        # --- 坐标 → 腰 (Z 前/后偏移) ---
+        if pos and 'z' in pos:
+            z = float(pos['z'])
+            if self._headset_origin_z is None:
+                self._headset_origin_z = z
+            else:
+                dz = (z - self._headset_origin_z)  # 前倾 Z↓ → dz<0 → 弯腰(负)
+                self.set_body_joint_absolute("waist_Link", dz * self.HEAD_POS_TO_WAIST)
+
+        # --- 俯仰/偏航 → 脖子 ---
+        if quat and all(k in quat for k in ['x', 'y', 'z', 'w']):
+            current = np.array([quat['x'], quat['y'], quat['z'], quat['w']])
+            if self._headset_origin_quat is None:
+                self._headset_origin_quat = current.copy()
+            else:
+                origin_rot = R.from_quat(self._headset_origin_quat)
+                current_rot = R.from_quat(current)
+                relative_rot = current_rot * origin_rot.inv()
+                rotvec = relative_rot.as_rotvec()
+                yaw_rad = float(rotvec[1])
+                pitch_rad = float(rotvec[0])
+                self.set_body_joint_absolute("head_Link",  -yaw_rad   * self.HEAD_YAW_TO_NECK)
+                self.set_body_joint_absolute("head_Link2", -pitch_rad * self.HEAD_PITCH_TO_NECK)
 
     # ======================== 4 轮底盘运动学 ========================
 
@@ -352,11 +432,12 @@ class AiderAdapter:
             if targets:
                 actions["position_commands"].append({"port": right_port, "targets": targets})
 
-        # --- 底盘 + 升降轴（速度控制） ---
+        # --- 底盘 + 升降轴 + 身体关节（速度 / 位置控制） ---
         base_bus = servo_ids.get("base_lift_bus", {})
         base_port = base_bus.get("port")
         if base_port:
             speed_targets = {}
+            position_targets = {}
 
             # Aider 四轮: whel_Link1~4 → 对应 servo_ids.base 中的键
             wheel_speeds = self.compute_wheel_speeds()
@@ -370,8 +451,21 @@ class AiderAdapter:
             for _axis_name, axis_info in lift_config.items():
                 speed_targets[axis_info["id"]] = int(self.lift_velocity)
 
+            # 身体关节 (腰/头/头俯仰) — 作为位置命令发送
+            body_joint_config = base_bus.get("body_joints", {})
+            body_angles_deg = {
+                "waist_Link": float(np.degrees(self.waist_angle)),
+                "head_Link":  float(np.degrees(self.head_yaw)),
+                "head_Link2": float(np.degrees(self.head_pitch)),
+            }
+            for jname, jinfo in body_joint_config.items():
+                if jname in body_angles_deg:
+                    position_targets[jinfo["id"]] = body_angles_deg[jname]
+
             if speed_targets:
                 actions["speed_commands"].append({"port": base_port, "targets": speed_targets})
+            if position_targets:
+                actions["position_commands"].append({"port": base_port, "targets": position_targets})
 
         return actions
 

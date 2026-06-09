@@ -19,7 +19,6 @@ from typing import Dict, Optional
 from config.settings import TelegripConfig
 import config.settings as _settings
 from core.robot_interface import RobotInterface
-from core.visualizer_controller import VisualizerController
 from controller.motor_controller import MotorController
 from router.motor_router import MotorRouter
 # Visualizer 工厂函数将在 setup() 中按需导入
@@ -84,7 +83,6 @@ class ControlLoop:
         self.visualizer = None
         self.web_keyboard_handler = None
         self.dispatcher = None
-        self.visualizer_controller = None
         
         # === 机械臂状态 ===
         self.left_arm = ArmState("left")
@@ -100,7 +98,7 @@ class ControlLoop:
         self.base_velocity_target = {"x": 0.0, "y": 0.0, "theta": 0.0}
         
         # === 身体关节状态 (腰 + 头) ===
-        self.body_joint_deltas = {}  # {joint_name: accumulated_delta_rad_per_tick}
+        self.body_joint_deltas = {}  # {joint_name: accumulated_delta_rad_per_tick}  键盘增量
         
         # === 控制时序 ===
         self.last_log_time = 0
@@ -157,17 +155,26 @@ class ControlLoop:
         # === 2. 设置 PyBullet 仿真、IK 和可视化器 ===
         if self.config.enable_pybullet:
             try:
-                # 按需导入可视化器工厂
-                from core.visualizer import create_visualizer
+                # 按需导入可视化器类
+                from robots.aider.visualizer import AiderVisualizer
+                from robots.aloha.visualizer import AlohaVisualizer
                 
-                # 创建可视化器实例（根据 robot_type 自动选择 Aider 或 Aloha）
-                self.visualizer = create_visualizer(
-                    robot_type=self.config.robot_type,
-                    urdf_path=self.config.get_absolute_urdf_path(),
-                    use_gui=self.config.enable_pybullet_gui,
-                    log_level=self.config.log_level,
-                    aloha_urdf_path=self.config.get_absolute_aloha_urdf_path() if hasattr(self.config, 'aloha_urdf_path') else None,
-                )
+                urdf_path = self.config.get_absolute_urdf_path()
+                aloha_urdf_path = self.config.get_absolute_aloha_urdf_path() if hasattr(self.config, 'aloha_urdf_path') else None
+                
+                if self.config.robot_type == "aloha":
+                    self.visualizer = AlohaVisualizer(
+                        urdf_path=urdf_path,
+                        use_gui=self.config.enable_pybullet_gui,
+                        log_level=self.config.log_level,
+                        aloha_urdf_path=aloha_urdf_path,
+                    )
+                else:
+                    self.visualizer = AiderVisualizer(
+                        urdf_path=urdf_path,
+                        use_gui=self.config.enable_pybullet_gui,
+                        log_level=self.config.log_level,
+                    )
                 
                 # 启动 PyBullet 仿真环境
                 if not self.visualizer.setup():
@@ -206,10 +213,6 @@ class ControlLoop:
         if self.web_keyboard_handler and self.robot_interface:
             self.web_keyboard_handler.set_robot_interface(self.robot_interface)
         
-        # 初始化仿真可视化控制器
-        self.visualizer_controller = VisualizerController(visualizer=self.visualizer)
-        print("✅ 仿真可视化控制器已初始化")
-
         return success
     
     async def start(self):
@@ -370,7 +373,7 @@ class ControlLoop:
     async def _execute_goal(self, goal: ControlGoal):
         """执行控制目标。"""
         
-        # 0. 身体关节控制 (腰/头/升降)
+        # 0. 身体关节控制 (腰/头/升降) — 键盘增量
         if goal.metadata and "body_joint_name" in goal.metadata:
             joint_name = goal.metadata["body_joint_name"]
             delta_rad = goal.metadata.get("body_joint_delta", 0.0)
@@ -540,12 +543,17 @@ class ControlLoop:
         if not self.robot_interface:
             return
         
-        # 0. 应用身体关节增量 (腰/头/升降)
+        # 0. 应用身体关节增量 (腰/头/升降) — 键盘
         if self.body_joint_deltas:
             adapter = self.robot_interface.adapter
             for jname, delta in self.body_joint_deltas.items():
                 adapter.set_body_joint_delta(jname, delta)
             self.body_joint_deltas.clear()
+        
+        # 0.5 头显 → 身体关节 (adapter 做校准+映射+限位)
+        headset = self.vr_raw_data.get('headset')
+        if headset:
+            self.robot_interface.adapter.feed_headset_raw(headset)
         
         # 1. 获取最新的 VR 数据
         vr_data = self.vr_raw_data

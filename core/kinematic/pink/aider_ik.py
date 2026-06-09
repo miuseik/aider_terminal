@@ -5,7 +5,9 @@ Aider 机器人 Pink IK 求解器。
 """
 
 import os
+import re
 import time
+import xml.etree.ElementTree as ET
 # import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple
@@ -23,6 +25,17 @@ import qpsolvers
 # 项目根目录定位
 _PROJ_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+# 加载机器人 settings（用文件路径直读，绕过 robots/aider/__init__.py 避免循环导入）
+import importlib.util as _iu
+import importlib.machinery as _im
+_settings_path = os.path.join(_PROJ_ROOT, "robots", "aider", "settings.py")
+_settings_loader = _im.SourceFileLoader("_robot_settings", _settings_path)
+_settings_spec = _iu.spec_from_loader("_robot_settings", _settings_loader)
+_robot_settings = _iu.module_from_spec(_settings_spec)
+_settings_loader.exec_module(_robot_settings)
+JOINT_LIMIT_OVERRIDES = _robot_settings.JOINT_LIMIT_OVERRIDES
+POSTURE = _robot_settings.POSTURE
 
 
 class AiderPinkSolver:
@@ -43,7 +56,7 @@ class AiderPinkSolver:
                 _PROJ_ROOT, "URDF", "aider", "urdf", "aider_pro.SLDASM.urdf")
         print(f"[AiderPinkSolver] 加载 URDF: {urdf_path}")
 
-        import re, tempfile, atexit
+        import tempfile, atexit
         urdf_dir = os.path.dirname(os.path.dirname(urdf_path))  # URDF/aider/
         mesh_dir = os.path.join(urdf_dir, "meshes")             # URDF/aider/meshes/
 
@@ -55,6 +68,9 @@ class AiderPinkSolver:
             lambda m: f'filename="{os.path.join(mesh_dir, m.group(1))}"',
             urdf_content,
         )
+
+        # 将 settings 的关节限位同步写入 URDF XML，Pinocchio 加载时原生生效
+        urdf_content = self._patch_urdf_limits(urdf_content)
 
         # 写入临时文件
         tmp_urdf = tempfile.NamedTemporaryFile(
@@ -85,11 +101,6 @@ class AiderPinkSolver:
                     old.placement, old.type)
             else:
                 frame_map[name] = i
-
-        # 给关节限位加微小缓冲，避免浮点精度触发的警告
-        eps = 0.01
-        self.robot.model.lowerPositionLimit[:] -= eps
-        self.robot.model.upperPositionLimit[:] += eps
 
         # ---- 发现关节 ----
         self.joint_names: List[str] = []
@@ -139,33 +150,33 @@ class AiderPinkSolver:
         return q
 
     def _make_posture_config(self) -> np.ndarray:
-        """构建姿态偏好配置 — 双臂自然下垂、肘微弯的舒适姿态。
+        """构建姿态偏好配置，从 robots/aider/settings.py 的 POSTURE 字典读取。
 
-        参考 OpenArmX 的 custom_configuration_vector。
         关节值单位：度。
         """
         q = self._make_zero_config()
-        # 右臂：arm4 轴 [1,0,0]，负值 = 弯曲
-        # 左臂：arm4 轴 [-1,0,0]，正值 = 弯曲
-        posture = {
-            "left_arm1":  10,
-            "left_arm2":  30,   # 肩稍向后/下
-            "left_arm3":  50,
-            "left_arm4":  50,    # 肘微弯（左臂 axis=-1，正=弯）
-            "left_arm5":  0,     "left_arm6": 0,
-            "left_arm7":  0,     "left_arm8": 0,
-            "right_arm1": -10,
-            "right_arm2": -30,   # 肩稍向后/下
-            "right_arm3": -50,
-            "right_arm4": -50,   # 肘微弯（右臂 axis=1，负=弯）
-            "right_arm5": 0,     "right_arm6": 0,
-            "right_arm7": 0,     "right_arm8": 0,
-        }
-        for name, deg in posture.items():
+        for name, deg in POSTURE.items():
             qi = self._q_idx(name)
             if qi >= 0:
                 q[qi] = np.radians(deg)
         return q
+
+    @staticmethod
+    def _patch_urdf_limits(urdf_xml: str) -> str:
+        """将 settings 中的关节限位同步写入 URDF XML，Pinocchio 加载时原生生效。
+
+        使用 XML parser 而非 regex，确保每次替换精确针对目标 joint 的 limit 标签。
+        """
+        root = ET.fromstring(urdf_xml)
+        for joint_elem in root.iter("joint"):
+            jname = joint_elem.get("name")
+            if jname and jname in JOINT_LIMIT_OVERRIDES:
+                lo_deg, hi_deg = JOINT_LIMIT_OVERRIDES[jname]
+                limit = joint_elem.find("limit")
+                if limit is not None:
+                    limit.set("lower", f"{np.radians(lo_deg):.8f}")
+                    limit.set("upper", f"{np.radians(hi_deg):.8f}")
+        return ET.tostring(root, encoding="unicode")
 
     def get_posture(self, arm: str) -> np.ndarray:
         """返回指定臂的初始姿态角度（度）。"""

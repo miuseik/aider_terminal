@@ -8,7 +8,7 @@ import json
 import numpy as np
 import math
 import logging
-from typing import Dict, Optional
+from typing import Dict
 from scipy.spatial.transform import Rotation as R
 
 from inputs.base import BaseInputProvider, ControlGoal, ControlMode
@@ -165,10 +165,14 @@ class VRHandler(BaseInputProvider):
     async def process_controller_data(self, data: Dict):
         """处理传入的 VR 控制器数据。"""
         
+        # 0. 头显: 提取相对 yaw/pitch, 存到 vr_raw_data 供 adapter 映射
+        if 'headset' in data and data['headset']:
+            self._feed_headset_raw(data['headset'])
+        
         # 处理新的双控制器格式
         if 'leftController' in data and 'rightController' in data:
-            left_data = data['leftController']
-            right_data = data['rightController']
+            left_data = data.get('leftController') or {}
+            right_data = data.get('rightController') or {}
             # 处理左控制器
             if left_data.get('position') and (left_data.get('gripActive', False) or left_data.get('trigger', 0) > 0.5):
                 await self.process_single_controller('left', left_data)
@@ -342,6 +346,12 @@ class VRHandler(BaseInputProvider):
             await self.send_goal(goal)
             
             print(f"🤏 {hand.upper()} 夹爪已关闭 (扳机释放)")
+    
+    # ======================== 头显原始数据透传 ========================
+    
+    def _feed_headset_raw(self, headset: dict):
+        """透传头显原始数据到 vr_raw_data。不做任何计算。"""
+        self.control_loop.vr_raw_data['headset'] = headset
     
     def euler_to_quaternion(self, euler_deg: Dict[str, float]) -> np.ndarray:
         """将欧拉角（度）转换为四元数 [x, y, z, w]。"""
