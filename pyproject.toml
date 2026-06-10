@@ -13,21 +13,20 @@ keywords = ["robotics", "teleoperation", "vr", "robot-control"]
 
 dependencies = [
     "numpy",
-    "torch",
+    "requests",
     "websockets",
-    "pynput",
-    "pybullet",
-    "scipy",
     "pyyaml",
+    "scipy",
     "opencv-python",
+    "pybullet",
+    "pyserial",
     "trimesh",
-    "pinocchio",
-    # Pink IK Solver dependencies
-    "meshcat_shapes",
-    "qpsolvers",
-    "loop_rate_limiters",
-    "quadprog",
+
+    # Pink IK Solver
     "pin-pink",
+    "qpsolvers[quadprog]",
+    "meshcat_shapes",
+    "loop_rate_limiters",
 ]
 
 requires-python = ">=3.8"
@@ -41,11 +40,10 @@ dev = [
     "mypy",
 ]
 pink = [
-    "meshcat_shapes",
-    "qpsolvers",
-    "loop_rate_limiters",
-    "quadprog",
     "pin-pink",
+    "qpsolvers[quadprog]",
+    "meshcat_shapes",
+    "loop_rate_limiters",
 ]
 
 [project.scripts]

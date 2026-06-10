@@ -12,21 +12,28 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
+print("🔍 [DEBUG] aider_ik.py: 即将 import pinocchio...")
 import pinocchio as pin
+print("🔍 [DEBUG] aider_ik.py: pinocchio 导入完成")
 
 # 抑制 Pinocchio 内部限位警告（已通过钳制机制大幅减少，剩余不干扰求解）
 # logging.getLogger("root").setLevel(logging.ERROR)
 
+print("🔍 [DEBUG] aider_ik.py: 即将 import pink...")
 import pink
 from pink import solve_ik
 from pink.tasks import FrameTask, PostureTask
+print("🔍 [DEBUG] aider_ik.py: pink 导入完成")
+print("🔍 [DEBUG] aider_ik.py: 即将 import qpsolvers...")
 import qpsolvers
+print("🔍 [DEBUG] aider_ik.py: qpsolvers 导入完成")
 
 # 项目根目录定位
 _PROJ_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 # 加载机器人 settings（用文件路径直读，绕过 robots/aider/__init__.py 避免循环导入）
+print("🔍 [DEBUG] aider_ik.py: 即将加载 robots/aider/settings.py...")
 import importlib.util as _iu
 import importlib.machinery as _im
 _settings_path = os.path.join(_PROJ_ROOT, "robots", "aider", "settings.py")
@@ -36,6 +43,7 @@ _robot_settings = _iu.module_from_spec(_settings_spec)
 _settings_loader.exec_module(_robot_settings)
 JOINT_LIMIT_OVERRIDES = _robot_settings.JOINT_LIMIT_OVERRIDES
 POSTURE = _robot_settings.POSTURE
+print("🔍 [DEBUG] aider_ik.py: settings.py 加载完成")
 
 
 class AiderPinkSolver:
