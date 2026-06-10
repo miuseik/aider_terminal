@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
 from drivers.actuator.robStride.robstride_dynamics.can_driver import RobstrideCanDriver, _busy_wait_us
+from drivers.actuator.robStride.robstride_dynamics.slcan_can_driver import SlcanCanDriver
 from drivers.actuator.robStride.robstride_dynamics.protocol import (
     CommType, MotorType, RunMode, ParamIndex, MOTOR_PARAMS, DEFAULT_MOTOR_TYPE_MAP,
 )

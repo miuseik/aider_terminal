@@ -43,8 +43,14 @@ class RobotInterface:
         self.left_arm_connected = False
         self.right_arm_connected = False
         
-        # 舵机 ID 配置
+        # 舵机 ID 配置（扁平结构：{left_arm: {joint: {id, ...}}, right_arm: ..., base: ..., ...}）
         self.servo_ids = {}
+        
+        # 端口到部位的映射（运行时自动发现：{part_name: port}）
+        self.servo_ports = {}
+
+        # 在线舵机 ID → 端口映射（连接时自动发现）
+        self.online_servos = {}  # {id: port}
         
         # 底盘和升降轴状态
         self.base_motors = []
@@ -118,35 +124,28 @@ class RobotInterface:
         self.adapter.right_angles = value
     
     def set_servo_ids_config(self, config: dict):
-        """设置舵机 ID 配置（从 Server 获取）
-        
-        支持两种配置结构:
-        1. aider: {'base': {...}, 'lift_axis': {...}, 'left_arm': {...}, 'right_arm': {...}}
-        2. aloha_mini: {'left_bus': {...}, 'right_bus': {...}, 'base_lift_bus': {...}}
-        """
+        """设置舵机 ID 配置（从 Server 获取，扁平结构，无 bus 包装）"""
         if not config:
             print("⚠️ 收到空的舵机配置")
             return False
         
         self.servo_ids = config
         
-        # 更新底盘和升降轴引用 (适配两种结构)
+        # 更新底盘和升降轴引用（扁平结构直接读 base / lift_axis）
         try:
-            # 优先从 base_lift_bus 获取（aloha_mini），否则从根级获取（aider）
-            base_config = config.get('base_lift_bus', {}).get('base') or config.get('base', {})
-            lift_config = config.get('base_lift_bus', {}).get('lift_axis') or config.get('lift_axis', {})
+            base_config = config.get('base', {})
+            lift_config = config.get('lift_axis', {})
             
             if base_config:
                 self.base_motors = list(base_config.keys())
                 print(f"✅ 底盘舵机配置: {self.base_motors}")
             
             if lift_config:
-                # aloha_mini: lift_axis.axis1.id, aider: lift_axis.lift_Link.id
                 lift_key = next(iter(lift_config)) if lift_config else None
                 if lift_key:
                     self.lift_motor = lift_config[lift_key].get('id')
-                
-            print(f"✅ 舵机配置已更新: {len(config)} 个总线配置")
+            
+            print(f"✅ 舵机配置已更新: {len(config)} 个部位配置")
             return True
         except Exception as e:
             print(f"❌ 解析舵机配置失败: {e}")
@@ -170,7 +169,7 @@ class RobotInterface:
         try:
             print("正在连接机器人...")
 
-            # ✅ 第一步：从 Server 获取舵机配置（包含端口和 ID 映射）
+            # ✅ 第一步：从 Server 获取舵机配置（扁平结构，无 bus/port）
             from comm.api.client import ServerAPIClient
             api_client = ServerAPIClient()
             servo_config = api_client.get_servo_ids_config()
@@ -183,93 +182,99 @@ class RobotInterface:
             self.set_servo_ids_config(servo_config)
             print("✅ 舵机配置已从 Server 同步")
             
-            # ✅ 规范化配置结构：从 aider 扁平结构转为适配器期望的 bus 结构
-            self._normalize_servo_ids_structure(servo_config)
+            # ✅ 第二步：从扁平配置中收集所有舵机 ID
+            all_ids = set()
+            part_names = ['left_arm', 'right_arm', 'base', 'lift_axis', 'neck']  # Server 会将 body_joints 重命名为 neck
+            for part_name in part_names:
+                part_config = servo_config.get(part_name, {})
+                if isinstance(part_config, dict):
+                    for joint_info in part_config.values():
+                        if isinstance(joint_info, dict) and 'id' in joint_info:
+                            all_ids.add(joint_info['id'])
+            print(f"🔍 配置中共 {len(all_ids)} 个舵机 ID: {sorted(all_ids)}")
             
-            # ✅ 第二步：根据配置动态连接左臂、右臂、底盘和升降轴
-            from drivers.actuator.feetech import ST3215Driver
-
-            # 连接左臂（端口从本地config.yaml获取，舵机ID从服务器获取）
-            try:
-                left_port = self.config.follower_ports.get('left')
-                if not left_port:
-                    left_port = servo_config.get('left_bus', {}).get('port')
-                if not left_port:
-                    print("❌ 左臂端口未配置")
-                    self.left_arm_connected = False
+            # ✅ 第三步：自动扫描端口发现各 ID 所在的物理端口
+            id_to_port = self.motor_controller.discover_ports_by_ids(all_ids)
+            if not id_to_port:
+                print("❌ 端口自动发现失败——未在任何端口找到配置的舵机")
+                return False
+            print(f"🔍 端口发现结果: {len(id_to_port)}/{len(all_ids)} 个舵机在线, {len(set(id_to_port.values()))} 个端口")
+            print(f"🟢 在线舵机 ID: {sorted(id_to_port.keys())}")
+            self.online_servos = dict(id_to_port)  # 保存在线舵机列表供状态推送
+            
+            # ✅ 第四步：按部位分组端口
+            self.servo_ports = {}
+            for part_name in part_names:
+                part_config = servo_config.get(part_name, {})
+                if not isinstance(part_config, dict):
+                    continue
+                for joint_info in part_config.values():
+                    if not isinstance(joint_info, dict):
+                        continue
+                    sid = joint_info.get('id')
+                    if sid and sid in id_to_port:
+                        self.servo_ports[part_name] = id_to_port[sid]
+                        print(f"  📌 {part_name} → {id_to_port[sid]}")
+                        break  # 找到该部位第一个在线舵机即可确定端口
+            
+            # 收集所有需要连接的独立端口
+            unique_ports = set(self.servo_ports.values())
+            print(f"🔌 共需连接 {len(unique_ports)} 个端口: {unique_ports}")
+            
+            # ✅ 第五步：复用 ActuatorController 已创建的驱动（_async_discover_ports_by_ids 已内置端口类型判断）
+            port_drivers = {}  # port → driver
+            
+            for port in unique_ports:
+                driver = self.motor_controller._get_or_create_driver(port)
+                if driver:
+                    port_drivers[port] = driver
+                    print(f"✅ 端口驱动就绪: {port}")
                 else:
-                    print(f"🔌 尝试连接左臂: {left_port}")
-                    self.left_robot = ST3215Driver(port=left_port, baudrate=1000000)
-                    success = self.left_robot.connect()
-                    
-                    if success:
-                        self.left_arm_connected = True
-                        print(f"✅ 左臂连接成功 ({left_port})")
-                    else:
-                        print(f"❌ 左臂连接失败 ({left_port})")
-                        self.left_arm_connected = False
-            except Exception as e:
-                print(f"❌ 左臂连接异常: {e}")
+                    print(f"❌ 端口驱动创建失败: {port}")
+            
+            if not port_drivers:
+                print("❌ 无任何端口连接成功")
+                return False
+            
+            # ✅ 第六步：按部位分配驱动
+            left_port = self.servo_ports.get('left_arm')
+            right_port = self.servo_ports.get('right_arm')
+            base_port = self.servo_ports.get('base') or self.servo_ports.get('lift_axis') or self.servo_ports.get('neck')
+            
+            if left_port and left_port in port_drivers:
+                self.left_robot = port_drivers[left_port]
+                self.left_arm_connected = True
+                print(f"✅ 左臂已分配: {left_port}")
+            else:
+                print("❌ 左臂端口未发现或连接失败")
                 self.left_arm_connected = False
-
-            # 连接右臂（端口从本地config.yaml获取，舵机ID从服务器获取）
-            try:
-                right_port = self.config.follower_ports.get('right')
-                if not right_port:
-                    right_port = servo_config.get('right_bus', {}).get('port')
-                if not right_port:
-                    print("❌ 右臂端口未配置")
-                    self.right_arm_connected = False
-                else:
-                    print(f"🔌 尝试连接右臂: {right_port}")
-                    self.right_robot = ST3215Driver(port=right_port, baudrate=1000000)
-                    success = self.right_robot.connect()
-
-                    if success:
-                        self.right_arm_connected = True
-                        print(f"✅ 右臂连接成功 ({right_port})")
-                    else:
-                        print(f"❌ 右臂连接失败 ({right_port})")
-                        self.right_arm_connected = False
-            except Exception as e:
-                print(f"❌ 右臂连接异常: {e}")
+            
+            if right_port and right_port in port_drivers:
+                self.right_robot = port_drivers[right_port]
+                self.right_arm_connected = True
+                print(f"✅ 右臂已分配: {right_port}")
+            else:
+                print("❌ 右臂端口未发现或连接失败")
                 self.right_arm_connected = False
-
-            # ✅ 连接底盘和升降轴（base_lift_bus）
-            try:
-                base_port = servo_config.get('base_lift_bus', {}).get('port')
-                if not base_port:
-                    print("⚠️ 底盘端口未配置，跳过底盘连接")
-                    self.base_connected = False
-                    self.lift_connected = False
-                else:
-                    print(f"🔌 尝试连接底盘和升降轴: {base_port}")
-                    
-                    # 创建底盘驱动实例
-                    self.base_robot = ST3215Driver(port=base_port, baudrate=1000000)
-                    success = self.base_robot.connect()
-                    
-                    if success:
-                        self.base_connected = True
-                        self.lift_connected = True  # 升降轴与底盘共用同一串口
-                        print(f"✅ 底盘和升降轴连接成功 ({base_port})")
-                        
-                        # 读取初始高度
-                        lift_config = servo_config.get('base_lift_bus', {}).get('lift_axis', {})
-                        if 'axis1' in lift_config:
-                            lift_servo_id = lift_config['axis1'].get('id')
-                            if lift_servo_id:
-                                position = self.base_robot.get_position(lift_servo_id)
-                                if position is not None:
-                                    # 位置值转换为毫米（根据实际情况调整转换公式）
-                                    self.lift_height_mm = int((position / 4095.0) * 1000)
-                                    print(f"✅ 升降轴初始高度: {self.lift_height_mm}mm")
-                    else:
-                        print(f"❌ 底盘连接失败 ({base_port})")
-                        self.base_connected = False
-                        self.lift_connected = False
-            except Exception as e:
-                print(f"❌ 底盘连接异常: {e}")
+            
+            if base_port and base_port in port_drivers:
+                self.base_robot = port_drivers[base_port]
+                self.base_connected = True
+                self.lift_connected = True  # 底盘、升降轴、脖子共用同一端口
+                print(f"✅ 底盘/升降轴/身体关节已分配: {base_port}")
+                
+                # 读取初始升降轴高度
+                lift_config = servo_config.get('lift_axis', {})
+                for lift_info in lift_config.values():
+                    if isinstance(lift_info, dict) and 'id' in lift_info:
+                        lift_servo_id = lift_info['id']
+                        position = self.base_robot.get_position(lift_servo_id)
+                        if position is not None:
+                            self.lift_height_mm = int((position / 4095.0) * 1000)
+                            print(f"✅ 升降轴初始高度: {self.lift_height_mm}mm")
+                        break
+            else:
+                print("⚠️ 底盘/升降轴端口未发现，跳过底盘连接")
                 self.base_connected = False
                 self.lift_connected = False
 
@@ -281,26 +286,13 @@ class RobotInterface:
             )
 
             if self.is_connected:
-                # ✅ 第三步：初始化底层驱动（MotorController）
-                # 优先使用左臂端口作为主控端口，如果没有则使用底盘端口
-                control_port = None
-                if servo_config.get('left_bus', {}).get('port'):
-                    control_port = servo_config['left_bus']['port']
-                elif servo_config.get('base_lift_bus', {}).get('port'):
-                    control_port = servo_config['base_lift_bus']['port']
-                
-                if control_port:
-                    try:
-                        driver = ST3215Driver(port=control_port, baudrate=1000000)
-                        if driver.connect():
-                            self.motor_controller.bind_joint_driver(control_port, driver)
-                            print(f"✅ 底层驱动已在 {control_port} 初始化")
-                        else:
-                            print(f"⚠️ 无法连接到 {control_port}")
-                    except Exception as e:
-                        print(f"❌ 初始化驱动失败: {e}")
+                # ✅ 第七步：初始化底层驱动（ActuatorController）
+                # 将所有已连接的端口注册到 motor_controller
+                for port, driver in port_drivers.items():
+                    self.motor_controller.bind_joint_driver(port, driver)
+                print(f"✅ 底层驱动已初始化: {list(port_drivers.keys())}")
 
-                # ✅ 第四步：读取初始关节状态
+                # ✅ 第八步：读取初始关节状态
                 self._read_initial_state()
                 print(f"🤖 机器人接口已连接: 左臂={self.left_arm_connected}, 右臂={self.right_arm_connected}, 底盘={self.base_connected}")
             else:
@@ -318,28 +310,20 @@ class RobotInterface:
     def _read_initial_state(self):
         """从机器人读取初始关节状态（通过 ST3215Driver）。"""
         try:
-            # 左臂 - 支持两种配置结构
-            # 1. aider: {'left_arm': {...}} (直接在根级别)
-            # 2. aloha_mini: {'left_bus': {'left_arm': {...}}}
+            # 左臂
             if self.left_robot and self.left_arm_connected:
-                left_arm_config = (
-                    self.servo_ids.get('left_arm') or 
-                    self.servo_ids.get('left_bus', {}).get('left_arm') or
-                    {}
-                )
+                left_arm_config = self.servo_ids.get('left_arm', {})
                 angles = []
                 
                 for joint_name, joint_info in left_arm_config.items():
                     servo_id = joint_info.get('id')
                     if servo_id:
-                        # 读取位置并转换为角度
                         position = self.left_robot.get_position(servo_id)
                         if position is not None:
-                            # 位置值 (0-4095) 转换为角度 (-180~180)
                             angle = (position / 4095.0) * 360.0 - 180.0
                             angles.append(angle)
                         else:
-                            angles.append(0.0)  # 默认值
+                            angles.append(0.0)
                     else:
                         angles.append(0.0)
                 
@@ -349,26 +333,20 @@ class RobotInterface:
                 else:
                     print(f"⚠️ 左臂舵机数量不匹配: {len(angles)} != {NUM_JOINTS}")
             
-            # 右臂 - 支持两种配置结构
+            # 右臂
             if self.right_robot and self.right_arm_connected:
-                right_arm_config = (
-                    self.servo_ids.get('right_arm') or
-                    self.servo_ids.get('right_bus', {}).get('right_arm') or
-                    {}
-                )
+                right_arm_config = self.servo_ids.get('right_arm', {})
                 angles = []
                 
                 for joint_name, joint_info in right_arm_config.items():
                     servo_id = joint_info.get('id')
                     if servo_id:
-                        # 读取位置并转换为角度
                         position = self.right_robot.get_position(servo_id)
                         if position is not None:
-                            # 位置值 (0-4095) 转换为角度 (-180~180)
                             angle = (position / 4095.0) * 360.0 - 180.0
                             angles.append(angle)
                         else:
-                            angles.append(0.0)  # 默认值
+                            angles.append(0.0)
                     else:
                         angles.append(0.0)
                 
@@ -460,6 +438,10 @@ class RobotInterface:
                     self.is_connected = False
                     print("❌ 机器人接口因重复错误而断开")
                 success = False
+        elif not hasattr(self, '_diag_hw_skip_printed'):
+            self._diag_hw_skip_printed = True
+            print(f"[DIAG] 硬件派发跳过: is_connected={self.is_connected}, is_engaged={self.is_engaged}, "
+                  f"servo_ids keys={list(self.servo_ids.keys())}, servo_ports={self.servo_ports}")
 
         # 2. 更新仿真（无论真机是否连接）
         if self.visualizer:
@@ -553,11 +535,7 @@ class RobotInterface:
             if arm is None or arm == "left":
                 if self.left_robot and self.left_arm_connected:
                     print("正在禁能左臂力矩...")
-                    left_arm_config = (
-                        self.servo_ids.get('left_arm') or
-                        self.servo_ids.get('left_bus', {}).get('left_arm') or
-                        {}
-                    )
+                    left_arm_config = self.servo_ids.get('left_arm', {})
                     for joint_name, joint_info in left_arm_config.items():
                         servo_id = joint_info.get('id')
                         if servo_id:
@@ -566,11 +544,7 @@ class RobotInterface:
             if arm is None or arm == "right":
                 if self.right_robot and self.right_arm_connected:
                     print("正在禁能右臂力矩...")
-                    right_arm_config = (
-                        self.servo_ids.get('right_arm') or
-                        self.servo_ids.get('right_bus', {}).get('right_arm') or
-                        {}
-                    )
+                    right_arm_config = self.servo_ids.get('right_arm', {})
                     for joint_name, joint_info in right_arm_config.items():
                         servo_id = joint_info.get('id')
                         if servo_id:
@@ -596,27 +570,42 @@ class RobotInterface:
         if not self.motor_controller:
             return
         
-        actions = self.adapter.build_hardware_actions(self.servo_ids)
+        actions = self.adapter.build_hardware_actions(self.servo_ids, self.servo_ports)
+
+        # 一次性诊断：看看硬件命令是否生成
+        if not hasattr(self, '_diag_hw_actions_printed'):
+            self._diag_hw_actions_printed = True
+            pos_cmds = actions.get("position_commands", [])
+            spd_cmds = actions.get("speed_commands", [])
+            print(f"[DIAG] build_hardware_actions: "
+                  f"position_commands={len(pos_cmds)}, speed_commands={len(spd_cmds)}")
+            for cmd in spd_cmds:
+                print(f"  [DIAG] speed_cmd port={cmd['port']} targets={cmd['targets']}")
 
         # 派发位置命令（双臂关节角度）
         for cmd in actions.get("position_commands", []):
             if cmd.get("targets"):
-                self.motor_controller.sync_write_positions(cmd["port"], cmd["targets"], time_ms=0)
+                self.motor_controller.write_positions_sync(cmd["port"], cmd["targets"], time_ms=0)
 
         # 派发速度命令（底盘轮子 + 升降轴）
+        # 使用批量同步写入，将 N 次串口往返压缩为 1 次广播写
         for cmd in actions.get("speed_commands", []):
             if not cmd.get("targets"):
                 continue
             port = cmd["port"]
-            for servo_id, speed in cmd["targets"].items():
+            # 确保所有目标电机处于速度模式
+            for servo_id in cmd["targets"]:
                 self._ensure_speed_mode(port, servo_id)
-                self.motor_controller.set_servo_speed(port, servo_id, speed)
+            # 批量写入：一次串口事务发送所有速度
+            driver = self.motor_controller._get_or_create_driver(port)
+            if driver and hasattr(driver, 'sync_write_spec_batch'):
+                driver.sync_write_spec_batch(cmd["targets"])
 
     def _ensure_speed_mode(self, port, servo_id):
         """确保指定舵机处于速度模式（同一 port+servo 只切换一次）。"""
         key = f"_speed_mode_{port}_{servo_id}"
         if not hasattr(self, key):
-            self.motor_controller.set_velocity_mode(port, servo_id)
+            self.motor_controller.set_servo_velocity_mode(port, servo_id)
             setattr(self, key, True)
 
     def _update_simulation(self):

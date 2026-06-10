@@ -76,14 +76,17 @@ class ServerAPIClient:
     
     # ==================== 配置管理 API ====================
     
-    def get_servo_ids_config(self) -> Optional[Dict]:
+    def get_servo_ids_config(self, role: str = 'aider') -> Optional[Dict]:
         """
         从 Server 获取舵机配置
         
+        Args:
+            role: 机器人角色，默认 'aider'
+            
         Returns:
             舵机配置字典，失败返回 None
         """
-        return self._make_request('/api/get-servo-ids', 'POST')
+        return self._make_request('/api/get-servo-ids', 'POST', {'role': role})
     
     def update_servo_config(self, config: Dict) -> bool:
         """

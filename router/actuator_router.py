@@ -378,6 +378,7 @@ class ActuatorRouter:
         speed = cmd.get("speed")
         if device_id is None or speed is None:
             return {"success": False, "message": "Missing servo_id or speed"}
+        speed = int(speed)  # 防御: JSON 反序列化可能产生 float，确保传给 SDK 的是 int
         ok = await ctrl.set_velocity(port, device_id, speed)
         return {"success": ok, "message": f"actuator {device_id} speed={speed}" if ok else "Failed"}
 

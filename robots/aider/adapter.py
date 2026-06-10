@@ -396,11 +396,15 @@ class AiderAdapter:
 
     # ======================== 硬件命令构建 ========================
 
-    def build_hardware_actions(self, servo_ids: dict) -> dict:
+    def build_hardware_actions(self, servo_ids: dict, servo_ports: dict = None) -> dict:
         """根据当前状态和舵机配置，构建结构化的硬件命令。
 
         本方法完全封装 Aider 特有的底盘/轮子/升降轴映射逻辑，
         调用方（robot_interface）只需无脑派发返回的命令。
+
+        Args:
+            servo_ids: 扁平舵机配置 {left_arm: {joint: {id,...}}, right_arm: ..., base: ..., ...}
+            servo_ports: 运行时端口发现结果 {part_name: port}
 
         Returns:
             {
@@ -408,58 +412,60 @@ class AiderAdapter:
                 "speed_commands":    [{"port": str, "targets": {servo_id: speed}}, ...],
             }
         """
+        if servo_ports is None:
+            servo_ports = {}
         actions = {"position_commands": [], "speed_commands": []}
 
         # --- 左臂（位置控制） ---
-        left_bus = servo_ids.get("left_bus", {})
-        left_port = left_bus.get("port")
+        left_port = servo_ports.get("left_arm")
         if left_port:
             targets = {}
-            for i, (_jname, jinfo) in enumerate(left_bus.get("left_arm", {}).items()):
-                if i < len(self.left_angles):
+            for i, (_jname, jinfo) in enumerate(servo_ids.get("left_arm", {}).items()):
+                if isinstance(jinfo, dict) and i < len(self.left_angles):
                     targets[jinfo["id"]] = float(self.left_angles[i])
             if targets:
                 actions["position_commands"].append({"port": left_port, "targets": targets})
 
         # --- 右臂（位置控制） ---
-        right_bus = servo_ids.get("right_bus", {})
-        right_port = right_bus.get("port")
+        right_port = servo_ports.get("right_arm")
         if right_port:
             targets = {}
-            for i, (_jname, jinfo) in enumerate(right_bus.get("right_arm", {}).items()):
-                if i < len(self.right_angles):
+            for i, (_jname, jinfo) in enumerate(servo_ids.get("right_arm", {}).items()):
+                if isinstance(jinfo, dict) and i < len(self.right_angles):
                     targets[jinfo["id"]] = float(self.right_angles[i])
             if targets:
                 actions["position_commands"].append({"port": right_port, "targets": targets})
 
         # --- 底盘 + 升降轴 + 身体关节（速度 / 位置控制） ---
-        base_bus = servo_ids.get("base_lift_bus", {})
-        base_port = base_bus.get("port")
+        # 这三个部位通常共用同一端口
+        base_port = (servo_ports.get("base")
+                     or servo_ports.get("lift_axis")
+                     or servo_ports.get("body_joints"))
         if base_port:
             speed_targets = {}
             position_targets = {}
 
             # Aider 四轮: whel_Link1~4 → 对应 servo_ids.base 中的键
             wheel_speeds = self.compute_wheel_speeds()
-            base_config = base_bus.get("base", {})
+            base_config = servo_ids.get("base", {})
             for wheel_name, wheel_info in base_config.items():
-                if wheel_name in wheel_speeds:
+                if isinstance(wheel_info, dict) and wheel_name in wheel_speeds:
                     speed_targets[wheel_info["id"]] = int(wheel_speeds[wheel_name])
 
             # 升降轴
-            lift_config = base_bus.get("lift_axis", {})
+            lift_config = servo_ids.get("lift_axis", {})
             for _axis_name, axis_info in lift_config.items():
-                speed_targets[axis_info["id"]] = int(self.lift_velocity)
+                if isinstance(axis_info, dict):
+                    speed_targets[axis_info["id"]] = int(self.lift_velocity)
 
             # 身体关节 (腰/头/头俯仰) — 作为位置命令发送
-            body_joint_config = base_bus.get("body_joints", {})
+            body_joint_config = servo_ids.get("body_joints", {})
             body_angles_deg = {
-                "waist_Link": float(np.degrees(self.waist_angle)),
                 "head_Link":  float(np.degrees(self.head_yaw)),
                 "head_Link2": float(np.degrees(self.head_pitch)),
             }
             for jname, jinfo in body_joint_config.items():
-                if jname in body_angles_deg:
+                if isinstance(jinfo, dict) and jname in body_angles_deg:
                     position_targets[jinfo["id"]] = body_angles_deg[jname]
 
             if speed_targets:

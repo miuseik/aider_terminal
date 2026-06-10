@@ -621,25 +621,47 @@ class ActuatorController:
         return loop.run_until_complete(self._async_discover_ports_by_ids(target_ids))
 
     async def _async_discover_ports_by_ids(self, target_ids: set) -> Dict[int, str]:
-        """discover_ports_by_ids 的异步实现。"""
+        """discover_ports_by_ids 的异步实现。
+
+        遍历所有可用端口，在每个端口上全量扫描舵机，再与目标 ID 匹配。
+        - CAN: 用目标 ID 范围（scan_motors 批量扫描效率高）
+        - USB: 用宽范围 (1~253) 扫描，防止漏掉不在目标范围内的舵机
+        """
         ports = await self.scan_available_ports()
         if not ports:
             return {}
         id_to_port: Dict[int, str] = {}
+        min_id_cfg = min(target_ids) if target_ids else 1
+        max_id_cfg = max(target_ids) if target_ids else 253
+
         for port in ports:
-            driver = self._get_or_create_driver(port)
-            if driver and hasattr(driver, 'connect'):
-                try:
-                    if hasattr(driver, 'is_connected') and not driver.is_connected:
-                        driver.connect()
-                    for servo_id in sorted(target_ids):
-                        try:
-                            if driver.ping(servo_id):
-                                id_to_port[servo_id] = port
-                        except Exception:
-                            pass
-                except Exception:
-                    continue
+            # CAN 用目标范围；USB/ACM 用全量宽范围
+            if "can" in port.lower():
+                scan_start, scan_end = min_id_cfg, max_id_cfg
+            else:
+                scan_start = 1
+                scan_end = max(max_id_cfg, 253)
+            print(f"🔍 探测端口: {port} (ID {scan_start}~{scan_end}) ...")
+            try:
+                found = await self.scan_servos(port, start_id=scan_start, end_id=scan_end)
+                found_ids = {info.device_id for info in found}
+                matched = [info for info in found if info.device_id in target_ids]
+                for info in matched:
+                    id_to_port[info.device_id] = port
+                if matched:
+                    extra = sorted(found_ids - target_ids)
+                    msg = f"  ✅ {port}: 找到 {len(matched)} 个目标舵机 {sorted([i.device_id for i in matched])}"
+                    if extra:
+                        msg += f"（另有 {len(extra)} 个不在配置中: {extra}）"
+                    print(msg)
+                elif found:
+                    print(f"  ⚠️ {port}: 找到 {len(found)} 个舵机 {sorted(found_ids)}，"
+                          f"但都未在配置目标 {sorted(target_ids)[:10]}{'...' if len(target_ids)>10 else ''} 中")
+                else:
+                    print(f"  ⚠️ {port}: 驱动已连接，但 ping 1~{scan_end} 全部未响应（无舵机在线）")
+            except Exception as e:
+                print(f"  ❌ {port}: 扫描异常: {e}")
+                continue
         return id_to_port
 
     def scan_all_servos(self) -> Dict[str, List['ActuatorInfo']]:
@@ -741,6 +763,32 @@ class ActuatorController:
             with ThreadPoolExecutor() as pool:
                 return pool.submit(asyncio.run, self.change_id(port, old_id, new_id)).result()
         return loop.run_until_complete(self.change_id(port, old_id, new_id))
+
+    def set_servo_velocity_mode(self, port: str, device_id: int) -> bool:
+        """切换舵机到速度模式（同步包装 set_velocity_mode）。"""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        if loop.is_running():
+            import threading
+            with ThreadPoolExecutor() as pool:
+                return pool.submit(asyncio.run, self.set_velocity_mode(port, device_id)).result()
+        return loop.run_until_complete(self.set_velocity_mode(port, device_id))
+
+    def write_positions_sync(self, port: str, targets: Dict[int, float], time_ms: int = 500) -> bool:
+        """批量同步写入位置（同步包装 sync_write_positions）。"""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        if loop.is_running():
+            import threading
+            with ThreadPoolExecutor() as pool:
+                return pool.submit(asyncio.run, self.sync_write_positions(port, targets, time_ms)).result()
+        return loop.run_until_complete(self.sync_write_positions(port, targets, time_ms))
 
     def set_servo_speed(self, port: str, device_id: int, speed: int) -> bool:
         """设置舵机速度（同步包装 set_velocity）。"""

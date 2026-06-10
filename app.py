@@ -224,9 +224,12 @@ class TelegripSystem:
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.vr_ws_client.connect()
 
+            # 将 transport 传给 control_loop，用于推送硬件状态
+            self.control_loop.set_transport(self.vr_ws_client.transport)
+
             # AliRTC 视频推流
             threading.Thread(target=rtc_video.main, daemon=True, name="AliRTCStreamer").start()
-            
+
             # WebRTC 视频推流改为按需启动(前端请求时才开启)
             # if getattr(self.config, 'enable_webrtc', False):
             #     print("📹 启动 WebRTC 视频推流...")
@@ -274,6 +277,9 @@ class TelegripSystem:
 
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.vr_ws_client.connect()
+
+            # 将 transport 传给 control_loop，用于推送硬件状态
+            self.control_loop.set_transport(self.vr_ws_client.transport)
 
             # AliRTC 视频推流
             threading.Thread(target=rtc_video.main, daemon=True, name="AliRTCStreamer").start()

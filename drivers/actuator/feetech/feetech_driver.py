@@ -204,6 +204,7 @@ class ST3215Driver:
             print(f"⚠️ [ST3215] 未连接,跳过发送 - ID={servo_id}, Speed={speed}")
             return False
         try:
+            speed = int(speed)  # 防御: 确保是 int，防止 float 传入导致 SDK 位运算报错
             result, _ = self._servo.WriteSpec(servo_id, speed, 0)
             return result == COMM_SUCCESS
         except Exception as e:
@@ -232,6 +233,34 @@ class ST3215Driver:
             return True
         except Exception as e:
             print(f"❌ 同步写入速度失败: {e}")
+            return False
+
+    def sync_write_spec_batch(self, targets: dict, acc: int = 0) -> bool:
+        """批量写入速度（一次串口事务，不阻塞等待回复）。
+
+        使用 SDK 的 groupSyncWrite + SyncWritePosEx(position=0) 实现。
+        轮子模式下 position 无意义，等价于 WriteSpec 的批量版。
+        将 N 次 request-response 串口往返压缩为 1 次广播发送。
+
+        Args:
+            targets: {servo_id: speed}
+            acc: 加速度值，默认 0
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.is_connected or self._servo is None:
+            print(f"⚠️ [ST3215] 未连接，跳过批量速度发送")
+            return False
+        try:
+            self._servo.groupSyncWrite.clearParam()
+            for servo_id, speed in targets.items():
+                # 利用 SDK 已有的 SyncWritePosEx: position=0 时包体与 WriteSpec 一致
+                self._servo.SyncWritePosEx(servo_id, 0, int(speed), acc)
+            self._servo.groupSyncWrite.txPacket()
+            return True
+        except Exception as e:
+            print(f"❌ 批量写入速度失败: {e}")
             return False
 
     sync_write_speeds = sync_write_velocity  # 别名

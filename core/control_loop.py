@@ -109,6 +109,27 @@ class ControlLoop:
         self._process_debug_logged = False
         
         self.is_running = False
+        
+        # === WebSocket transport 引用（用于推送硬件状态到 Server） ===
+        self._transport = None
+        self._last_status_push_time = 0
+    
+    def set_transport(self, transport):
+        """设置 WebSocket transport，用于推送硬件状态到 Server。"""
+        self._transport = transport
+    
+    async def _push_hardware_status(self):
+        """将当前硬件状态推送到 Server。"""
+        if not self._transport or not self._transport.is_connected:
+            return
+        try:
+            from comm.websocket.protocol import encode_message
+            import json
+            status = self.status
+            status["type"] = "hardware_status"
+            await self._transport.send_raw(encode_message(status))
+        except Exception as e:
+            logger.debug(f"推送硬件状态失败: {e}")
     
     def setup(self) -> bool:
         """设置机器人接口和可视化器。
@@ -247,6 +268,12 @@ class ControlLoop:
                 
                 # 定期打印状态日志
                 self._periodic_logging()
+                
+                # 定期推送硬件状态到 Server（约 1Hz）
+                now = time.time()
+                if now - self._last_status_push_time >= 1.0:
+                    await self._push_hardware_status()
+                    self._last_status_push_time = now
                 
                 # 控制频率 (默认 50Hz,即每 0.02 秒一帧)
                 await asyncio.sleep(self.config.send_interval)
@@ -691,7 +718,13 @@ class ControlLoop:
                 
                 # 升降轴状态
                 "lift_connected": self.robot_interface.lift_connected,
-                "lift_height_mm": self.robot_interface.lift_height_mm
+                "lift_height_mm": self.robot_interface.lift_height_mm,
+
+                # 在线舵机列表（连接时自动发现，无需额外扫描）
+                "online_servos": [
+                    {"id": sid, "port": port}
+                    for sid, port in self.robot_interface.online_servos.items()
+                ],
             })
         else:
             # 机器人未初始化时的默认值
