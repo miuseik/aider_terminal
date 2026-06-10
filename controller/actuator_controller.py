@@ -635,12 +635,12 @@ class ActuatorController:
         max_id_cfg = max(target_ids) if target_ids else 253
 
         for port in ports:
-            # CAN 用目标范围；USB/ACM 用全量宽范围
+            # CAN 用目标范围；USB/ACM 从 1 扫到配置最大 ID
             if "can" in port.lower():
                 scan_start, scan_end = min_id_cfg, max_id_cfg
             else:
                 scan_start = 1
-                scan_end = max(max_id_cfg, 253)
+                scan_end = max_id_cfg
             print(f"🔍 探测端口: {port} (ID {scan_start}~{scan_end}) ...")
             try:
                 found = await self.scan_servos(port, start_id=scan_start, end_id=scan_end)

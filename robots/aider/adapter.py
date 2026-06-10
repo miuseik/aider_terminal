@@ -440,7 +440,7 @@ class AiderAdapter:
         # 这三个部位通常共用同一端口
         base_port = (servo_ports.get("base")
                      or servo_ports.get("lift_axis")
-                     or servo_ports.get("body_joints"))
+                     or servo_ports.get("neck"))  # Server 将 body_joints 重命名为 neck
         if base_port:
             speed_targets = {}
             position_targets = {}
@@ -459,7 +459,7 @@ class AiderAdapter:
                     speed_targets[axis_info["id"]] = int(self.lift_velocity)
 
             # 身体关节 (腰/头/头俯仰) — 作为位置命令发送
-            body_joint_config = servo_ids.get("body_joints", {})
+            body_joint_config = servo_ids.get("neck", {})  # Server 将 body_joints 重命名为 neck
             body_angles_deg = {
                 "head_Link":  float(np.degrees(self.head_yaw)),
                 "head_Link2": float(np.degrees(self.head_pitch)),

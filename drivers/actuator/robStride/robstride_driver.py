@@ -482,6 +482,23 @@ class RobStrideOfficialDriver:
             _busy_wait_us(150)  # CAN 帧间间隔，防止总线缓冲区溢出丢帧
         return ok > 0
 
+    def sync_write_spec_batch(self, targets: Dict[int, int], acc: int = 0) -> bool:
+        """批量写入速度（与 Feetech ST3215Driver 接口对齐）。
+
+        Args:
+            targets: {motor_id: speed_raw}，speed_raw 为 Feetech 原始速度值 (0~1023)
+            acc: 加速度（RobStride 暂不使用）
+
+        Returns:
+            bool: 是否全部成功
+        """
+        ok = 0
+        for motor_id, speed in targets.items():
+            if self.set_speed(motor_id, speed):
+                ok += 1
+            _busy_wait_us(150)
+        return ok > 0
+
     # ── 批量操作（对标 openArmX Robot API）──
 
     def enable_all(self) -> bool:

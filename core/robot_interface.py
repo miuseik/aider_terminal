@@ -570,6 +570,9 @@ class RobotInterface:
         if not self.motor_controller:
             return
         
+        # 先同步状态到 adapter（确保 keyboard 设置的 base_velocity_target 生效）
+        self._sync_to_adapter()
+        
         actions = self.adapter.build_hardware_actions(self.servo_ids, self.servo_ports)
 
         # 一次性诊断：看看硬件命令是否生成
