@@ -436,14 +436,10 @@ class AiderAdapter:
             if targets:
                 actions["position_commands"].append({"port": right_port, "targets": targets})
 
-        # --- 底盘 + 升降轴 + 身体关节（速度 / 位置控制） ---
-        # 这三个部位通常共用同一端口
-        base_port = (servo_ports.get("base")
-                     or servo_ports.get("lift_axis")
-                     or servo_ports.get("neck"))  # Server 将 body_joints 重命名为 neck
+        # --- 底盘 + 升降轴（速度控制） ---
+        base_port = servo_ports.get("base") or servo_ports.get("lift_axis")
         if base_port:
             speed_targets = {}
-            position_targets = {}
 
             # Aider 四轮: whel_Link1~4 → 对应 servo_ids.base 中的键
             wheel_speeds = self.compute_wheel_speeds()
@@ -458,8 +454,14 @@ class AiderAdapter:
                 if isinstance(axis_info, dict):
                     speed_targets[axis_info["id"]] = int(self.lift_velocity)
 
-            # 身体关节 (腰/头/头俯仰) — 作为位置命令发送
-            body_joint_config = servo_ids.get("neck", {})  # Server 将 body_joints 重命名为 neck
+            if speed_targets:
+                actions["speed_commands"].append({"port": base_port, "targets": speed_targets})
+
+        # --- 身体关节 (腰/头/头俯仰) — 位置控制，使用 neck 自己的端口 ---
+        neck_port = servo_ports.get("neck")  # Server 将 body_joints 重命名为 neck
+        if neck_port:
+            body_joint_config = servo_ids.get("neck", {})
+            position_targets = {}
             body_angles_deg = {
                 "head_Link":  float(np.degrees(self.head_yaw)),
                 "head_Link2": float(np.degrees(self.head_pitch)),
@@ -468,10 +470,9 @@ class AiderAdapter:
                 if isinstance(jinfo, dict) and jname in body_angles_deg:
                     position_targets[jinfo["id"]] = body_angles_deg[jname]
 
-            if speed_targets:
-                actions["speed_commands"].append({"port": base_port, "targets": speed_targets})
+            # waist_Link（腰）目前没有配置舵机 ID，如有则同上处理
             if position_targets:
-                actions["position_commands"].append({"port": base_port, "targets": position_targets})
+                actions["position_commands"].append({"port": neck_port, "targets": position_targets})
 
         return actions
 

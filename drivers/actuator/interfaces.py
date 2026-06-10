@@ -58,6 +58,11 @@ class JointActuatorInterface(ABC):
         """速度模式."""
         ...
 
+    @abstractmethod
+    def sync_write_spec_batch(self, targets: dict, acc: int = 0) -> bool:
+        """批量写入速度（feetech raw speed / robstride 兼容接口）."""
+        ...
+
     def set_torque(self, device_id: int, torque: float) -> None:
         """设置力矩 / 开关扭矩."""
         ...

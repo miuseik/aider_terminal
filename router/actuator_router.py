@@ -301,6 +301,9 @@ class ActuatorRouter:
             servo_id = cmd.get("servo_id")
             info_data = result.get("data", {})
             response = {"type": "servo_info_response", "servo_id": servo_id, **info_data}
+        elif action == "get_network_info":
+            net_data = result.get("data", {})
+            response = {"type": "network_info_response", **net_data}
         else:
             response = {"type": "api_response", "category": "motor", "action": action, **result}
         

@@ -690,12 +690,24 @@ class ControlLoop:
     @property
     def status(self) -> Dict:
         """获取当前控制循环状态。"""
+        # 网络信息（终端在机器人上运行，IP/SSID/hostname 应从这里取）
+        try:
+            from utils.network_utils import get_network_info
+            net = get_network_info()
+        except Exception as e:
+            net = {"ip": "--", "ssid": "--", "hostname": "--"}
+            print(f"[ControlLoop] get_network_info 失败: {e}")
+
         # 基础状态
         status = {
             "running": self.is_running,
             "left_arm_mode": self.left_arm.mode.value,
             "right_arm_mode": self.right_arm.mode.value,
             "visualizer_connected": self.visualizer.is_connected if self.visualizer else False,
+            # 网络信息（随硬件状态推送至 Server /api/status）
+            "ip": net["ip"],
+            "ssid": net["ssid"],
+            "hostname": net["hostname"],
         }
         
         # 合并机器人硬件详细状态
