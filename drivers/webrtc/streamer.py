@@ -1,7 +1,7 @@
 """
 WebRTC 视频推流器
 
-通过 aiortc 将摄像头画面推送到 aider_server 的 /ws/signaling 信令端点。
+通过 aiortc 将摄像头画面推送到 aider_server，信令复用在 /ws/terminal 通道上。
 作为 asyncio Task 运行，由 TelegripSystem 管理生命周期。
 """
 
@@ -9,7 +9,6 @@ import asyncio
 import fractions
 import json
 import logging
-import ssl
 import time
 from typing import Optional
 
@@ -23,7 +22,6 @@ from aiortc import (
     VideoStreamTrack,
 )
 from av import VideoFrame
-from websockets.asyncio.client import connect
 
 from config.settings import TelegripConfig
 from drivers.camera.opencv_camera_driver import OpenCVCameraDriver
@@ -78,43 +76,69 @@ class CameraVideoTrack(VideoStreamTrack):
 
 
 class WebRTCStreamer:
-    """WebRTC 推流器 - 连接 aider_server 信令并推送摄像头画面"""
+    """WebRTC 推流器 - 信令复用 /ws/terminal 通道，不再单独连接 /ws/signaling"""
 
     def __init__(self, config: TelegripConfig):
         self.config = config
-        self._ws = None
+        self._transport = None          # WSTransport（复用 terminal 通道）
+        self._msg_queue: Optional[asyncio.Queue] = None
         self._pc: Optional[RTCPeerConnection] = None
         self._video_track: Optional[CameraVideoTrack] = None
         self._camera: Optional[OpenCVCameraDriver] = None
         self._ice_servers: list = []
         self._running = False
 
-    # ── 信令连接 ──
-    async def _connect_signaling(self):
-        url = self.config.webrtc_signaling_url
-        logger.info("信令: %s", url)
+    # ── 设置 transport ──
 
-        kwargs = {"ping_interval": 30, "ping_timeout": 10, "max_size": 2 ** 20}
-        if url.startswith("wss://"):
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-            kwargs["ssl"] = ssl_ctx
+    def set_transport(self, transport):
+        """注入 terminal 的 WSTransport，信令消息通过它收发"""
+        self._transport = transport
+        self._msg_queue = asyncio.Queue()
+        transport.add_handler(self._on_signaling_message)
+        logger.info("WebRTC 信令已绑定到 terminal 通道")
 
-        self._ws = await connect(url, **kwargs)
-        logger.info("信令已连接")
+    async def _on_signaling_message(self, raw: str):
+        """transport 消息回调：把 WebRTC 相关消息推入队列"""
+        if self._msg_queue is None:
+            return
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+        msg_type = msg.get("type", "")
+        # 只处理 WebRTC 信令消息
+        if msg_type in ("webrtc_joined", "answer", "ice_candidate", "subscriber_joined"):
+            await self._msg_queue.put(msg)
+
+    # ── 发送信令 ──
+
+    async def _send(self, data: dict):
+        """通过 terminal transport 发送信令消息"""
+        if self._transport and self._transport.is_connected:
+            await self._transport.send_raw(json.dumps(data))
+
+    # ── 加入房间 ──
 
     async def _join_room(self):
-        await self._ws.send(json.dumps({
-            "type": "join", "role": "pub", "room_id": self.config.webrtc_room_id,
-        }))
-        resp = json.loads(await self._ws.recv())
-        if resp.get("type") != "joined":
+        await self._send({
+            "type": "webrtc_join",
+            "role": "pub",
+            "room_id": self.config.webrtc_room_id,
+        })
+        # 等待服务器响应
+        try:
+            resp = await asyncio.wait_for(self._msg_queue.get(), timeout=10)
+        except asyncio.TimeoutError:
+            raise RuntimeError("加入 WebRTC 房间超时（无 webrtc_joined 响应）")
+
+        if resp.get("type") != "webrtc_joined":
             raise RuntimeError(f"加入房间失败: {resp}")
+
         self._ice_servers = resp.get("ice_servers", [])
         logger.info("已加入房间 %s, ICE ×%d", self.config.webrtc_room_id, len(self._ice_servers))
 
     # ── PeerConnection ──
+
     def _create_peer_connection(self):
         ice_cfg = RTCConfiguration(iceServers=[
             RTCIceServer(urls=s["urls"], username=s.get("username"), credential=s.get("credential"))
@@ -138,7 +162,7 @@ class WebRTCStreamer:
         async def _on_ice_candidate(candidate):
             if not candidate:
                 return
-            await self._ws.send(json.dumps({
+            await self._send({
                 "type": "ice_candidate",
                 "candidate": {
                     "foundation": candidate.foundation,
@@ -151,19 +175,20 @@ class WebRTCStreamer:
                 },
                 "sdpMid": candidate.sdpMid,
                 "sdpMLineIndex": candidate.sdpMLineIndex,
-            }))
+            })
 
     async def _send_offer(self):
         offer = await self._pc.createOffer()
         await self._pc.setLocalDescription(offer)
-        await self._ws.send(json.dumps({
+        await self._send({
             "type": "offer",
             "sdp": self._pc.localDescription.sdp,
             "room_id": self.config.webrtc_room_id,
-        }))
+        })
         logger.info("SDP Offer 已发送")
 
     # ── 消息处理 ──
+
     async def _handle_answer(self, msg: dict):
         await self._pc.setRemoteDescription(
             RTCSessionDescription(sdp=msg["sdp"], type="answer"))
@@ -184,34 +209,34 @@ class WebRTCStreamer:
     async def _handle_subscriber_joined(self, msg: dict):
         logger.info("订阅者加入 (×%d), 重发 Offer", msg.get("count", 0))
         if self._pc and self._pc.localDescription:
-            await self._ws.send(json.dumps({
+            await self._send({
                 "type": "offer",
                 "sdp": self._pc.localDescription.sdp,
                 "room_id": self.config.webrtc_room_id,
-            }))
+            })
 
     async def _signaling_loop(self):
-        """处理信令消息直到连接关闭"""
+        """从消息队列读取信令，直到 _running 为 False"""
         handlers = {
             "answer": self._handle_answer,
             "ice_candidate": self._handle_ice,
             "subscriber_joined": self._handle_subscriber_joined,
         }
-        async for raw in self._ws:
-            if not self._running:
-                break
+        while self._running and self._msg_queue is not None:
             try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
+                msg = await asyncio.wait_for(self._msg_queue.get(), timeout=30)
+            except asyncio.TimeoutError:
                 continue
             handler = handlers.get(msg.get("type"))
             if handler:
                 await handler(msg)
 
-    # ── 声明周期 ──
+    # ── 生命周期 ──
+
     async def run(self):
         """主入口: 作为 asyncio Task 运行"""
         self._running = True
+
         try:
             # 摄像头
             camera_cfg = {
@@ -226,8 +251,16 @@ class WebRTCStreamer:
             if not self._camera.connect():
                 raise RuntimeError("摄像头连接失败")
 
-            # 信令
-            await self._connect_signaling()
+            # 等待 terminal 通道就绪
+            for _ in range(30):
+                if self._transport and self._transport.is_connected:
+                    break
+                logger.info("等待 terminal 通道就绪...")
+                await asyncio.sleep(1)
+            else:
+                raise RuntimeError("等待 terminal 通道超时")
+
+            # 加入房间
             await self._join_room()
 
             # WebRTC
@@ -251,6 +284,4 @@ class WebRTCStreamer:
             self._video_track.stop()
         if self._pc:
             await self._pc.close()
-        if self._ws:
-            await self._ws.close()
         logger.info("WebRTC 资源已清理")

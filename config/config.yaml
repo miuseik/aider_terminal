@@ -25,9 +25,7 @@ network:
   # api_host: www.houqicg.com      # API Server 地址
   # server_port: 8442
   enable_webrtc: true   # 启用 aiortc WebRTC 视频推流（纯 Python，全平台可用）
-  # --- WebRTC 信令 ---
-  webrtc_signaling_url: wss://ws.houqicg.com:8442/ws/signaling  # 信令地址（remote）
-  # webrtc_signaling_url: wss://localhost:8442/ws/signaling       # 信令地址（local 测试）
+  # --- WebRTC 信令（复用 /ws/terminal 通道，无需独立 URL）---
   webrtc_room_id: robot-camera     # 房间 ID
   # --- 摄像头 ---
   video_source: /dev/video0  # 摄像头设备路径

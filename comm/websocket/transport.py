@@ -17,6 +17,7 @@ class WSTransport:
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.is_connected = False
         self.on_message_callback: Optional[Callable] = None
+        self._extra_handlers: list = []  # 额外的消息处理器
         
         # SSL 上下文
         self.ssl_context = None
@@ -77,9 +78,16 @@ class WSTransport:
                 if not self.is_connected:
                     break
                 
-                # 如果注册了回调则调用
+                # 主回调
                 if self.on_message_callback:
                     await self.on_message_callback(message)
+                
+                # 额外处理器（如 WebRTC 信令）
+                for handler in self._extra_handlers:
+                    try:
+                        await handler(message)
+                    except Exception:
+                        pass
         
         except websockets.exceptions.ConnectionClosedOK:
             print("❌ 连接已关闭（正常）")
@@ -116,3 +124,7 @@ class WSTransport:
     def on_message(self, callback: Callable):
         """注册消息回调。"""
         self.on_message_callback = callback
+    
+    def add_handler(self, callback: Callable):
+        """注册额外的消息处理器（如 WebRTC 信令）。"""
+        self._extra_handlers.append(callback)

@@ -236,6 +236,7 @@ class TelegripSystem:
             # WebRTC 视频推流
             if getattr(self.config, 'enable_webrtc', False):
                 print("📹 启动 WebRTC 视频推流...")
+                self.webrtc_streamer.set_transport(self.vr_ws_client.transport)
                 webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
                 self.tasks.append(webrtc_task)
 
@@ -288,6 +289,7 @@ class TelegripSystem:
             # WebRTC 视频推流
             if getattr(self.config, 'enable_webrtc', False):
                 print("📹 启动 WebRTC 视频推流...")
+                self.webrtc_streamer.set_transport(self.vr_ws_client.transport)
                 webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
                 self.tasks.append(webrtc_task)
 
