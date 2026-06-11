@@ -400,6 +400,7 @@ class TelegripConfig:
     def __post_init__(self):
         # 从 config.yaml 读取 WebRTC / 摄像头配置
         net = _config_data.get("network", {})
+        self.enable_webrtc = net.get("enable_webrtc", self.enable_webrtc)
         self.webrtc_signaling_url = net.get("webrtc_signaling_url", self.webrtc_signaling_url)
         self.webrtc_room_id = net.get("webrtc_room_id", self.webrtc_room_id)
         self.video_source = net.get("video_source", self.video_source)

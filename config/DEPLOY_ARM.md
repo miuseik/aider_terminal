@@ -43,8 +43,11 @@ pip install -e .
 
 ```yaml
 network:
+  # 启用纯 Python aiortc WebRTC 推流
+  enable_webrtc: true
+
   # WebRTC 信令地址 — 改成你的 ECS 域名
-  webrtc_signaling_url: "wss://ws.houqicg.com:8442/ws/signaling"
+  webrtc_signaling_url: "wss://www.houqicg.com:8442/ws/signaling"
   webrtc_room_id: "robot-camera"
 
   # 摄像头设备

@@ -24,7 +24,7 @@ network:
   # server_host: ws.houqicg.com    # WebSocket Server 地址
   # api_host: www.houqicg.com      # API Server 地址
   # server_port: 8442
-  enable_webrtc: true  # 启用 WebRTC 视频推流
+  enable_webrtc: true   # 启用 aiortc WebRTC 视频推流（纯 Python，全平台可用）
   # --- WebRTC 信令 ---
   webrtc_signaling_url: wss://www.houqicg.com:8442/ws/signaling  # 信令地址（remote）
   # webrtc_signaling_url: wss://localhost:8442/ws/signaling       # 信令地址（local 测试）
