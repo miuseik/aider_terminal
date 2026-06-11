@@ -20,7 +20,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG = {
     "network": {
         "websocket_port": 8442,
-        "host_ip": "0.0.0.0"
+        "host_ip": "0.0.0.0",
+        "enable_webrtc": True,
+        "webrtc_signaling_url": "wss://www.houqicg.com:8442/ws/signaling",
+        "webrtc_room_id": "robot-camera",
+        "video_source": "/dev/video0",
+        "camera_width": 640,
+        "camera_height": 480,
+        "camera_fps": 25,
+        "camera_fourcc": "MJPG",
     },
     "robot": {
         "type": "aider",  # 机器人类型: aider, aloha, openarmx, custom
@@ -342,7 +350,13 @@ class TelegripConfig:
     server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")
     api_host: str = os.getenv("TELEGRIP_API_HOST", "www.houqicg.com")
     enable_webrtc: bool = True
+    webrtc_signaling_url: str = "wss://www.houqicg.com:8442/ws/signaling"
+    webrtc_room_id: str = "robot-camera"
     video_source: str = "/dev/video0"
+    camera_width: int = 640
+    camera_height: int = 480
+    camera_fps: int = 25
+    camera_fourcc: str = "MJPG"
     
     # 机器人设置
     robot_type: str = _config_data.get("robot", {}).get("type", "aider")
@@ -384,6 +398,16 @@ class TelegripConfig:
     aloha_initial_height: float = ALOHA_INITIAL_HEIGHT
     
     def __post_init__(self):
+        # 从 config.yaml 读取 WebRTC / 摄像头配置
+        net = _config_data.get("network", {})
+        self.webrtc_signaling_url = net.get("webrtc_signaling_url", self.webrtc_signaling_url)
+        self.webrtc_room_id = net.get("webrtc_room_id", self.webrtc_room_id)
+        self.video_source = net.get("video_source", self.video_source)
+        self.camera_width = int(net.get("camera_width", self.camera_width))
+        self.camera_height = int(net.get("camera_height", self.camera_height))
+        self.camera_fps = int(net.get("camera_fps", self.camera_fps))
+        self.camera_fourcc = net.get("camera_fourcc", self.camera_fourcc)
+
         if self.follower_ports is None:
             self.follower_ports = {
                 "left": _config_data["robot"]["left_arm"]["port"],

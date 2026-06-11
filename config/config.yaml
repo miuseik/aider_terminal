@@ -25,12 +25,16 @@ network:
   # api_host: www.houqicg.com      # API Server 地址
   # server_port: 8442
   enable_webrtc: true  # 启用 WebRTC 视频推流
+  # --- WebRTC 信令 ---
+  webrtc_signaling_url: wss://www.houqicg.com:8442/ws/signaling  # 信令地址（remote）
+  # webrtc_signaling_url: wss://localhost:8442/ws/signaling       # 信令地址（local 测试）
+  webrtc_room_id: robot-camera     # 房间 ID
+  # --- 摄像头 ---
   video_source: /dev/video0  # 摄像头设备路径
-  # 摄像头配置
-  camera_width: 1280  # 双目平衡模式宽度
-  camera_height: 480  # 双目平衡模式高度
-  camera_fps: 30      # 帧率
-  camera_fourcc: MJPG # 编码格式
+  camera_width: 640           # 采集宽度（带宽有限时建议 640）
+  camera_height: 480          # 采集高度
+  camera_fps: 25              # 帧率
+  camera_fourcc: MJPG         # 编码格式
 paths:
   urdf_path: URDF/SO100/so100.urdf
 robot:

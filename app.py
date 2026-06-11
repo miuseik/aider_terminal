@@ -41,6 +41,7 @@ from comm.websocket.client import VRWebSocketClient
 from inputs.keyboard_handler import WebKeyboardHandler
 from inputs.base import ControlGoal
 import controller.rtc_controller as rtc_video
+from drivers.webrtc.streamer import WebRTCStreamer
 from utils.can_setup import setup_can
 
 # Logger will be configured in main() based on command line arguments
@@ -73,6 +74,9 @@ class TelegripSystem:
         self.vr_ws_client = VRWebSocketClient(config, self.vr_handler, self.actuator_router)
         
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
+
+        # WebRTC 推流器（按需启动）
+        self.webrtc_streamer = WebRTCStreamer(config)
 
         # 设置交叉引用
         self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
@@ -206,6 +210,9 @@ class TelegripSystem:
             
             self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler, self.actuator_router)
 
+            # WebRTC 推流器
+            self.webrtc_streamer = WebRTCStreamer(self.config)
+
             # 设置交叉引用
             self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
             self.vr_handler.control_loop = self.control_loop  # ← 添加 control_loop 引用
@@ -230,10 +237,11 @@ class TelegripSystem:
             # AliRTC 视频推流
             threading.Thread(target=rtc_video.main, daemon=True, name="AliRTCStreamer").start()
 
-            # WebRTC 视频推流改为按需启动(前端请求时才开启)
-            # if getattr(self.config, 'enable_webrtc', False):
-            #     print("📹 启动 WebRTC 视频推流...")
-            #     await self.webrtc_streamer.start_streaming()
+            # WebRTC 视频推流
+            if getattr(self.config, 'enable_webrtc', False):
+                print("📹 启动 WebRTC 视频推流...")
+                webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
+                self.tasks.append(webrtc_task)
 
             # 启动 Web 键盘处理器
             await self.web_keyboard_handler.start()
@@ -284,10 +292,11 @@ class TelegripSystem:
             # AliRTC 视频推流
             threading.Thread(target=rtc_video.main, daemon=True, name="AliRTCStreamer").start()
 
-            # WebRTC 视频推流改为按需启动(前端请求时才开启)
-            # if getattr(self.config, 'enable_webrtc', False):
-            #     print("📹 启动 WebRTC 视频推流...")
-            #     await self.webrtc_streamer.start_streaming()
+            # WebRTC 视频推流
+            if getattr(self.config, 'enable_webrtc', False):
+                print("📹 启动 WebRTC 视频推流...")
+                webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
+                self.tasks.append(webrtc_task)
 
             # 启动 Web 键盘处理器
             await self.web_keyboard_handler.start()

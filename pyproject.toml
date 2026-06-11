@@ -21,6 +21,8 @@ dependencies = [
     "pybullet",
     "pyserial",
     "trimesh",
+    "aiortc>=1.7.0",
+    "av>=11.0.0",
 
     # Pink IK Solver
     "pin-pink",
