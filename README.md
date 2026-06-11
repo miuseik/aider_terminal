@@ -13,7 +13,7 @@ git checkout 。/
 ssh root@121.40.151.10
 ```
 ```bash
-ssh gaoda@192.168.110.90
+ssh gaoda@192.168.0.110
 ```
 ```bash
 conda activate aider

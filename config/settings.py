@@ -22,7 +22,7 @@ DEFAULT_CONFIG = {
         "websocket_port": 8442,
         "host_ip": "0.0.0.0",
         "enable_webrtc": True,
-        "webrtc_signaling_url": "wss://www.houqicg.com:8442/ws/signaling",
+        "webrtc_signaling_url": "wss://ws.houqicg.com:8442/ws/signaling",
         "webrtc_room_id": "robot-camera",
         "video_source": "/dev/video0",
         "camera_width": 640,
@@ -350,7 +350,7 @@ class TelegripConfig:
     server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")
     api_host: str = os.getenv("TELEGRIP_API_HOST", "www.houqicg.com")
     enable_webrtc: bool = True
-    webrtc_signaling_url: str = "wss://www.houqicg.com:8442/ws/signaling"
+    webrtc_signaling_url: str = "wss://ws.houqicg.com:8442/ws/signaling"
     webrtc_room_id: str = "robot-camera"
     video_source: str = "/dev/video0"
     camera_width: int = 640
