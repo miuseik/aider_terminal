@@ -16,6 +16,12 @@ ssh root@121.40.151.10
 ssh gaoda@192.168.0.110
 ```
 ```bash
+cd /www/aider/aider_terminal; git pull; 
+```
+```bash
+python main.py --role-aider  
+```
+```bash
 conda activate aider
 ```
 ```bash

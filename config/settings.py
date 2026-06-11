@@ -350,6 +350,7 @@ class TelegripConfig:
     api_host: str = os.getenv("TELEGRIP_API_HOST", "www.houqicg.com")
     enable_webrtc: bool = True
     webrtc_room_id: str = "robot-camera"
+    ice_servers: list = None
     video_source: str = "/dev/video0"
     camera_width: int = 640
     camera_height: int = 480
@@ -400,6 +401,7 @@ class TelegripConfig:
         net = _config_data.get("network", {})
         self.enable_webrtc = net.get("enable_webrtc", self.enable_webrtc)
         self.webrtc_room_id = net.get("webrtc_room_id", self.webrtc_room_id)
+        self.ice_servers = net.get("ice_servers", [])
         self.video_source = net.get("video_source", self.video_source)
         self.camera_width = int(net.get("camera_width", self.camera_width))
         self.camera_height = int(net.get("camera_height", self.camera_height))

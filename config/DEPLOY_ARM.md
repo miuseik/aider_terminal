@@ -46,9 +46,19 @@ network:
   # 启用纯 Python aiortc WebRTC 推流
   enable_webrtc: true
 
-  # WebRTC 信令地址 — 改成你的 ECS 域名
-  webrtc_signaling_url: "wss://www.houqicg.com:8442/ws/signaling"
+  # WebRTC 信令已复用 /ws/terminal 通道，无需独立 signaling URL
   webrtc_room_id: "robot-camera"
+
+  # ICE 服务器（兜底：若 ECS 端服务器未响应 webrtc_joined 时降级使用）
+  # 正常情况下服务器会返回 ICE 配置，此段仅作为超时兜底
+  ice_servers:
+    - urls: ["stun:121.40.151.10:3478"]
+    - urls: ["turn:121.40.151.10:3478"]
+      username: "aider"
+      credential: "aider123456"
+    - urls: ["turns:houqicg.com:5349"]
+      username: "aider"
+      credential: "aider123456"
 
   # 摄像头设备
   video_source: "/dev/video0"       # 用 ls /dev/video* 确认
@@ -62,6 +72,10 @@ robot:
   right_arm:
     port: "/dev/ttySO100red"
 ```
+
+> 配置说明：
+> - **`ice_servers`**：ICE 服务器列表，包含 STUN/TURN/TURNS 地址。正常情况下由 ECS 服务器通过 `webrtc_joined` 响应下发；若服务器未部署 `webrtc_join` 处理代码，Terminal 会在 5 秒超时后降级使用此本地配置。
+> - 信令已从独立 `/ws/signaling` 通道改为**复用 `/ws/terminal` 通道**，不再需要 `webrtc_signaling_url` 配置项。
 
 > 可选：通过环境变量覆盖服务器地址
 > ```bash
@@ -120,12 +134,54 @@ python main.py --env-dev
 
 启动日志中应看到：
 ```
-WebRTC streamer connected, subscribed to room robot-camera
+已加入房间 robot-camera, ICE ×3
+```
+或（服务器未部署 webrtc_join 时降级）：
+```
+webrtc_joined 超时，降级使用本地 ICE 配置 ×3
 ```
 
 ---
 
 ## 六、常用命令
+
+### 6.1 systemd 服务管理
+
+Terminal 通过 systemd 实现开机自启，服务名为 `aider-terminal`。
+
+```bash
+# 查看服务状态（是否在运行、最近日志）
+systemctl status aider-terminal
+
+# 停止服务（部署/调试时先停下）
+sudo systemctl stop aider-terminal
+
+# 启动服务
+sudo systemctl start aider-terminal
+
+# 重启服务（先 stop 再 start）
+sudo systemctl restart aider-terminal
+
+# 实时查看服务日志
+journalctl -u aider-terminal -f --no-pager
+
+# 禁用/启用开机自启
+sudo systemctl disable aider-terminal   # 禁止开机自启
+sudo systemctl enable aider-terminal    # 启用开机自启
+
+# 确认只有一个 terminal 进程在跑（避免重复连接）
+ps aux | grep "python.*main.py" | grep -v grep
+```
+
+> **部署后重启流程**：
+> ```bash
+> sudo systemctl stop aider-terminal   # 停服务
+> cd /www/aider/aider_terminal && git pull  # 拉代码
+> sudo systemctl start aider-terminal  # 启服务
+> journalctl -u aider-terminal -f      # 查看日志确认
+> ```
+
+### 6.2 其他常用命令
 
 ```bash
 # 查看 frpc 状态
@@ -148,5 +204,5 @@ ls /dev/tty*
 |------|------|
 | frpc 连不上 | 检查 ECS 安全组 TCP 7000 是否放行 |
 | 摄像头打不开 | `ls /dev/video*` 确认编号，改 `video_source` |
-| 信令连不上 | 确认 `webrtc_signaling_url` 域名可解析 |
+| WebRTC 推流超时 | ① 确认 ECS 端 `aider_server` 已部署 `webrtc_join` 处理代码（见 DEPLOY_ECS.md）；② 确认 `ice_servers` 兜底配置已填写 |
 | 视频黑屏 | 确认 ECS frps 在跑 + 安全组 UDP 50000 放行 |

@@ -12,21 +12,24 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
-print("🔍 [DEBUG] aider_ik.py: 即将 import pinocchio...")
-import pinocchio as pin
-print("🔍 [DEBUG] aider_ik.py: pinocchio 导入完成")
+_PINK_AVAILABLE = False
+_pink_import_error = None
 
-# 抑制 Pinocchio 内部限位警告（已通过钳制机制大幅减少，剩余不干扰求解）
-# logging.getLogger("root").setLevel(logging.ERROR)
-
-print("🔍 [DEBUG] aider_ik.py: 即将 import pink...")
-import pink
-from pink import solve_ik
-from pink.tasks import FrameTask, PostureTask
-print("🔍 [DEBUG] aider_ik.py: pink 导入完成")
-print("🔍 [DEBUG] aider_ik.py: 即将 import qpsolvers...")
-import qpsolvers
-print("🔍 [DEBUG] aider_ik.py: qpsolvers 导入完成")
+try:
+    import pinocchio as pin
+    import pink
+    from pink import solve_ik
+    from pink.tasks import FrameTask, PostureTask
+    import qpsolvers
+    _PINK_AVAILABLE = True
+except ImportError as e:
+    _pink_import_error = str(e)
+    pin = None
+    pink = None
+    solve_ik = None
+    FrameTask = None
+    PostureTask = None
+    qpsolvers = None
 
 # 项目根目录定位
 _PROJ_ROOT = os.path.normpath(
@@ -59,6 +62,10 @@ class AiderPinkSolver:
     }
 
     def __init__(self, urdf_path: Optional[str] = None):
+        if not _PINK_AVAILABLE:
+            raise ImportError(
+                f"Pink/Pinocchio 未安装 ({_pink_import_error})。"
+                f"请先执行: conda install -c conda-forge pinocchio -y && pip install -e \".[pink]\"")
         if urdf_path is None:
             urdf_path = os.path.join(
                 _PROJ_ROOT, "URDF", "aider", "urdf", "aider_pro.SLDASM.urdf")

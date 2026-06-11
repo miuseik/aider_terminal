@@ -125,11 +125,16 @@ class WebRTCStreamer:
             "role": "pub",
             "room_id": self.config.webrtc_room_id,
         })
-        # 等待服务器响应
+        # 等待服务器响应（超时 → 降级使用本地配置的 ICE 服务器）
         try:
-            resp = await asyncio.wait_for(self._msg_queue.get(), timeout=10)
+            resp = await asyncio.wait_for(self._msg_queue.get(), timeout=5)
         except asyncio.TimeoutError:
-            raise RuntimeError("加入 WebRTC 房间超时（无 webrtc_joined 响应）")
+            if self.config.ice_servers:
+                self._ice_servers = self.config.ice_servers
+                logger.warning("webrtc_joined 超时，降级使用本地 ICE 配置 ×%d", len(self._ice_servers))
+                logger.warning("⚠️ 请更新 ECS 端 aider_server 代码（缺少 webrtc_join 处理）")
+                return
+            raise RuntimeError("加入 WebRTC 房间超时，且无本地 ICE 配置")
 
         if resp.get("type") != "webrtc_joined":
             raise RuntimeError(f"加入房间失败: {resp}")

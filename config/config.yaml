@@ -27,6 +27,15 @@ network:
   enable_webrtc: true   # 启用 aiortc WebRTC 视频推流（纯 Python，全平台可用）
   # --- WebRTC 信令（复用 /ws/terminal 通道，无需独立 URL）---
   webrtc_room_id: robot-camera     # 房间 ID
+  # ICE 服务器（兜底：若服务器未响应 webrtc_joined 时使用）
+  ice_servers:
+    - urls: ["stun:121.40.151.10:3478"]
+    - urls: ["turn:121.40.151.10:3478"]
+      username: "aider"
+      credential: "aider123456"
+    - urls: ["turns:houqicg.com:5349"]
+      username: "aider"
+      credential: "aider123456"
   # --- 摄像头 ---
   video_source: /dev/video0  # 摄像头设备路径
   camera_width: 640           # 采集宽度（带宽有限时建议 640）
