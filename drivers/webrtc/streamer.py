@@ -216,8 +216,9 @@ class WebRTCStreamer:
     # ── 消息处理 ──
 
     async def _handle_answer(self, msg: dict):
-        if not self._pc or self._pc.signalingState == "closed":
-            logger.warning("忽略 answer: PC 已关闭")
+        # 只有在 have-local-offer 状态才能接受 answer（stable/closed 都无效）
+        if not self._pc or self._pc.signalingState != "have-local-offer":
+            print(f"📡 忽略 answer: PC 状态 {self._pc.signalingState if self._pc else 'None'}")
             return
         await self._pc.setRemoteDescription(
             RTCSessionDescription(sdp=msg["sdp"], type="answer"))
@@ -230,13 +231,16 @@ class WebRTCStreamer:
         c = msg.get("candidate")
         if not c:
             return
-        await self._pc.addIceCandidate(RTCIceCandidate(
-            component=c.get("component", 1),
-            foundation=c.get("foundation", ""), ip=c.get("ip", ""),
-            port=c.get("port", 0), priority=c.get("priority", 0),
-            protocol=c.get("protocol", "udp"), type=c.get("type", "host"),
-            sdpMid=msg.get("sdpMid"), sdpMLineIndex=msg.get("sdpMLineIndex"),
-        ))
+        try:
+            await self._pc.addIceCandidate(RTCIceCandidate(
+                component=c.get("component", 1),
+                foundation=c.get("foundation", ""), ip=c.get("ip", ""),
+                port=c.get("port", 0), priority=c.get("priority", 0),
+                protocol=c.get("protocol", "udp"), type=c.get("type", "host"),
+                sdpMid=msg.get("sdpMid"), sdpMLineIndex=msg.get("sdpMLineIndex"),
+            ))
+        except Exception:
+            pass
 
     async def _handle_subscriber_joined(self, msg: dict):
         print(f"📹 订阅者加入 (×{msg.get('count', 0)})")
