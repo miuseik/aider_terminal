@@ -36,7 +36,6 @@ _PROJ_ROOT = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 # 加载机器人 settings（用文件路径直读，绕过 robots/aider/__init__.py 避免循环导入）
-print("🔍 [DEBUG] aider_ik.py: 即将加载 robots/aider/settings.py...")
 import importlib.util as _iu
 import importlib.machinery as _im
 _settings_path = os.path.join(_PROJ_ROOT, "robots", "aider", "settings.py")
@@ -46,7 +45,6 @@ _robot_settings = _iu.module_from_spec(_settings_spec)
 _settings_loader.exec_module(_robot_settings)
 JOINT_LIMIT_OVERRIDES = _robot_settings.JOINT_LIMIT_OVERRIDES
 POSTURE = _robot_settings.POSTURE
-print("🔍 [DEBUG] aider_ik.py: settings.py 加载完成")
 
 
 class AiderPinkSolver:
@@ -95,16 +93,17 @@ class AiderPinkSolver:
         self._tmp_urdf_path = tmp_urdf.name
         atexit.register(lambda: os.unlink(self._tmp_urdf_path))
 
+        print(f"  [AiderPinkSolver] 构建 Pinocchio 模型...")
+        t0 = time.time()
         self.robot = pin.RobotWrapper.BuildFromURDF(
             self._tmp_urdf_path,
             package_dirs=[],
             root_joint=pin.JointModelFreeFlyer(),
             verbose=False,
         )
+        print(f"  [AiderPinkSolver] 模型构建完成 ({time.time() - t0:.1f}s)")
 
         # 重命名重复的 frame，使 getFrameId 不冲突
-        # URDF 中每个 link body frame 和 joint frame 同名，
-        # 第二个 frame 改成带有 "_body" 后缀
         frame_map: Dict[str, int] = {}
         for i in range(self.robot.model.nframes):
             name = self.robot.model.frames[i].name
@@ -140,7 +139,6 @@ class AiderPinkSolver:
             for i in range(self.robot.model.nframes):
                 if self.robot.model.frames[i].name == link:
                     self._end_frame_ids[arm] = i
-                    print(f"  [AiderPinkSolver] {arm} 末端 frame='{link}' ID={i}")
                     break
             else:
                 print(f"  ⚠️  找不到 frame '{link}'")

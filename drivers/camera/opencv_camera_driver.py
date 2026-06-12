@@ -4,6 +4,7 @@ OpenCV 摄像头驱动
 """
 
 import cv2
+import threading
 import time
 import logging
 import platform
@@ -54,6 +55,7 @@ class OpenCVCameraDriver:
         
         self.videocapture: Optional[cv2.VideoCapture] = None
         self.is_connected = False
+        self._read_lock = threading.Lock()  # 保护 V4L2 ioctl 调用，防止多线程竞态导致 SIGSEGV
         
         # 旋转映射
         self.rotation_map = {
@@ -132,8 +134,8 @@ class OpenCVCameraDriver:
             # 设置 OpenCV 线程数为 1，避免多线程冲突
             cv2.setNumThreads(1)
             
-            # 打开摄像头
-            self.videocapture = cv2.VideoCapture(self.index_or_path)
+            # 打开摄像头（显式指定 V4L2 后端，避免后端选择不一致）
+            self.videocapture = cv2.VideoCapture(self.index_or_path, cv2.CAP_V4L2)
             
             if not self.videocapture.isOpened():
                 print(f"❌ 无法打开摄像头: {self.index_or_path}")
@@ -198,8 +200,9 @@ class OpenCVCameraDriver:
         frame_count = 0
         
         while time.time() - start_time < self.warmup_s:
-            ret, frame = self.videocapture.read()
-            if ret and frame is not None:
+            with self._read_lock:
+                ret, _ = self.videocapture.read()
+            if ret:
                 frame_count += 1
             time.sleep(0.01)
         
@@ -207,50 +210,55 @@ class OpenCVCameraDriver:
     
     def read(self) -> Optional[np.ndarray]:
         """
-        同步读取一帧（阻塞）
-        
+        同步读取一帧（阻塞，线程安全）
+
         Returns:
-            图像数组 (H, W, C)，颜色模式根据配置转换
-            失败返回 None
+            图像数组 (H, W, C)，颜色模式根据配置转换。
+            帧数据已从 V4L2 缓冲区深拷贝，调用方可安全持有。
+            失败返回 None。
         """
         if not self.is_connected or self.videocapture is None:
-            print("摄像头未连接")
             return None
-        
+
         try:
-            ret, frame = self.videocapture.read()
-            
+            with self._read_lock:
+                ret, frame = self.videocapture.read()
             if not ret or frame is None:
-                print("读取帧失败")
                 return None
-            
-            # 后处理
-            frame = self._postprocess_frame(frame)
-            return frame
-            
-        except Exception as e:
-            print(f"读取帧异常: {e}")
+            # ⚠️ 必须深拷贝：OpenCV V4L2 后端返回的 ndarray 可能引用 mmap 缓冲区，
+            #    不拷贝的话 VideoFrame.from_ndarray 编码时缓冲区被覆盖会 SIGSEGV
+            frame = frame.copy()
+            return self._postprocess_frame(frame)
+        except Exception:
+            logger.exception("读取帧异常")
             return None
     
     def read_latest(self) -> Optional[np.ndarray]:
         """
-        读取最新帧（非阻塞，可能返回旧帧）
-        
+        读取最新帧（跳过积压帧，拿到最新的一帧）
+
+        V4L2 默认只有 4 个缓冲区，用 grab()+retrieve() 代替 read()
+        避免过度 DQBUF 触发 ioctl(VIDIOC_DQBUF): Invalid argument。
+
         Returns:
-            图像数组，失败返回 None
+            图像数组（深拷贝），失败返回 None
         """
         if not self.is_connected or self.videocapture is None:
             return None
-        
-        # 清空缓冲区
-        for _ in range(5):
-            ret, frame = self.videocapture.read()
-            if not ret:
-                break
-        
-        if frame is not None:
+        try:
+            with self._read_lock:
+                # grab() 只做 DQBUF→QBUF，不解码，比 read() 轻量
+                for _ in range(4):  # 最多跳过 4 帧（V4L2 默认 BUF 数）
+                    if not self.videocapture.grab():
+                        break
+                ret, frame = self.videocapture.retrieve()
+            if not ret or frame is None:
+                return None
+            frame = frame.copy()
             return self._postprocess_frame(frame)
-        return None
+        except Exception:
+            logger.exception("read_latest 异常")
+            return None
     
     def _postprocess_frame(self, frame: np.ndarray) -> np.ndarray:
         """

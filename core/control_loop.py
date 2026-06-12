@@ -131,7 +131,7 @@ class ControlLoop:
         except Exception as e:
             logger.debug(f"推送硬件状态失败: {e}")
     
-    def setup(self) -> bool:
+    async def setup(self) -> bool:
         """设置机器人接口和可视化器。
         
         初始化所有硬件和仿真组件:
@@ -211,7 +211,7 @@ class ControlLoop:
                     # FK(正运动学): 关节角度 → 末端位置
                     # IK(逆运动学): 末端位置 → 关节角度
                     joint_limits_min, joint_limits_max = self.visualizer.get_joint_limits
-                    self.robot_interface.setup_kinematics(
+                    await self.robot_interface.setup_kinematics(
                         self.visualizer.physics_client,      # PyBullet 物理引擎客户端
                         self.visualizer.robot_ids,           # 两个机器人实例 ID (左/右)
                         self.visualizer.joint_indices,       # 两个关节索引映射
@@ -247,7 +247,7 @@ class ControlLoop:
         5. 发送指令到真机或仿真
         6. 更新 PyBullet 可视化
         """
-        if not self.setup():
+        if not await self.setup():
             print("控制循环设置失败")
             return
         
@@ -264,7 +264,7 @@ class ControlLoop:
                 await self._process_commands()
                 
                 # 步骤 2-5: 更新机器人(解算 IK + 发送指令 + 更新仿真)
-                self._update_robot_safely()
+                await self._update_robot_safely()
                 
                 # 定期打印状态日志
                 self._periodic_logging()
@@ -552,18 +552,19 @@ class ControlLoop:
         self.base_velocity_target["theta"] = adapter.base_vtheta
         self.robot_interface.lift_velocity = adapter.lift_velocity
 
-    def _update_robot_safely(self):
+    async def _update_robot_safely(self):
         """用当前控制目标更新机器人(带错误处理)。"""
         if not self.robot_interface:
             return
         
         try:
             self._update_robot()
+            # 每次 PyBullet stepSimulation 后 yield，防止阻塞事件循环
+            await asyncio.sleep(0)
         except Exception as e:
             import traceback
             print(f"更新机器人错误: {e}")
             traceback.print_exc()
-            # 不关闭,继续运行 - 机器人接口会处理连接问题
     
     def _update_robot(self):
         """用当前控制目标更新机器人。"""

@@ -95,7 +95,7 @@ class AlohaAdapter:
 
     # ======================== 初始化 ========================
 
-    def setup(self, visualizer, config: TelegripConfig) -> None:
+    async def setup(self, visualizer, config: TelegripConfig) -> None:
         """初始化适配器。
 
         在 PyBullet visualizer.setup() 完成后调用，

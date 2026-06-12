@@ -361,14 +361,14 @@ class RobotInterface:
             import traceback
             traceback.print_exc()
 
-    def setup_kinematics(self, physics_client, robot_ids: Dict, joint_indices: Dict,
+    async def setup_kinematics(self, physics_client, robot_ids: Dict, joint_indices: Dict,
                          end_effector_link_indices: Dict, joint_limits_min_deg: np.ndarray,
                          joint_limits_max_deg: np.ndarray):
         """设置运动学解算器。委托给对应的适配器。"""
         self.joint_limits_min_deg = joint_limits_min_deg.copy()
         self.joint_limits_max_deg = joint_limits_max_deg.copy()
 
-        self.adapter.setup(self.visualizer, self.config)
+        await self.adapter.setup(self.visualizer, self.config)
         print(f"[RobotInterface] 适配器已初始化 ({self.robot_type}, {NUM_JOINTS}-DOF)")
 
     def get_current_end_effector_position(self, arm: str) -> np.ndarray:

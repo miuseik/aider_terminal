@@ -114,16 +114,18 @@ class AiderAdapter:
 
     # ======================== 初始化 ========================
 
-    def setup(self, visualizer, config: TelegripConfig) -> None:
+    async def setup(self, visualizer, config: TelegripConfig) -> None:
         """初始化适配器。
 
         visualizer 必须已经加载 Aider URDF 并完成 joint mapping。
         """
+        import asyncio
         self.config = config
         self.visualizer = visualizer
 
         # 初始化 Pink IK 求解器（自含 Pinocchio URDF 模型，限位来自 URDF）
-        self.ik_solver = AiderPinkSolver()
+        # BuildFromURDF 会阻塞 10s，丢进线程池避免卡死事件循环
+        self.ik_solver = await asyncio.to_thread(AiderPinkSolver)
 
         # 从 IK 模型提取每个臂的关节限位（度），用于 update_arm_angles 钳制
         # 限位与 settings.py 同步，是唯一数据源

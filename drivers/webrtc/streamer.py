@@ -71,8 +71,8 @@ class CameraVideoTrack(VideoStreamTrack):
         return video_frame
 
     def stop(self):
-        self._camera.disconnect()
-        logger.info("CameraVideoTrack 已释放 (%d 帧)", self._frame_count)
+        """停止帧读取（摄像头本身由 WebRTCStreamer._cleanup 释放）"""
+        logger.info("CameraVideoTrack 已停止 (%d 帧)", self._frame_count)
 
 
 class WebRTCStreamer:
@@ -87,6 +87,7 @@ class WebRTCStreamer:
         self._camera: Optional[OpenCVCameraDriver] = None
         self._ice_servers: list = []
         self._running = False
+        self._joined: asyncio.Event = asyncio.Event()  # 加入房间完成信号
 
     # ── 设置 transport ──
 
@@ -125,35 +126,49 @@ class WebRTCStreamer:
             "role": "pub",
             "room_id": self.config.webrtc_room_id,
         })
-        # 等待服务器响应（超时 → 降级使用本地配置的 ICE 服务器）
-        try:
-            resp = await asyncio.wait_for(self._msg_queue.get(), timeout=5)
-        except asyncio.TimeoutError:
-            if self.config.ice_servers:
-                self._ice_servers = self.config.ice_servers
-                logger.warning("webrtc_joined 超时，降级使用本地 ICE 配置 ×%d", len(self._ice_servers))
-                logger.warning("⚠️ 请更新 ECS 端 aider_server 代码（缺少 webrtc_join 处理）")
-                return
-            raise RuntimeError("加入 WebRTC 房间超时，且无本地 ICE 配置")
-
-        if resp.get("type") != "webrtc_joined":
-            raise RuntimeError(f"加入房间失败: {resp}")
-
-        self._ice_servers = resp.get("ice_servers", [])
-        logger.info("已加入房间 %s, ICE ×%d", self.config.webrtc_room_id, len(self._ice_servers))
+        # 等待服务器响应（带轮询，避免 PyBullet 等阻塞事件循环时收不到消息）
+        deadline = time.time() + 60  # PyBullet 加载 + Pinocchio 构建可能耗时 20s+
+        while time.time() < deadline:
+            await asyncio.sleep(0)
+            try:
+                resp = self._msg_queue.get_nowait()
+                if resp.get("type") == "webrtc_joined":
+                    self._ice_servers = resp.get("ice_servers", [])
+                    self._joined.set()
+                    logger.info("已加入房间 %s, ICE ×%d", self.config.webrtc_room_id, len(self._ice_servers))
+                    return
+                await self._msg_queue.put(resp)
+            except asyncio.QueueEmpty:
+                pass
+            await asyncio.sleep(0.05)
+        
+        # 超时
+        if self.config.ice_servers:
+            self._ice_servers = self.config.ice_servers
+            logger.warning("webrtc_joined 超时，降级使用本地 ICE 配置 ×%d", len(self._ice_servers))
+            return
+        raise RuntimeError("加入 WebRTC 房间超时，且无本地 ICE 配置")
 
     # ── PeerConnection ──
 
     def _create_peer_connection(self):
+        # 停止旧的 video track（如果是重建）
+        if self._video_track:
+            self._video_track.stop()
+            self._video_track = None
+
         ice_cfg = RTCConfiguration(iceServers=[
             RTCIceServer(urls=s["urls"], username=s.get("username"), credential=s.get("credential"))
             for s in self._ice_servers
         ])
         self._pc = RTCPeerConnection(configuration=ice_cfg)
 
-        self._video_track = CameraVideoTrack(self._camera, self.config.camera_fps)
-        self._pc.addTrack(self._video_track)
-        logger.info("PeerConnection 已创建")
+        if not self._no_camera and self._camera:
+            self._video_track = CameraVideoTrack(self._camera, self.config.camera_fps)
+            self._pc.addTrack(self._video_track)
+            logger.info("PeerConnection 已创建 (含摄像头)")
+        else:
+            logger.info("PeerConnection 已创建 (无摄像头, 仅信令测试)")
 
         @self._pc.on("connectionstatechange")
         async def _on_conn():
@@ -195,11 +210,16 @@ class WebRTCStreamer:
     # ── 消息处理 ──
 
     async def _handle_answer(self, msg: dict):
+        if not self._pc or self._pc.signalingState == "closed":
+            logger.warning("忽略 answer: PC 已关闭")
+            return
         await self._pc.setRemoteDescription(
             RTCSessionDescription(sdp=msg["sdp"], type="answer"))
         logger.info("远程 SDP 已设置")
 
     async def _handle_ice(self, msg: dict):
+        if not self._pc or self._pc.signalingState == "closed":
+            return
         c = msg.get("candidate")
         if not c:
             return
@@ -212,8 +232,24 @@ class WebRTCStreamer:
         ))
 
     async def _handle_subscriber_joined(self, msg: dict):
-        logger.info("订阅者加入 (×%d), 重发 Offer", msg.get("count", 0))
-        if self._pc and self._pc.localDescription:
+        logger.info("订阅者加入 (×%d)", msg.get("count", 0))
+        # 如果 PC 不存在或不健康，重建后发新 offer
+        unhealthy = (
+            not self._pc
+            or self._pc.signalingState == "closed"
+            or self._pc.connectionState in ("failed", "closed")
+        )
+        if unhealthy:
+            logger.info("PC 状态异常 (%s)，重建 PeerConnection",
+                        self._pc.signalingState if self._pc else "None")
+            if self._pc:
+                await self._pc.close()
+            # 旧的 video track 不再需要，断开与 PC 的关联即可，
+            # camera 本身由 self._camera 持有，不需要重新打开
+            self._create_peer_connection()
+            await asyncio.sleep(0.3)
+            await self._send_offer()
+        elif self._pc.localDescription:
             await self._send({
                 "type": "offer",
                 "sdp": self._pc.localDescription.sdp,
@@ -221,13 +257,17 @@ class WebRTCStreamer:
             })
 
     async def _signaling_loop(self):
-        """从消息队列读取信令，直到 _running 为 False"""
+        """从消息队列读取信令，直到 _running 为 False 或 PC 关闭"""
         handlers = {
             "answer": self._handle_answer,
             "ice_candidate": self._handle_ice,
             "subscriber_joined": self._handle_subscriber_joined,
         }
         while self._running and self._msg_queue is not None:
+            # PC 已关闭则退出信令循环
+            if self._pc and self._pc.signalingState == "closed":
+                logger.info("PC 已关闭，退出信令循环")
+                break
             try:
                 msg = await asyncio.wait_for(self._msg_queue.get(), timeout=30)
             except asyncio.TimeoutError:
@@ -253,7 +293,8 @@ class WebRTCStreamer:
                 "color_mode": "bgr",
             }
             self._camera = OpenCVCameraDriver(camera_cfg)
-            if not self._camera.connect():
+            self._no_camera = (self.config.video_source == "none")
+            if not self._no_camera and not self._camera.connect():
                 raise RuntimeError("摄像头连接失败")
 
             # 等待 terminal 通道就绪
@@ -287,6 +328,11 @@ class WebRTCStreamer:
         self._running = False
         if self._video_track:
             self._video_track.stop()
+            self._video_track = None
         if self._pc:
             await self._pc.close()
+            self._pc = None
+        if self._camera:
+            self._camera.disconnect()
+            self._camera = None
         logger.info("WebRTC 资源已清理")

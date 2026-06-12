@@ -239,6 +239,11 @@ class TelegripSystem:
                 self.webrtc_streamer.set_transport(self.vr_ws_client.transport)
                 webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
                 self.tasks.append(webrtc_task)
+                # 等待 WebRTC 加入房间完成，再启动控制循环（PyBullet 会阻塞事件循环）
+                try:
+                    await asyncio.wait_for(self.webrtc_streamer._joined.wait(), timeout=30)
+                except asyncio.TimeoutError:
+                    print("⚠️ WebRTC 加入房间超时，继续启动...")
 
             # 启动 Web 键盘处理器
             await self.web_keyboard_handler.start()
@@ -292,6 +297,11 @@ class TelegripSystem:
                 self.webrtc_streamer.set_transport(self.vr_ws_client.transport)
                 webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
                 self.tasks.append(webrtc_task)
+                # 等待 WebRTC 加入房间完成，再启动控制循环（PyBullet 会阻塞事件循环）
+                try:
+                    await asyncio.wait_for(self.webrtc_streamer._joined.wait(), timeout=30)
+                except asyncio.TimeoutError:
+                    print("⚠️ WebRTC 加入房间超时，继续启动...")
 
             # 启动 Web 键盘处理器
             await self.web_keyboard_handler.start()
