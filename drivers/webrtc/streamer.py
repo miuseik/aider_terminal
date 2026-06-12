@@ -109,6 +109,7 @@ class WebRTCStreamer:
         msg_type = msg.get("type", "")
         # 只处理 WebRTC 信令消息
         if msg_type in ("webrtc_joined", "answer", "ice_candidate", "subscriber_joined"):
+            print(f"📡 Streamer 收到信令: {msg_type}")
             await self._msg_queue.put(msg)
 
     # ── 发送信令 ──
@@ -166,16 +167,20 @@ class WebRTCStreamer:
         if not self._no_camera and self._camera:
             self._video_track = CameraVideoTrack(self._camera, self.config.camera_fps)
             self._pc.addTrack(self._video_track)
+            print("📹 PeerConnection 已创建 (含摄像头)")
             logger.info("PeerConnection 已创建 (含摄像头)")
         else:
-            logger.info("PeerConnection 已创建 (无摄像头, 仅信令测试)")
+            print("📹 PeerConnection 已创建 (无摄像头)")
+            logger.info("PeerConnection 已创建 (无摄像头)")
 
         @self._pc.on("connectionstatechange")
         async def _on_conn():
+            print(f"🔗 WebRTC 连接状态: {self._pc.connectionState}")
             logger.info("连接状态: %s", self._pc.connectionState)
 
         @self._pc.on("iceconnectionstatechange")
         async def _on_ice():
+            print(f"🧊 ICE 状态: {self._pc.iceConnectionState}")
             logger.info("ICE: %s", self._pc.iceConnectionState)
 
         @self._pc.on("icecandidate")
@@ -205,6 +210,7 @@ class WebRTCStreamer:
             "sdp": self._pc.localDescription.sdp,
             "room_id": self.config.webrtc_room_id,
         })
+        print("📹 SDP Offer 已发送")
         logger.info("SDP Offer 已发送")
 
     # ── 消息处理 ──
@@ -215,6 +221,7 @@ class WebRTCStreamer:
             return
         await self._pc.setRemoteDescription(
             RTCSessionDescription(sdp=msg["sdp"], type="answer"))
+        print("📡 远程 SDP (answer) 已设置")
         logger.info("远程 SDP 已设置")
 
     async def _handle_ice(self, msg: dict):
@@ -232,32 +239,21 @@ class WebRTCStreamer:
         ))
 
     async def _handle_subscriber_joined(self, msg: dict):
+        print(f"📹 订阅者加入 (×{msg.get('count', 0)})")
         logger.info("订阅者加入 (×%d)", msg.get("count", 0))
-        # 如果 PC 不存在或不健康，重建后发新 offer
-        unhealthy = (
-            not self._pc
-            or self._pc.signalingState == "closed"
-            or self._pc.connectionState in ("failed", "closed")
-        )
-        if unhealthy:
-            logger.info("PC 状态异常 (%s)，重建 PeerConnection",
-                        self._pc.signalingState if self._pc else "None")
-            if self._pc:
-                await self._pc.close()
-            # 旧的 video track 不再需要，断开与 PC 的关联即可，
-            # camera 本身由 self._camera 持有，不需要重新打开
-            self._create_peer_connection()
-            await asyncio.sleep(0.3)
-            await self._send_offer()
-        elif self._pc.localDescription:
-            await self._send({
-                "type": "offer",
-                "sdp": self._pc.localDescription.sdp,
-                "room_id": self.config.webrtc_room_id,
-            })
+        # 每次都重建 PC + 发全新 offer，保证 ICE candidates 新鲜有效
+        # （旧 offer 的 candidates 经过几百 ms 可能已过期）
+        if self._pc:
+            await self._pc.close()
+            self._pc = None
+        self._create_peer_connection()
+        await asyncio.sleep(0.5)
+        await self._send_offer()
+        print("📹 新 Offer 已发送")
 
     async def _signaling_loop(self):
         """从消息队列读取信令，直到 _running 为 False 或 PC 关闭"""
+        print("📡 信令循环已启动")
         handlers = {
             "answer": self._handle_answer,
             "ice_candidate": self._handle_ice,
@@ -274,6 +270,7 @@ class WebRTCStreamer:
                 continue
             handler = handlers.get(msg.get("type"))
             if handler:
+                print(f"📡 信令循环处理: {msg.get('type')}")
                 await handler(msg)
 
     # ── 生命周期 ──

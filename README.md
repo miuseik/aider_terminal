@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "视频正常了";git push
+git add ./;git commit -m "hotfix";git push
 ```
 
 ```bash
@@ -20,6 +20,12 @@ cd /www/aider/aider_terminal; git pull;
 ```
 ```bash
 python main.py --role-aider  
+```
+```bash
+sudo systemctl restart aider_terminal
+```
+```bash
+sudo journalctl -u aider_terminal -f
 ```
 ```bash
 conda activate aider
