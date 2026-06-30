@@ -1,0 +1,1399 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: v1.6.1-dev1-4-g75b5c6a  Build Version: 1.6.9609.37988
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="aider_pro.SLDASM">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.000103436321923932 -0.237245061791295 0.195979348895461"
+        rpy="0 0 0" />
+      <mass
+        value="10.0947181370065" />
+      <inertia
+        ixx="0.304978774788929"
+        ixy="2.45312179361673E-07"
+        ixz="-8.8655209128236E-08"
+        iyy="0.217925552378087"
+        iyz="-1.39021456525988E-05"
+        izz="0.118235505103628" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="lift_Link">
+    <inertial>
+      <origin
+        xyz="0.000991272967235734 -0.0576981022601856 0.0393453075456658"
+        rpy="0 0 0" />
+      <mass
+        value="0.460714901304408" />
+      <inertia
+        ixx="0.00122245880673807"
+        ixy="-3.43109940991757E-07"
+        ixz="7.72730192304348E-08"
+        iyy="0.000373053458095974"
+        iyz="-9.85460314573254E-06"
+        izz="0.000892415599834964" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/lift_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/lift_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lift_Link"
+    type="prismatic">
+    <origin
+      xyz="0 -0.0929999999999998 1.405"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lift_Link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="0.00000000" upper="0.50000000"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="waist_Link">
+    <inertial>
+      <origin
+        xyz="-0.00190340238945688 -0.000130537958849 0.234020677401666"
+        rpy="0 0 0" />
+      <mass
+        value="0.771104035624796" />
+      <inertia
+        ixx="0.00204319763751452"
+        ixy="-4.51541303073729E-09"
+        ixz="-1.89307498075284E-09"
+        iyy="0.00161876035139087"
+        iyz="-4.14309484087635E-06"
+        izz="0.000495492118262209" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/waist_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/waist_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="waist_Link"
+    type="revolute">
+    <origin
+      xyz="0.00189999999999996 -0.098 0.0435000000000001"
+      rpy="0 0 0" />
+    <parent
+      link="lift_Link" />
+    <child
+      link="waist_Link" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="head_Link">
+    <inertial>
+      <origin
+        xyz="0.00158387232214309 -0.00272877155200854 0.0122006326588056"
+        rpy="0 0 0" />
+      <mass
+        value="0.026573709748435" />
+      <inertia
+        ixx="5.47187568314783E-06"
+        ixy="1.3155598382769E-09"
+        ixz="-1.89347156776943E-09"
+        iyy="2.55866428245079E-06"
+        iyz="-1.02863763409533E-07"
+        izz="5.16534121258206E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/head_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/head_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="head_Link"
+    type="revolute">
+    <origin
+      xyz="-0.00190000759412484 0.0149162354005041 0.380700000000015"
+      rpy="0 0 0" />
+    <parent
+      link="waist_Link" />
+    <child
+      link="head_Link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.04719755" upper="1.04719755"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="head_Link2">
+    <inertial>
+      <origin
+        xyz="0.0178 -0.00742519659345585 0.0492973913738719"
+        rpy="0 0 0" />
+      <mass
+        value="0.0191222199222675" />
+      <inertia
+        ixx="5.02290675610864E-06"
+        ixy="-8.19453791797725E-22"
+        ixz="2.05397036436936E-20"
+        iyy="1.64071022412759E-05"
+        iyz="3.53954398430312E-07"
+        izz="1.25980737139445E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/head_Link2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/head_Link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="head_Link2"
+    type="revolute">
+    <origin
+      xyz="-0.0182000000001125 -0.0153487797565757 0.0134617039078002"
+      rpy="0 0 0" />
+    <parent
+      link="head_Link" />
+    <child
+      link="head_Link2" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-0.52359878" upper="0.78539816"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm1">
+    <inertial>
+      <origin
+        xyz="-0.0756123301780906 0.00201253536804501 6.84650333493408E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.26396103273574" />
+      <inertia
+        ixx="0.000148404125126733"
+        ixy="-2.95542727789274E-07"
+        ixz="-6.15009098900577E-09"
+        iyy="0.000200630944863324"
+        iyz="-2.5152748019622E-10"
+        izz="0.000145277632443706" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm1"
+    type="revolute">
+    <origin
+      xyz="-0.0620099999999999 1.4084157292038E-05 0.265000000000001"
+      rpy="0 0 0" />
+    <parent
+      link="waist_Link" />
+    <child
+      link="right_arm1" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-2.35619449" upper="2.35619449"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm2">
+    <inertial>
+      <origin
+        xyz="8.2696209305344E-07 0.016691297200645 -0.0820770605369421"
+        rpy="0 0 0" />
+      <mass
+        value="0.163192877536271" />
+      <inertia
+        ixx="9.70561544868525E-05"
+        ixy="2.40443906001958E-08"
+        ixz="8.6164654933208E-09"
+        iyy="9.97012002034495E-05"
+        iyz="6.92642918361188E-09"
+        izz="6.06215499706859E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm2"
+    type="revolute">
+    <origin
+      xyz="-0.0795 -0.0205000000000028 0"
+      rpy="0 0 0" />
+    <parent
+      link="right_arm1" />
+    <child
+      link="right_arm2" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-2.61799388" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm3">
+    <inertial>
+      <origin
+        xyz="-0.00792405975964067 0.000570140098622135 -0.109569880129999"
+        rpy="0 0 0" />
+      <mass
+        value="0.156972943684637" />
+      <inertia
+        ixx="8.61023795838982E-05"
+        ixy="2.45418528188707E-08"
+        ixz="8.84036125747523E-10"
+        iyy="8.35814502469129E-05"
+        iyz="4.55401961218715E-06"
+        izz="5.83298772096636E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm3"
+    type="revolute">
+    <origin
+      xyz="0 0.0224999806952237 -0.1184"
+      rpy="0 0 0" />
+    <parent
+      link="right_arm2" />
+    <child
+      link="right_arm3" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm4">
+    <inertial>
+      <origin
+        xyz="-0.00290526201897859 6.70222780575214E-05 -0.0640942748631419"
+        rpy="0 0 0" />
+      <mass
+        value="0.0544493322914559" />
+      <inertia
+        ixx="3.35882409235748E-05"
+        ixy="6.02062807130508E-09"
+        ixz="2.32267492427641E-08"
+        iyy="3.22580248912082E-05"
+        iyz="4.46813922196692E-08"
+        izz="1.32442345179711E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm4"
+    type="revolute">
+    <origin
+      xyz="0.00799999999999995 0 -0.123"
+      rpy="0 0 0" />
+    <parent
+      link="right_arm3" />
+    <child
+      link="right_arm4" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-2.35619449" upper="0.00000000"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm5">
+    <inertial>
+      <origin
+        xyz="-0.00528090276428003 7.65557978370246E-05 -0.087092870870263"
+        rpy="0 0 0" />
+      <mass
+        value="0.0481301284115415" />
+      <inertia
+        ixx="2.44055179205588E-05"
+        ixy="-3.65779219480154E-08"
+        ixz="-1.96614403061829E-08"
+        iyy="1.95680296533288E-05"
+        iyz="6.07319309590942E-09"
+        izz="7.62144883771915E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm5"
+    type="revolute">
+    <origin
+      xyz="-0.0135999999999992 0 -0.1"
+      rpy="0 0 0" />
+    <parent
+      link="right_arm4" />
+    <child
+      link="right_arm5" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm6">
+    <inertial>
+      <origin
+        xyz="-0.0100974327336336 0.00128209259475535 -0.0398750106959505"
+        rpy="0 0 0" />
+      <mass
+        value="0.0328286145276286" />
+      <inertia
+        ixx="7.57880049536874E-06"
+        ixy="-1.89268918145727E-09"
+        ixz="1.12030691760293E-07"
+        iyy="7.5243887603588E-06"
+        iyz="6.51100969189562E-09"
+        izz="3.28312375907794E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm6"
+    type="revolute">
+    <origin
+      xyz="0.00548999599679659 0 -0.113357392395326"
+      rpy="0 0 0" />
+    <parent
+      link="right_arm5" />
+    <child
+      link="right_arm6" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm7">
+    <inertial>
+      <origin
+        xyz="-0.000980475125930941 0.0195555561773599 -0.0513126244344677"
+        rpy="0 0 0" />
+      <mass
+        value="0.0537494230519702" />
+      <inertia
+        ixx="1.58114088714149E-05"
+        ixy="-1.31544160374604E-09"
+        ixz="-1.89256736555226E-09"
+        iyy="1.4125369297867E-05"
+        iyz="-6.49936095316999E-07"
+        izz="1.1435251728442E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm7.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm7"
+    type="revolute">
+    <origin
+      xyz="-0.0154170897275939 -0.0182000000001118 -0.0583391608133426"
+      rpy="0 0 0" />
+    <parent
+      link="right_arm6" />
+    <child
+      link="right_arm7" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="right_arm8">
+    <inertial>
+      <origin
+        xyz="-0.0178000000000001 -0.0405850509628361 -0.00221849402136853"
+        rpy="0 0 0" />
+      <mass
+        value="0.0215255368998188" />
+      <inertia
+        ixx="8.00468426418487E-06"
+        ixy="-2.03581518164817E-20"
+        ixz="-5.92144824934627E-21"
+        iyy="4.27307959997388E-06"
+        iyz="-7.70997024043035E-07"
+        izz="1.08948237013735E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm8.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/right_arm8.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_arm8"
+    type="revolute">
+    <origin
+      xyz="0.0182000000001126 0.00245122024342487 -0.0373617039078002"
+      rpy="0 0 0" />
+    <parent
+      link="right_arm7" />
+    <child
+      link="right_arm8" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-1.57079633" upper="0.00000000"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm1">
+    <inertial>
+      <origin
+        xyz="0.0437189266706164 0.00225303315327717 6.7359278121959E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.268295377998009" />
+      <inertia
+        ixx="0.000151463448838344"
+        ixy="2.95549603723837E-07"
+        ixz="6.15181852644073E-09"
+        iyy="0.00020412929282229"
+        iyz="-2.46985445283365E-10"
+        izz="0.000145754119692383" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm1"
+    type="revolute">
+    <origin
+      xyz="0.0897100000000015 1.40841572892347E-05 0.265000000000003"
+      rpy="0 0 0" />
+    <parent
+      link="waist_Link" />
+    <child
+      link="left_arm1" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-2.35619449" upper="2.35619449"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm2">
+    <inertial>
+      <origin
+        xyz="-8.2182039365386E-07 0.0206912947357193 -0.0820770625033842"
+        rpy="0 0 0" />
+      <mass
+        value="0.163192915901943" />
+      <inertia
+        ixx="9.70562320206028E-05"
+        ixy="-2.40337890984919E-08"
+        ixz="-8.57636579813237E-09"
+        iyy="9.97012659459187E-05"
+        iyz="6.95469154655983E-09"
+        izz="6.06215387209585E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm2"
+    type="revolute">
+    <origin
+      xyz="0.048 -0.0245 0"
+      rpy="0 0 0" />
+    <parent
+      link="left_arm1" />
+    <child
+      link="left_arm2" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-2.61799388" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm3">
+    <inertial>
+      <origin
+        xyz="0.0079240418267302 0.000570139002989994 -0.109569813194333"
+        rpy="0 0 0" />
+      <mass
+        value="0.156973074825494" />
+      <inertia
+        ixx="8.61025727267917E-05"
+        ixy="-2.45326089548437E-08"
+        ixz="-9.02182005421383E-10"
+        iyy="8.3581640042279E-05"
+        iyz="4.55404690911723E-06"
+        izz="5.83298810947822E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm3"
+    type="revolute">
+    <origin
+      xyz="0 0.0264999806952237 -0.1184"
+      rpy="0 0 0" />
+    <parent
+      link="left_arm2" />
+    <child
+      link="left_arm3" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm4">
+    <inertial>
+      <origin
+        xyz="0.0103052454754909 6.70157543614103E-05 -0.0640942855214066"
+        rpy="0 0 0" />
+      <mass
+        value="0.0544493684812528" />
+      <inertia
+        ixx="3.35883150146205E-05"
+        ixy="-6.02017872912797E-09"
+        ixz="-2.32266980468357E-08"
+        iyy="3.22580668901287E-05"
+        iyz="4.46749996024152E-08"
+        izz="1.32442192780724E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm4"
+    type="revolute">
+    <origin
+      xyz="-0.0154000000000001 0 -0.123"
+      rpy="0 0 0" />
+    <parent
+      link="left_arm3" />
+    <child
+      link="left_arm4" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="0.00000000" upper="2.35619449"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm5">
+    <inertial>
+      <origin
+        xyz="0.00528089359521033 7.65530718065816E-05 -0.0850181812974866"
+        rpy="0 0 0" />
+      <mass
+        value="0.0481301580835354" />
+      <inertia
+        ixx="2.44055362656601E-05"
+        ixy="3.65793047213254E-08"
+        ixz="1.96613438600603E-08"
+        iyy="1.95680389851998E-05"
+        iyz="6.06799170044538E-09"
+        izz="7.62145795735777E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm5"
+    type="revolute">
+    <origin
+      xyz="0.0209999999999991 0 -0.102074645752273"
+      rpy="0 0 0" />
+    <parent
+      link="left_arm4" />
+    <child
+      link="left_arm5" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm6">
+    <inertial>
+      <origin
+        xyz="0.0205961532201837 0.00075709766688202 -0.0216225674831809"
+        rpy="0 0 0" />
+      <mass
+        value="0.0604588482328481" />
+      <inertia
+        ixx="1.70832966764496E-05"
+        ixy="4.69929368857701E-08"
+        ixz="-9.23733662548676E-08"
+        iyy="1.33236676363612E-05"
+        iyz="7.40844746232544E-09"
+        izz="9.04552583575742E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm6"
+    type="revolute">
+    <origin
+      xyz="-0.0114899959967967 0 -0.111282746643053"
+      rpy="0 0 0" />
+    <parent
+      link="left_arm5" />
+    <child
+      link="left_arm6" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm7">
+    <inertial>
+      <origin
+        xyz="0.00098047997601966 0.0232555589187428 -0.0513126186620816"
+        rpy="0 0 0" />
+      <mass
+        value="0.0537494297745682" />
+      <inertia
+        ixx="1.58114062359945E-05"
+        ixy="1.31543700749042E-09"
+        ixz="1.8975878029087E-09"
+        iyy="1.41253687593463E-05"
+        iyz="-6.49937215021846E-07"
+        izz="1.14352479447037E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm7.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm7"
+    type="revolute">
+    <origin
+      xyz="0.0214170897275938 -0.0219000000001115 -0.0583391608133423"
+      rpy="0 0 0" />
+    <parent
+      link="left_arm6" />
+    <child
+      link="left_arm7" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-1.57079633" upper="1.57079633"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="left_arm8">
+    <inertial>
+      <origin
+        xyz="0.0214999999999999 -0.0405850509628359 -0.00221849402136787"
+        rpy="0 0 0" />
+      <mass
+        value="0.0215255368998184" />
+      <inertia
+        ixx="8.00468426418476E-06"
+        ixy="2.72789637509592E-21"
+        ixz="2.28959280892762E-21"
+        iyy="4.27307959997383E-06"
+        iyz="-7.70997024042926E-07"
+        izz="1.08948237013734E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm8.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/left_arm8.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_arm8"
+    type="revolute">
+    <origin
+      xyz="-0.0219000000001126 0.00615122024342424 -0.0373617039078"
+      rpy="0 0 0" />
+    <parent
+      link="left_arm7" />
+    <child
+      link="left_arm8" />
+    <axis
+      xyz="-1 0 0" />
+    <limit
+      lower="-1.57079633" upper="0.00000000"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="whel_Link1">
+    <inertial>
+      <origin
+        xyz="0.0202280718361652 -0.000133718319008935 -0.000769145496857138"
+        rpy="0 0 0" />
+      <mass
+        value="0.313871677020867" />
+      <inertia
+        ixx="0.000933107091369006"
+        ixy="2.07412553897724E-09"
+        ixz="-3.09641160188082E-09"
+        iyy="0.00052253306375227"
+        iyz="7.07664096101277E-09"
+        izz="0.000522527772930712" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="whel_Link1"
+    type="continuous">
+    <origin
+      xyz="0.201 -0.465 -0.0349999999999996"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="whel_Link1" />
+    <axis
+      xyz="-1 0 0" />
+  </joint>
+  <link
+    name="whel_Link2">
+    <inertial>
+      <origin
+        xyz="-0.0202280649284198 -0.000134544199174191 -0.00076898988602693"
+        rpy="0 0 0" />
+      <mass
+        value="0.313871844080469" />
+      <inertia
+        ixx="0.00093310846320495"
+        ixy="3.13109753277615E-09"
+        ixz="2.04660482731091E-09"
+        iyy="0.0005225278058484"
+        iyz="-6.42180993650166E-09"
+        izz="0.00052253449388646" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="whel_Link2"
+    type="continuous">
+    <origin
+      xyz="-0.201 -0.465 -0.0349999999999996"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="whel_Link2" />
+    <axis
+      xyz="1 0 0" />
+  </joint>
+  <link
+    name="whel_Link3">
+    <inertial>
+      <origin
+        xyz="-0.0202280718361653 3.12732556011219E-07 5.63030250103069E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.313871677020866" />
+      <inertia
+        ixx="0.000933107091369004"
+        ixy="-2.0741255390615E-09"
+        ixz="-3.09641160187663E-09"
+        iyy="0.000522533063752268"
+        iyz="-7.07664096174499E-09"
+        izz="0.000522527772930712" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="whel_Link3"
+    type="continuous">
+    <origin
+      xyz="-0.201 -0.015 -0.0349999999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="whel_Link3" />
+    <axis
+      xyz="1 0 0" />
+  </joint>
+  <link
+    name="whel_Link4">
+    <inertial>
+      <origin
+        xyz="0.0202280649284197 -5.13140682320556E-07 4.07379698988408E-07"
+        rpy="0 0 0" />
+      <mass
+        value="0.313871844080469" />
+      <inertia
+        ixx="0.000933108463204952"
+        ixy="-3.13109753277745E-09"
+        ixz="2.04660482681687E-09"
+        iyy="0.000522527805848401"
+        iyz="6.42180993690889E-09"
+        izz="0.000522534493886462" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.843137254901961 0.815686274509804 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://aider_pro.SLDASM/meshes/whel_Link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="whel_Link4"
+    type="continuous">
+    <origin
+      xyz="0.201 -0.015 -0.0349999999999999"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="whel_Link4" />
+    <axis
+      xyz="-1 0 0" />
+  </joint>
+</robot>

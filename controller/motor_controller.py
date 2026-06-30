@@ -86,49 +86,18 @@ class MotorController:
             'wrist_roll': 4,
             'gripper': 5
         }
-        
-        # 缓存从 Server 获取的舵机配置（避免重复 API 调用）
-        self._servo_config_cache = None
-        self._load_servo_config()
-        
-        # 初始化底层驱动（如果传入配置，兼容旧代码）
-        self.driver = None
-        if config:
-            self._initialize_driver(config)
-        
+
         print("✅ 通用电机控制器初始化完成")
-    
-    def _load_servo_config(self):
-        """
-        从 Server API 加载舵机配置（只调用一次，缓存结果）
-        """
-        try:
-            from api.server_api_client import ServerAPIClient
-            api_client = ServerAPIClient()
-            self._servo_config_cache = api_client.get_servo_ids_config()
-            
-            if self._servo_config_cache:
-                print(f"✅ 已从 Server 加载舵机配置（缓存）")
-            else:
-                print(f"⚠️ 未能从 Server 获取配置，将使用默认偏移量")
-        except Exception as e:
-            print(f"⚠️ 加载配置失败: {e}，将使用默认偏移量")
-            self._servo_config_cache = None
-    
-    # ==================== 1. 硬件发现与扫描 ====================
+
     
     def scan_available_ports(self) -> List[str]:
         """
-        扫描所有可用的 USB 串口和 CAN 接口（自动启动 CAN 接口）
+        扫描所有可用的 USB 串口（过滤掉虚拟终端等）
         
         Returns:
-            List[str]: 可用端口列表 ['/dev/ttyACM0', '/dev/ttyUSB0', 'can0', ...]
+            List[str]: 可用串口列表 ['/dev/ttyACM0', '/dev/ttyUSB0', ...]
         """
         import serial.tools.list_ports
-        import subprocess
-        
-        # ✅ 自动启动 CAN 接口（如果存在但 DOWN）
-        self._ensure_can_interface_up()
         
         # ✅ 使用 pyserial 的 list_ports，更准确
         ports = []
@@ -137,69 +106,61 @@ class MotorController:
             if 'USB' in p.device or 'ACM' in p.device or 'ttyUSB' in p.device:
                 ports.append(p.device)
         
-        # ✅ 添加 CAN 接口
-        try:
-            result = subprocess.run(['ip', '-o', 'link', 'show'], capture_output=True, text=True, timeout=2)
-            for line in result.stdout.split('\n'):
-                if 'can0' in line and 'can0' not in ports:
-                    ports.insert(0, 'can0')  # 放在最前面
-                    break
-        except Exception as e:
-            print(f"⚠️ 检查 CAN 接口失败: {e}")
-        
-        print(f"🔍 发现 {len(ports)} 个端口: {ports}")
+        print(f"🔍 发现 {len(ports)} 个 USB 串口: {ports}")
         return ports
     
-    def _ensure_can_interface_up(self):
-        """确保 CAN 接口处于 UP 状态（全自动处理）"""
-        import subprocess
-        try:
-            result = subprocess.run(['ip', 'link', 'show', 'can0'], capture_output=True, text=True, timeout=2)
-            if result.returncode == 0 and 'state UP' not in result.stdout:
-                subprocess.run(['sudo', 'ip', 'link', 'set', 'can0', 'up', 'type', 'can', 'bitrate', '500000'],
-                             capture_output=True, text=True, timeout=5)
-        except Exception:
-            pass
-    
     def scan_servos_on_port(self, port: str, start_id: int = 1, end_id: int = 253) -> List[ServoInfo]:
-        """在指定串口/CAN接口扫描电机（自动识别品牌）"""
-        found_servos = []
-        brands_to_try = ['robstride'] if 'can' in port.lower() else ['feetech']
+        """
+        在指定串口扫描舵机（自动识别品牌）
         
-        print(f"🔍 开始扫描 {port}, 品牌: {brands_to_try}")
+        Args:
+            port: 串口号
+            start_id: 起始ID
+            end_id: 结束ID
             
+        Returns:
+            List[ServoInfo]: 发现的舵机列表
+        """
+        print(f"🔍 扫描串口 {port} (ID: {start_id}-{end_id})...")
+        
+        found_servos = []
+        
+        # 尝试不同品牌的驱动
+        brands_to_try = ['feetech']
+        
         for brand in brands_to_try:
             try:
                 driver = self._get_or_create_driver(port, brand)
-                print(f"   驱动状态: driver={driver is not None}, connected={driver.is_connected if driver else False}")
+                
                 if not driver or not driver.is_connected:
-                    print(f"   ⚠️ 驱动未连接，跳过")
                     continue
-                    
-                if brand.lower() == 'robstride':
-                    # ✅ 调用驱动的扫描方法
-                    print(f"   🔄 调用 RobStride scan_motors({start_id}, {end_id})")
-                    found_ids = driver.scan_motors(start_id, end_id)
-                    print(f"   ✅ 扫描返回 IDs: {found_ids}")
-                    for motor_id in found_ids:
-                        servo_info = ServoInfo(port=port, servo_id=motor_id, brand='robstride', model='RS-00', is_online=True)
+                
+                # 扫描该品牌的舵机
+                for servo_id in range(start_id, end_id + 1):
+                    if driver.ping(servo_id):
+                        # 获取型号信息
+                        model = self._get_servo_model(driver, servo_id)
+                        
+                        servo_info = ServoInfo(
+                            port=port,
+                            servo_id=servo_id,
+                            brand=brand,
+                            model=model,
+                            is_online=True
+                        )
+                        
                         found_servos.append(servo_info)
-                        self.servo_registry[(port, motor_id)] = servo_info
-                else:
-                    for servo_id in range(start_id, end_id + 1):
-                        if driver.ping(servo_id):
-                            model = self._get_servo_model(driver, servo_id)
-                            servo_info = ServoInfo(port=port, servo_id=servo_id, brand=brand, model=model, is_online=True)
-                            found_servos.append(servo_info)
-                    
+                        print(f"  ✅ 发现 {brand} 舵机 ID={servo_id}, 型号={model}")
+                
+                # 如果找到了舵机，就停止尝试其他品牌
                 if found_servos:
                     break
+                    
             except Exception as e:
-                print(f"   ❌ 扫描异常: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"⚠️ 尝试品牌 {brand} 时出错: {e}")
                 continue
-            
+        
+        print(f"✅ 扫描完成，找到 {len(found_servos)} 个舵机")
         return found_servos
     
     def scan_all_servos(self) -> Dict[str, List[ServoInfo]]:
@@ -252,69 +213,6 @@ class MotorController:
                 continue
         
         return id_to_port
-    
-    def auto_discover_ports_from_config(self, servo_config: dict) -> tuple[dict, bool]:
-        """
-        根据舵机配置自动发现并更新端口
-        
-        Args:
-            servo_config: 舵机配置字典（格式同 servo_ids.yaml）
-            
-        Returns:
-            (updated_config, has_changes): 更新后的配置和是否有修改
-        """
-        # 1. 收集所有需要查找的舵机 ID
-        target_ids = set()
-        for bus_name, bus_config in servo_config.items():
-            if not isinstance(bus_config, dict):
-                continue
-            for part_name, part_config in bus_config.items():
-                if part_name == 'port' or not isinstance(part_config, dict):
-                    continue
-                for joint_name, joint_info in part_config.items():
-                    if isinstance(joint_info, dict) and 'id' in joint_info:
-                        target_ids.add(joint_info['id'])
-        
-        if not target_ids:
-            return servo_config, False
-        
-        # 2. 发现 ID → Port 映射
-        id_to_port = self.discover_ports_by_ids(target_ids)
-        
-        if not id_to_port:
-            print("⚠️ 未检测到任何舵机，使用配置文件中的端口")
-            return servo_config, False
-        
-        # 3. 更新配置中的端口
-        updated = False
-        for bus_name, bus_config in servo_config.items():
-            if not isinstance(bus_config, dict):
-                continue
-            
-            # 找出该总线中所有 ID 所在的端口
-            ports_in_bus = set()
-            for part_name, part_config in bus_config.items():
-                if part_name == 'port' or not isinstance(part_config, dict):
-                    continue
-                for joint_name, joint_info in part_config.items():
-                    if isinstance(joint_info, dict) and 'id' in joint_info:
-                        sid = joint_info['id']
-                        if sid in id_to_port:
-                            ports_in_bus.add(id_to_port[sid])
-            
-            # 如果该总线的所有 ID 都在同一个端口，更新配置
-            if len(ports_in_bus) == 1:
-                detected_port = ports_in_bus.pop()
-                old_port = bus_config.get('port')
-                if old_port != detected_port:
-                    bus_config['port'] = detected_port
-                    print(f"🔄 {bus_name}: {old_port} → {detected_port}")
-                    updated = True
-        
-        if updated:
-            print("✅ 端口配置已自动更新")
-        
-        return servo_config, updated
     
     # ==================== 2. 舵机信息管理 ====================
     
@@ -369,42 +267,23 @@ class MotorController:
         """
         print(f"🔄 修改舵机ID: {port} ID {old_id} → {new_id}")
         
-        # ✅ 根据端口判断品牌
-        brand = 'robstride' if 'can' in port.lower() else 'feetech'
+        # 获取品牌信息
+        servo_info = self.get_servo_info(port, old_id)
+        brand = servo_info.brand if servo_info else self._detect_brand(port, old_id)
+        
+        if not brand:
+            print(f"❌ 无法检测舵机品牌")
+            return False
         
         # 获取驱动
         driver = self._get_or_create_driver(port, brand)
         if not driver:
             return False
         
-        # ✅ 调用驱动的 set_id 方法
-        success = False
-        try:
-            if hasattr(driver, 'set_id'):
-                import time
-                start_time = time.time()
-                result = driver.set_id(old_id, new_id)
-                elapsed = time.time() - start_time
-                print(f"⏱️  ID 修改耗时: {elapsed:.2f}秒")
-                
-                if result is not None:
-                    success = True
-                    print(f"✅ ID修改成功")
-                else:
-                    print(f"❌ ID修改失败")
-        except Exception as e:
-            print(f"❌ 修改ID失败: {e}")
-            return False
+        # 调用驱动的 set_id 方法
+        success = driver.set_id(old_id, new_id)
         
         if success:
-            # ✅ 清除驱动缓存，下次使用时会重新连接
-            if port in self.drivers:
-                try:
-                    self.drivers[port].disconnect()
-                except:
-                    pass
-                del self.drivers[port]
-            
             # 更新注册表
             old_key = (port, old_id)
             new_key = (port, new_id)
@@ -423,32 +302,77 @@ class MotorController:
     # ==================== 4. 位置控制 ====================
     
     def set_servo_angle(self, port: str, servo_id: int, angle_deg: float, time_ms: int = 500) -> bool:
-        """单个舵机角度控制（自动识别品牌）"""
-        brand = self._get_servo_brand(port, servo_id) or 'feetech'
+        """
+        单个舵机角度控制
+        
+        Args:
+            port: 串口号
+            servo_id: 舵机ID
+            angle_deg: 目标角度（度）
+            time_ms: 到达时间（毫秒）
+            
+        Returns:
+            bool: 是否成功
+        """
+        # 尝试获取品牌，如果未识别则默认为 feetech
+        brand = self._get_servo_brand(port, servo_id)
+        if not brand:
+            print(f"⚠️ 未识别舵机 {servo_id} 的品牌，默认使用 feetech")
+            brand = 'feetech'
+        
+        # 获取驱动
         driver = self._get_or_create_driver(port, brand)
         if not driver:
+            print(f"❌ 无法创建舵机 {servo_id} 的驱动")
             return False
         
+        # 调用驱动的角度控制方法（自动转换角度到脉冲）
         try:
-            # ✅ 统一调用驱动的标准接口，品牌特定逻辑由驱动自己处理
-            if hasattr(driver, 'set_angle'):
-                return driver.set_angle(servo_id, angle_deg, time_ms)
-            elif hasattr(driver, 'move_to_angle'):
-                return driver.move_to_angle(servo_id, angle_deg, time_ms)
-            return False
-        except Exception:
+            success = driver.move_to_angle(servo_id, angle_deg, time_ms)
+            if success:
+                print(f"✅ 舵机 {servo_id} 角度设置为 {angle_deg}°")
+            else:
+                print(f"❌ 舵机 {servo_id} 角度设置失败")
+            return success
+        except Exception as e:
+            print(f"❌ 舵机 {servo_id} 控制异常: {e}")
             return False
     
     def set_servos_angles(self, port: str, targets: Dict[int, float], time_ms: int = 500) -> bool:
-        """多个舵机角度控制"""
-        success_count = sum(1 for servo_id, angle in targets.items() 
-                          if self.set_servo_angle(port, servo_id, angle, time_ms))
+        """
+        多个舵机角度控制
+        
+        Args:
+            port: 串口号
+            targets: {servo_id: angle_deg}
+            time_ms: 到达时间
+            
+        Returns:
+            bool: 是否成功
+        """
+        print(f"📤 批量设置角度: {len(targets)} 个舵机")
+        
+        success_count = 0
+        for servo_id, angle in targets.items():
+            if self.set_servo_angle(port, servo_id, angle, time_ms):
+                success_count += 1
+        
+        print(f"✅ 成功 {success_count}/{len(targets)} 个")
         return success_count > 0
     
     def set_joint_angle(self, joint_name: str, angle_deg: float, time_ms: int = 500) -> bool:
-        """按关节名称控制"""
+        """
+        按关节名称控制
+        
+        Args:
+            joint_name: 关节名称
+            angle_deg: 目标角度
+            time_ms: 到达时间
+        """
         if joint_name not in self.joint_map:
+            print(f"❌ 未知关节: {joint_name}")
             return False
+        
         port, servo_id = self.joint_map[joint_name]
         return self.set_servo_angle(port, servo_id, angle_deg, time_ms)
     
@@ -458,24 +382,55 @@ class MotorController:
         """切换到速度模式（轮式模式，连续旋转）"""
         brand = self._get_servo_brand(port, servo_id)
         driver = self._get_or_create_driver(port, brand)
-        if not driver or not hasattr(driver, 'set_velocity_mode'):
+        
+        if not driver:
+            print(f"❌ 无法获取舵机 {servo_id} 的驱动")
             return False
-        return driver.set_velocity_mode(servo_id)
+        
+        if hasattr(driver, 'set_velocity_mode'):
+            success = driver.set_velocity_mode(servo_id)
+            if success:
+                print(f"✅ 舵机 {servo_id} 已切换到速度模式")
+            else:
+                print(f"❌ 舵机 {servo_id} 切换速度模式失败")
+            return success
+        else:
+            print(f"⚠️ 驱动不支持 set_velocity_mode 方法")
+            return False
     
     def set_position_mode(self, port: str, servo_id: int) -> bool:
         """切换到位置模式（默认）"""
         brand = self._get_servo_brand(port, servo_id)
         driver = self._get_or_create_driver(port, brand)
-        if not driver or not hasattr(driver, 'set_position_mode'):
+        
+        if not driver:
+            print(f"❌ 无法获取舵机 {servo_id} 的驱动")
             return False
-        return driver.set_position_mode(servo_id)
+        
+        if hasattr(driver, 'set_position_mode'):
+            success = driver.set_position_mode(servo_id)
+            if success:
+                print(f"✅ 舵机 {servo_id} 已切换到位置模式")
+            else:
+                print(f"❌ 舵机 {servo_id} 切换位置模式失败")
+            return success
+        else:
+            print(f"⚠️ 驱动不支持 set_position_mode 方法")
+            return False
     
     def set_servo_speed(self, port: str, servo_id: int, speed: int) -> bool:
-        """设置速度（连续旋转）"""
+        """
+        设置速度（连续旋转）
+        
+        Args:
+            speed: -1000 ~ 1000, 正=顺时针, 负=逆时针
+        """
         brand = self._get_servo_brand(port, servo_id)
         driver = self._get_or_create_driver(port, brand)
+        
         if not driver:
             return False
+        
         return driver.set_speed(servo_id, speed)
     
     def stop_servo(self, port: str, servo_id: int) -> bool:
@@ -485,44 +440,81 @@ class MotorController:
     # ==================== 6. 批量同步控制 ====================
     
     def sync_write_positions(self, port: str, targets: Dict[int, float], time_ms: int = 500) -> bool:
-        """同步位置控制（所有舵机同时开始运动）"""
+        """
+        同步位置控制（所有舵机同时开始运动）
+        
+        Args:
+            targets: {servo_id: angle_deg}
+        """
+        # print(f"⚡ 同步位置控制: {len(targets)} 个舵机")
+        
+        # 获取第一个舵机的品牌（假设同一端口的舵机品牌相同）
         first_id = list(targets.keys())[0]
         brand = self._get_servo_brand(port, first_id)
         driver = self._get_or_create_driver(port, brand)
+        
         if not driver:
             return False
+        
+        # 调用驱动的同步写入方法
         if hasattr(driver, 'sync_write_positions'):
             return driver.sync_write_positions(targets, time_ms)
-        return self.set_servos_angles(port, targets, time_ms)
-    
-    def sync_write_speeds(self, port: str, targets: Dict[int, int]) -> bool:
-        """同步速度控制"""
-        first_id = list(targets.keys())[0]
-        brand = self._get_servo_brand(port, first_id)
-        driver = self._get_or_create_driver(port, brand)
-        if not driver:
-            return False
-        if hasattr(driver, 'sync_write_speeds'):
-            return driver.sync_write_speeds(targets)
-        success_count = sum(1 for servo_id, speed in targets.items() 
-                          if self.set_servo_speed(port, servo_id, speed))
-        return success_count > 0
+        else:
+            # 降级为逐个发送
+            return self.set_servos_angles(port, targets, time_ms)
     
     # ==================== 7. 状态读取 ====================
     
     def get_servo_info(self, servo_id: int, port: str = '/dev/ttyACM0') -> Optional[Dict]:
-        """获取舵机详细信息（统一接口，用于 API 返回）"""
-        brand = self._get_servo_brand(port, servo_id) or 'feetech'
+        """
+        获取舵机详细信息（统一接口，用于 API 返回）
+        
+        Args:
+            servo_id: 舵机ID
+            port: 串口号
+            
+        Returns:
+            Dict: 包含位置、角度、电压、温度等信息
+        """
+        brand = self._get_servo_brand(port, servo_id)
+        if not brand:
+            print(f"⚠️ 未识别舵机 {servo_id} 的品牌，默认使用 feetech")
+            brand = 'feetech'
+        
         driver = self._get_or_create_driver(port, brand)
         if not driver:
+            print(f"❌ 无法获取舵机 {servo_id} 的驱动")
             return None
         
         try:
-            # ✅ 统一调用驱动的标准接口，品牌特定逻辑由驱动自己处理
-            if hasattr(driver, 'get_status'):
-                return driver.get_status(servo_id)
+            # 读取舵机状态
+            if hasattr(driver.controller, 'read_status'):
+                status = driver.controller.read_status(servo_id)
+                if status:
+                    # 转换为角度
+                    position = status.get('position', 0)
+                    angle = (position / 4095.0) * 360.0 - 180.0  # 0-4095 -> -180~180
+                    
+                    return {
+                        'servo_id': servo_id,
+                        'port': port,
+                        'position': position,
+                        'angle': round(angle, 2),
+                        'voltage': status.get('voltage', 0),
+                        'temperature': status.get('temperature', 0),
+                        'current': status.get('present_current', 0),
+                        'speed': status.get('speed', 0),
+                        'load': status.get('load', 0),
+                        'mode': 'position',  # 默认为位置模式
+                        'torque_enabled': True  # 默认启用
+                    }
+            
+            print(f"❌ 舵机 {servo_id} 不支持 read_status 方法")
             return None
-        except Exception:
+        except Exception as e:
+            print(f"❌ 获取舵机信息失败: {e}")
+            import traceback
+            print(traceback.format_exc())
             return None
     
     # ==================== 8. 扭矩控制 ====================
@@ -539,9 +531,15 @@ class MotorController:
     
     def disable_all_torques(self, port: str) -> bool:
         """全部禁用（紧急停止）"""
+        print(f"🛑 紧急停止：禁用所有舵机扭矩")
+        
+        success_count = 0
         for (p, sid), info in self.servo_registry.items():
             if p == port:
-                self.set_torque(port, sid, False)
+                if self.set_torque(port, sid, False):
+                    success_count += 1
+        
+        print(f"✅ 已禁用 {success_count} 个舵机")
         return True
     
     # ==================== 9. 辅助方法 ====================
@@ -550,28 +548,56 @@ class MotorController:
         """获取或创建驱动实例（带自动重连）"""
         if port not in self.drivers:
             try:
+                # 使用 feetech-servo-sdk (官方 SDK)
                 if brand.lower() == 'feetech':
-                    from drivers.feetech.st3215_driver import ST3215Driver
-                    driver = ST3215Driver(port=port, baudrate=1000000, servo_config=self._servo_config_cache)
+                    from drivers.actuator.feetech import ST3215Driver
+                    driver = ST3215Driver(port=port, baudrate=1000000)
                     if driver.connect():
                         self.drivers[port] = driver
+                        print(f"✅ 创建 ST3215 驱动: {brand} @ {port}")
                         return driver
-                elif brand.lower() == 'robstride':
-                    from drivers.robStride.robstride_official_driver import RobStrideOfficialDriver
-                    driver = RobStrideOfficialDriver(can_interface=port if 'can' in port.lower() else 'can0')
-                    # ✅ 不预先注册电机，让扫描时动态添加
-                    if driver.connect():
-                        self.drivers[port] = driver
-                        return driver
-            except Exception:
-                pass
-            return None
+                    else:
+                        print(f"❌ ST3215 连接失败")
+                        return None
+                
+                # 其他品牌直接导入驱动
+                if brand.lower() == 'robstride':
+                    try:
+                        from drivers.actuator.robStride import RobStrideOfficialDriver
+                        # Robstride 使用 CAN 接口，不是串口
+                        driver = RobStrideOfficialDriver(can_name='can0')
+                        if driver.connect():
+                            self.drivers[port] = driver
+                            print(f"✅ 创建 Robstride 驱动: {brand} @ {port}")
+                            return driver
+                        else:
+                            print(f"❌ Robstride 连接失败")
+                            return None
+                    except Exception as e:
+                        print(f"❌ 创建 Robstride 驱动失败: {e}")
+                        return None
+                
+                elif brand.lower() == 'damiao':
+                    print(f"⚠️ Damiao(LX16A) 驱动暂未实现")
+                    return None
+                else:
+                    print(f"❌ 不支持的品牌: {brand}")
+                    return None
+                    
+            except Exception as e:
+                print(f"❌ 创建驱动失败: {e}")
+                return None
         
+        # ✅ 驱动已存在，检查连接状态
         driver = self.drivers.get(port)
         if driver and not driver.is_connected:
+            print(f"⚠️ 驱动 {port} 已断开，尝试重新连接...")
             if driver.connect():
-                return driver
-            return None
+                print(f"✅ 重新连接成功: {port}")
+            else:
+                print(f"❌ 重新连接失败: {port}")
+                return None
+        
         return driver
     
     def _get_servo_brand(self, port: str, servo_id: int) -> Optional[str]:
@@ -581,10 +607,6 @@ class MotorController:
         
         if info:
             return info.brand
-        
-        # ✅ 根据端口类型自动判断品牌
-        if 'can' in port.lower():
-            return 'robstride'
         
         # 尝试检测
         return self._detect_brand(port, servo_id)
@@ -614,7 +636,6 @@ class MotorController:
                 driver.disconnect()
             except:
                 pass
+        
         self.drivers.clear()
-    
-# 全局实例
-motor_controller = MotorController()
+        print("🧹 资源清理完成")

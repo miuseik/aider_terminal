@@ -4,15 +4,67 @@ Telegrip Terminal 启动脚本。
 直接运行此文件即可启动终端控制系统。
 
 用法:
-    python main.py [--no-robot] [--log-level LEVEL]
+    python main.py [--no-robot] [--log-level LEVEL] [--role-aider|--role-aloha|--robot-type TYPE]
 
 选项:
     --no-robot      无机器人模式(仅仿真)
     --log-level     日志级别 (debug/info/warning/error/critical)
+    --robot-type    机器人类型 (aider/aloha/openarmx/custom)
+    --role          --robot-type 的别名 (aider/aloha)
+    --role-aider    快捷方式，等同于 --role aider
+    --role-aloha    快捷方式，等同于 --role aloha
+
+示例:
+    python main.py --role-aider          # 启动 Aider 机器人
+    python main.py --role-aloha          # 启动 Aloha 机器人
+    python main.py --role aider          # 启动 Aider 机器人
+    python main.py --robot-type aloha    # 启动 Aloha 机器人
 """
 
 import sys
 import os
+
+# ════════════════════════════════════════════════════════════
+# 自动依赖安装：启动时检查 pyproject.toml 声明的所有依赖，
+# 缺失的自动 pip install，保证零手动操作
+# ════════════════════════════════════════════════════════════
+def _auto_install_deps():
+    """读取 pyproject.toml 的 dependencies，自动安装缺失的包（毫秒级检查）。"""
+    import subprocess, re
+    base_dir = os.path.dirname(__file__)
+    pyproject_path = os.path.join(base_dir, "pyproject.toml")
+    if not os.path.exists(pyproject_path):
+        return
+
+    with open(pyproject_path, encoding="utf-8") as f:
+        content = f.read()
+
+    deps = re.findall(r'^\s+"(.+?)"(?:,?\s*#.*)?$', content, re.MULTILINE)
+    if not deps:
+        return
+
+    missing = []
+    for dep in deps:
+        # 提取纯包名（去掉版本约束，如 "numpy>=1.20" → "numpy"）
+        name = re.split(r'[>=<!~\[\]]', dep)[0].strip().strip('"\'')
+        if not name:
+            continue
+        try:
+            __import__(name.replace("-", "_"))
+        except ImportError:
+            missing.append(name)
+
+    if not missing:
+        return
+
+    print(f"📦 正在安装 {len(missing)} 个缺失依赖: {', '.join(missing)}")
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install"] + missing + ["--quiet"])
+    print("✅ 依赖安装完成")
+
+_auto_install_deps()
+# ════════════════════════════════════════════════════════════
+
 import asyncio
 from datetime import datetime
 
@@ -63,10 +115,10 @@ os.environ['CUDA_VISIBLE_DEVICES'] = ''
 # 解决 PyTorch OpenMP 库冲突问题
 # os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-# 确保可以导入 telegrip 包
+# 确保可以导入 app 模块
 sys.path.insert(0, os.path.dirname(__file__))
 
-from telegrip.main import main
+from app import main
 
 if __name__ == "__main__":
     # 默认使用 info 日志级别

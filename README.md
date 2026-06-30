@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "调试灵足电机";git push
+git add ./;git commit -m "合并aider";git push
 ```
 
 ```bash
@@ -13,7 +13,19 @@ git checkout 。/
 ssh root@121.40.151.10
 ```
 ```bash
-ssh gaoda@192.168.110.90
+ssh gaoda@192.168.0.110
+```
+```bash
+cd /www/aider/aider_terminal; git pull; 
+```
+```bash
+python main.py --role-aider  
+```
+```bash
+sudo systemctl restart aider_terminal
+```
+```bash
+sudo journalctl -u aider_terminal -f
 ```
 ```bash
 conda activate aider
