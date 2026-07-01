@@ -10,6 +10,7 @@ import fractions
 import json
 import logging
 import time
+from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -23,9 +24,10 @@ from aiortc import (
     VideoStreamTrack,
 )
 from av import AudioFrame, VideoFrame
+from av.audio.resampler import AudioResampler
 
 from config.settings import TelegripConfig
-from drivers.audio.mic_driver import MicrophoneDriver
+from drivers.audio.audio_driver import AudioDriver
 from drivers.camera.opencv_camera_driver import OpenCVCameraDriver
 
 logger = logging.getLogger("webrtc.streamer")
@@ -78,11 +80,11 @@ class CameraVideoTrack(VideoStreamTrack):
 
 
 class MicrophoneAudioTrack(AudioStreamTrack):
-    """aiortc AudioStreamTrack: 从 MicrophoneDriver 读取音频帧"""
+    """aiortc AudioStreamTrack: 从 AudioDriver (input) 读取音频帧"""
 
     kind = "audio"
 
-    def __init__(self, mic: MicrophoneDriver, sample_rate: int = 16000):
+    def __init__(self, mic: AudioDriver, sample_rate: int = 16000):
         super().__init__()
         self._mic = mic
         self._sample_rate = sample_rate
@@ -128,9 +130,13 @@ class WebRTCStreamer:
         self._video_track: Optional[CameraVideoTrack] = None
         self._audio_track: Optional[MicrophoneAudioTrack] = None
         self._camera: Optional[OpenCVCameraDriver] = None
-        self._mic: Optional[MicrophoneDriver] = None
+        self._mic: Optional[AudioDriver] = None
+        self._speaker: Optional[AudioDriver] = None
+        self._remote_audio = None
+        self._remote_audio_task: Optional[asyncio.Task] = None
         self._ice_servers: list = []
         self._running = False
+        self._need_reconnect = False
         self._joined: asyncio.Event = asyncio.Event()  # 加入房间完成信号
 
     # ── 设置 transport ──
@@ -152,7 +158,7 @@ class WebRTCStreamer:
             return
         msg_type = msg.get("type", "")
         # 只处理 WebRTC 信令消息
-        if msg_type in ("webrtc_joined", "answer", "ice_candidate", "subscriber_joined"):
+        if msg_type in ("webrtc_joined", "answer", "ice_candidate", "subscriber_joined", "offer"):
             print(f"📡 Streamer 收到信令: {msg_type}")
             await self._msg_queue.put(msg)
 
@@ -210,6 +216,7 @@ class WebRTCStreamer:
             for s in self._ice_servers
         ])
         self._pc = RTCPeerConnection(configuration=ice_cfg)
+        self._need_reconnect = False
 
         track_count = 0
         if not self._no_camera and self._camera:
@@ -227,13 +234,19 @@ class WebRTCStreamer:
 
         @self._pc.on("connectionstatechange")
         async def _on_conn():
-            print(f"🔗 WebRTC 连接状态: {self._pc.connectionState}")
-            logger.info("连接状态: %s", self._pc.connectionState)
+            state = self._pc.connectionState
+            print(f"🔗 WebRTC 连接状态: {state}")
+            logger.info("连接状态: %s", state)
+            if state in ("failed", "disconnected", "closed"):
+                self._need_reconnect = True
 
         @self._pc.on("iceconnectionstatechange")
         async def _on_ice():
-            print(f"🧊 ICE 状态: {self._pc.iceConnectionState}")
-            logger.info("ICE: %s", self._pc.iceConnectionState)
+            state = self._pc.iceConnectionState
+            print(f"🧊 ICE 状态: {state}")
+            logger.info("ICE: %s", state)
+            if state == "failed":
+                self._need_reconnect = True
 
         @self._pc.on("icecandidate")
         async def _on_ice_candidate(candidate):
@@ -253,6 +266,18 @@ class WebRTCStreamer:
                 "sdpMid": candidate.sdpMid,
                 "sdpMLineIndex": candidate.sdpMLineIndex,
             })
+
+        @self._pc.on("track")
+        async def _on_track(track):
+            """接收远端（客户端）音频/视频 track"""
+            print(f"📡 收到远端 track: kind={track.kind}")
+            logger.info("收到远端 track: kind=%s", track.kind)
+            if track.kind == "audio":
+                self._remote_audio = track
+                # 如果有 speaker，启动音频播放任务
+                if self._speaker and self._speaker.is_connected:
+                    await self._start_remote_audio(track)
+            # 注：视频不需要从客户端接收（客户端不推视频）
 
     async def _send_offer(self):
         offer = await self._pc.createOffer()
@@ -307,22 +332,155 @@ class WebRTCStreamer:
         await self._send_offer()
         print("📹 新 Offer 已发送")
 
+    async def _handle_client_offer(self, msg: dict):
+        """处理客户端发来的 renegotiation offer（客户端添加 mic track 时）"""
+        if not self._pc:
+            print("📡 忽略客户端 offer: PC 未创建")
+            return
+        print("📡 收到客户端 renegotiation offer")
+        logger.info("收到客户端 renegotiation offer")
+        try:
+            await self._pc.setRemoteDescription(
+                RTCSessionDescription(sdp=msg["sdp"], type="offer"))
+            answer = await self._pc.createAnswer()
+            await self._pc.setLocalDescription(answer)
+            await self._send({
+                "type": "answer",
+                "sdp": self._pc.localDescription.sdp,
+                "room_id": self.config.webrtc_room_id,
+            })
+            print("📡 Renegotiation answer 已发送")
+            logger.info("Renegotiation answer 已发送")
+        except Exception:
+            logger.exception("处理客户端 renegotiation offer 失败")
+
+    async def _start_remote_audio(self, track):
+        """启动远端音频播放任务（带重采样和抖动缓冲）"""
+        if self._remote_audio_task and not self._remote_audio_task.done():
+            return  # 已经在播放
+        if not self._speaker or not self._speaker.is_connected:
+            print("📡 扬声器未就绪，跳过远端音频")
+            return
+
+        target_rate = self._speaker.sample_rate
+        resampler: Optional[AudioResampler] = None
+
+        async def _play():
+            nonlocal resampler
+            print("🔊 开始播放远端音频")
+            logger.info("开始播放远端音频")
+
+            # 抖动缓冲：预填充 3 帧再开始播放，平滑网络抖动
+            buffer: deque = deque()
+            MIN_PREBUFFER = 3
+            MAX_BUFFER = 12
+            started = False
+
+            try:
+                while self._running and self._speaker and self._speaker.is_connected:
+                    frame = await track.recv()
+
+                    # ── 重采样 ──
+                    if frame.sample_rate != target_rate:
+                        if resampler is None:
+                            fmt = frame.format.name if frame.format else "s16"
+                            layout = frame.layout.name if frame.layout else "mono"
+                            resampler = AudioResampler(
+                                format=fmt, layout=layout, rate=target_rate
+                            )
+                            logger.info(
+                                "音频重采样: %dHz %s → %dHz",
+                                frame.sample_rate, layout, target_rate,
+                            )
+                        frame = resampler.resample(frame)
+
+                    data = frame.to_ndarray()
+
+                    # ── 抖动缓冲 ──
+                    buffer.append(data)
+                    while len(buffer) > MAX_BUFFER:
+                        buffer.popleft()  # 丢弃最旧帧防止延迟累积
+
+                    if not started:
+                        if len(buffer) < MIN_PREBUFFER:
+                            continue
+                        started = True
+                        logger.debug("抖动缓冲就绪 (%d 帧)", len(buffer))
+
+                    # 从缓冲区取一帧写入扬声器
+                    data = buffer.popleft()
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self._speaker.write, data)
+
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("远端音频播放异常")
+            finally:
+                print("🔇 远端音频播放停止")
+                logger.info("远端音频播放停止")
+
+        self._remote_audio_task = asyncio.ensure_future(_play())
+
+    async def _reconnect(self):
+        """断线重连：关闭旧 PC，重建并重发 Offer"""
+        print("🔄 开始 WebRTC 重连...")
+        logger.info("开始重连...")
+        if self._pc:
+            try:
+                await self._pc.close()
+            except Exception:
+                pass
+            self._pc = None
+        self._need_reconnect = False
+
+        # 等待一小段时间再重连
+        await asyncio.sleep(1)
+
+        try:
+            self._create_peer_connection()
+            await asyncio.sleep(0.5)
+            await self._send_offer()
+            print("✅ WebRTC 重连完成")
+            logger.info("重连完成")
+        except Exception as e:
+            print(f"❌ WebRTC 重连失败: {e}")
+            logger.exception("重连失败")
+            raise
+
     async def _signaling_loop(self):
-        """从消息队列读取信令，直到 _running 为 False 或 PC 关闭"""
+        """从消息队列读取信令，支持断线自动重连"""
         print("📡 信令循环已启动")
         handlers = {
             "answer": self._handle_answer,
             "ice_candidate": self._handle_ice,
             "subscriber_joined": self._handle_subscriber_joined,
+            "offer": self._handle_client_offer,
         }
+        reconnect_count = 0
+        max_reconnects = 10
+
         while self._running and self._msg_queue is not None:
-            # PC 已关闭则退出信令循环
-            if self._pc and self._pc.signalingState == "closed":
-                logger.info("PC 已关闭，退出信令循环")
-                break
+            # 检测是否需要重连
+            if self._need_reconnect:
+                reconnect_count += 1
+                if reconnect_count > max_reconnects:
+                    print(f"❌ 已达最大重连次数 ({max_reconnects})，退出")
+                    break
+                await self._reconnect()
+                continue
+
             try:
-                msg = await asyncio.wait_for(self._msg_queue.get(), timeout=30)
+                msg = await asyncio.wait_for(self._msg_queue.get(), timeout=10)
             except asyncio.TimeoutError:
+                # 超时时也检查是否需要重连
+                if self._need_reconnect:
+                    continue
+                # 检查 transport 是否还连着
+                if self._transport and not self._transport.is_connected:
+                    print("⚠️ Transport 已断开，等待重连...")
+                    self._need_reconnect = True
+                    continue
                 continue
             handler = handlers.get(msg.get("type"))
             if handler:
@@ -357,11 +515,23 @@ class WebRTCStreamer:
                     "sample_rate": self.config.audio_sample_rate,
                     "channels": 1,
                 }
-                self._mic = MicrophoneDriver(mic_cfg)
+                self._mic = AudioDriver(mic_cfg, mode="input")
                 if not self._mic.connect():
                     logger.warning("麦克风连接失败，音频已禁用")
                     self.config.audio_enabled = False
                     self._mic = None
+
+            # 扬声器（接收远端音频）
+            if self.config.audio_enabled:
+                speaker_cfg = {
+                    "device": self.config.audio_device,
+                    "sample_rate": self.config.audio_sample_rate,
+                    "channels": 1,
+                }
+                self._speaker = AudioDriver(speaker_cfg, mode="output")
+                if not self._speaker.connect():
+                    logger.warning("扬声器连接失败")
+                    self._speaker = None
 
             # 等待 terminal 通道就绪
             for _ in range(30):
@@ -407,4 +577,10 @@ class WebRTCStreamer:
         if self._mic:
             self._mic.disconnect()
             self._mic = None
+        if self._remote_audio_task:
+            self._remote_audio_task.cancel()
+            self._remote_audio_task = None
+        if self._speaker:
+            self._speaker.disconnect()
+            self._speaker = None
         logger.info("WebRTC 资源已清理")

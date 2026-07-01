@@ -1,5 +1,5 @@
 ```bash
-git add ./;git commit -m "合并aider";git push
+git add ./;git commit -m "能看能听能说";git push
 ```
 
 ```bash
