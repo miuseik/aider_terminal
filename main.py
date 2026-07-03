@@ -29,24 +29,23 @@ import os
 # 缺失的自动 pip install，保证零手动操作
 # ════════════════════════════════════════════════════════════
 def _auto_install_deps():
-    """读取 pyproject.toml 的 dependencies，自动安装缺失的包（毫秒级检查）。"""
-    import subprocess, re
+    """读取 requirements.txt，自动安装缺失的包（毫秒级检查）。"""
+    import subprocess
     base_dir = os.path.dirname(__file__)
-    pyproject_path = os.path.join(base_dir, "pyproject.toml")
-    if not os.path.exists(pyproject_path):
+    req_path = os.path.join(base_dir, "requirements.txt")
+    if not os.path.exists(req_path):
         return
 
-    with open(pyproject_path, encoding="utf-8") as f:
-        content = f.read()
+    with open(req_path, encoding="utf-8") as f:
+        deps = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-    deps = re.findall(r'^\s+"(.+?)"(?:,?\s*#.*)?$', content, re.MULTILINE)
     if not deps:
         return
 
     missing = []
     for dep in deps:
-        # 提取纯包名（去掉版本约束，如 "numpy>=1.20" → "numpy"）
-        name = re.split(r'[>=<!~\[\]]', dep)[0].strip().strip('"\'')
+        import re
+        name = re.split(r'[>=<!~\[\]]', dep)[0].strip()
         if not name:
             continue
         try:

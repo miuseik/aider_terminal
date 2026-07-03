@@ -34,14 +34,14 @@ def get_local_ip():
 
 
 # 在函数定义后导入模块
-from config.settings import TelegripConfig, get_config_data, update_config_data
-from core.control_loop import ControlLoop
-from inputs.vr_handler import VRHandler
-from comm.websocket.client import VRWebSocketClient
-from inputs.keyboard_handler import WebKeyboardHandler
-from inputs.base import ControlGoal
-from drivers.webrtc.streamer import WebRTCStreamer
-from utils.can_setup import setup_can
+from aiderminal.config.settings import TelegripConfig, get_config_data, update_config_data
+from aiderminal.core.control_loop import ControlLoop
+from aiderminal.inputs.vr_handler import VRHandler
+from aiderminal.comm.websocket.client import VRWebSocketClient
+from aiderminal.inputs.keyboard_handler import WebKeyboardHandler
+from aiderminal.inputs.base import ControlGoal
+from aiderminal.drivers.webrtc.streamer import WebRTCStreamer
+from aiderminal.utils.can_setup import setup_can
 
 # Logger will be configured in main() based on command line arguments
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class TelegripSystem:
         self.vr_handler = VRHandler(self.command_queue, config)
         
         # 初始化 API 路由器
-        from router.actuator_router import ActuatorRouter
+        from aiderminal.router.actuator_router import ActuatorRouter
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
         self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
         
@@ -185,7 +185,7 @@ class TelegripSystem:
             await asyncio.sleep(1)
 
             # 从文件重新加载配置但保留命令行覆盖
-            from config.settings import get_config_data
+            from aiderminal.config.settings import get_config_data
             file_config = get_config_data()
             print("已从文件重新加载配置")
 
@@ -203,7 +203,7 @@ class TelegripSystem:
             self.vr_handler = VRHandler(self.command_queue, self.config)
             
             # 重新初始化 API 路由器
-            from router.actuator_router import ActuatorRouter
+            from aiderminal.router.actuator_router import ActuatorRouter
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
             self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
             
@@ -514,7 +514,7 @@ def create_config_from_args(args) -> TelegripConfig:
         print(f"🤖 机器人类型: {config.robot_type} (配置文件)")
     
     # 根据机器人类型设置 URDF 路径
-    from config.settings import set_robot_type, _ROBOT_TYPE_CONFIGS
+    from aiderminal.config.settings import set_robot_type, _ROBOT_TYPE_CONFIGS
     set_robot_type(config.robot_type)
     rt_cfg = _ROBOT_TYPE_CONFIGS.get(config.robot_type, _ROBOT_TYPE_CONFIGS["aider"])
     config.urdf_path = args.urdf if args.urdf != "URDF/SO100/so100.urdf" else rt_cfg["urdf_path"]
@@ -567,7 +567,7 @@ async def main():
         print(f"  机器人端口: {config.follower_ports}")
     else:
         # 显示干净的启动消息
-        print(f"🤖 telegrip 启动中... (机器人类型: {config.robot_type})")
+        print(f"🤖 aider_terminal 启动中... (机器人类型: {config.robot_type})")
         print(f"💡 使用 --log-level info 查看详细输出")
         print()
     
