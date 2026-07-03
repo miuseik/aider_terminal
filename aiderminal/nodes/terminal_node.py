@@ -118,7 +118,7 @@ class TerminalNode(Node):
             asyncio.set_event_loop(loop)
             self._loop = loop
             try:
-                from app import TelegripSystem
+                from aiderminal.app import TelegripSystem
 
                 system = TelegripSystem(self._config)
                 # 不安装 signal handler —— ROS2 已处理 SIGINT

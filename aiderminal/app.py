@@ -605,7 +605,7 @@ async def main():
 
         # 在事件循环清理期间抑制 SSL 传输错误
         def ignore_ssl_errors(loop, context):
-            # 在关闭期间忽略“错误的文件描述符”和“事件循环已关闭”错误
+            # 在关闭期间忽略"错误的文件描述符"和"事件循环已关闭"错误
             if 'exception' in context:
                 exc = context['exception']
                 if isinstance(exc, (OSError, RuntimeError)):
@@ -634,4 +634,4 @@ def main_cli():
 
 
 if __name__ == "__main__":
-    main_cli() 
+    main_cli()

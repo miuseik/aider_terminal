@@ -1,1 +1,0 @@
-/home/miuseik/www/aider/aider_terminal/build/aiderminal/launch/terminal.launch.py

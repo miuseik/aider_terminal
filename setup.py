@@ -8,7 +8,6 @@ setup(
     name=package_name,
     version='0.1.0',
     packages=find_packages(exclude=['test']),
-    py_modules=['app'],  # 顶层 app.py
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -16,7 +15,23 @@ setup(
         (os.path.join('share', package_name, 'launch'),
             glob('launch/*.launch.py')),
     ],
-    install_requires=['setuptools'],
+    install_requires=[
+        'setuptools',
+        'numpy',
+        'requests',
+        'websockets',
+        'pyyaml',
+        'scipy',
+        'pybullet',
+        'pyserial',
+        'trimesh',
+        'aiortc>=1.7.0',
+        'av>=11.0.0',
+        'pin-pink',
+        'qpsolvers[quadprog]',
+        'meshcat_shapes',
+        'loop_rate_limiters',
+    ],
     zip_safe=True,
     maintainer='miuseik',
     maintainer_email='miuseik@tencent.com',
@@ -25,6 +40,7 @@ setup(
     entry_points={
         'console_scripts': [
             'terminal_node = aiderminal.nodes.terminal_node:main',
+            'main_cli = aiderminal.app:main_cli',
         ],
     },
 )
