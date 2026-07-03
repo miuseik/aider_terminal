@@ -52,6 +52,7 @@ class AiderPinkSolver:
     """使用 Pink 库的 Aider 机器人 IK 求解器。
 
     加载 Aider 完整 URDF，支持单臂 IK 求解（另一臂和身体关节保持当前值）。
+    包含身体避碰：在 null-space 中将肘关节排斥在身体圆柱外。
     """
 
     # 末端执行器 frame 名称（在 URDF 中定义）
@@ -59,6 +60,15 @@ class AiderPinkSolver:
         "left": "left_arm8",
         "right": "right_arm8",
     }
+
+    # 身体避碰参数（与 DLS IK 保持一致）
+    BODY_AVOID_LINKS: Dict[str, List[str]] = {
+        "left": ["left_arm3", "left_arm4"],
+        "right": ["right_arm3", "right_arm4"],
+    }
+    BODY_RADIUS = 0.12        # 身体圆柱半径（米）
+    BODY_AVOID_WEIGHT = 0.5   # 排斥力权重
+    BODY_AVOID_MAX_STEPS = 15  # 最大梯度下降步数
 
     def __init__(self, urdf_path: Optional[str] = None):
         if not _PINK_AVAILABLE:
@@ -152,6 +162,19 @@ class AiderPinkSolver:
         # ---- 初始配置（零位） ----
         self._q0 = self._make_zero_config()
 
+        # ---- 身体避碰 frame ID ----
+        self._body_avoid_fids: Dict[str, List[int]] = {}
+        for arm, links in self.BODY_AVOID_LINKS.items():
+            fids = []
+            for link_name in links:
+                for i in range(self.robot.model.nframes):
+                    if self.robot.model.frames[i].name == link_name:
+                        fids.append(i)
+                        break
+            if fids:
+                self._body_avoid_fids[arm] = fids
+                print(f"  [AiderPinkSolver] {arm} 身体避碰: {links} (fids={fids})")
+
         # ---- 姿态偏好（自然下垂、肘微弯） ----
         self._posture_q = self._make_posture_config()
 
@@ -192,6 +215,88 @@ class AiderPinkSolver:
                     limit.set("lower", f"{np.radians(lo_deg):.8f}")
                     limit.set("upper", f"{np.radians(hi_deg):.8f}")
         return ET.tostring(root, encoding="unicode")
+
+    # ---- 身体避碰 ----
+
+    def _avoid_body_collision(self, q: np.ndarray, arm: str) -> np.ndarray:
+        """在末端执行器 null-space 中将肘关节推到身体圆柱之外。
+
+        与 DLS IKComputer._avoidance_gradient 策略一致：
+        对 arm3/arm4 连杆，若其 XY 距离 < body_radius，则在 null-space
+        中沿径向向外推，不改变末端执行器位姿。
+
+        Args:
+            q: 当前完整配置向量
+            arm: 'left' 或 'right'
+
+        Returns:
+            修正后的配置向量
+        """
+        fids = self._body_avoid_fids.get(arm)
+        if not fids:
+            return q
+
+        m = self.robot.model
+        d = self.robot.data
+        ee_fid = self._end_frame_ids[arm]
+        arm_jidx = [self._q_idx(j) for j in self.arm_joints[arm]]
+        n_arm = len(arm_jidx)
+        nq = m.nq
+
+        for step in range(self.BODY_AVOID_MAX_STEPS):
+            pin.forwardKinematics(m, d, q)
+            pin.updateFramePlacements(m, d)
+            pin.computeJointJacobians(m, d, q)
+
+            # 检查所有避碰连杆，取最大穿透量
+            max_penetration = 0.0
+            worst_direction = None
+            worst_fid = None
+            for fid in fids:
+                pos = d.oMf[fid].translation
+                r = float(np.linalg.norm(pos[:2]))
+                if r < self.BODY_RADIUS:
+                    penetration = self.BODY_RADIUS - r
+                    if penetration > max_penetration:
+                        max_penetration = penetration
+                        worst_direction = pos[:2] / (r + 1e-8)
+                        worst_fid = fid
+
+            if max_penetration < 1e-4:
+                break  # 所有连杆都在安全距离外
+
+            # 末端执行器 Jacobian（只取位置分量 + 臂关节列）
+            J_ee_full = pin.getFrameJacobian(m, d, ee_fid, pin.LOCAL_WORLD_ALIGNED)  # 6×nq
+            J_ee = np.zeros((3, n_arm))
+            for j, qi in enumerate(arm_jidx):
+                J_ee[:, j] = J_ee_full[:3, qi]
+
+            # 碰撞连杆 Jacobian（只取 XY 分量 + 臂关节列）
+            J_body_full = pin.getFrameJacobian(m, d, worst_fid, pin.LOCAL_WORLD_ALIGNED)  # 6×nq
+            J_body = np.zeros((2, n_arm))
+            for j, qi in enumerate(arm_jidx):
+                J_body[:, j] = J_body_full[:2, qi]
+
+            # Null-space 投影: N = I - J⁺ @ J
+            try:
+                J_pinv = np.linalg.pinv(J_ee, rcond=1e-4)
+            except np.linalg.LinAlgError:
+                J_pinv = np.linalg.pinv(J_ee)
+            N = np.eye(n_arm) - J_pinv @ J_ee
+
+            # 排斥梯度: ∂(r)/∂q = outward · J_body
+            grad = J_body.T @ worst_direction  # (n_arm,)
+
+            # Null-space 修正（保持末端位姿不变）
+            dq_arm = N @ grad * max_penetration * self.BODY_AVOID_WEIGHT
+
+            # 应用并钳制
+            for j, qi in enumerate(arm_jidx):
+                lo = float(m.lowerPositionLimit[qi])
+                hi = float(m.upperPositionLimit[qi])
+                q[qi] = np.clip(q[qi] + dq_arm[j], lo, hi)
+
+        return q
 
     def get_posture(self, arm: str) -> np.ndarray:
         """返回指定臂的初始姿态角度（度）。"""
@@ -343,6 +448,9 @@ class AiderPinkSolver:
                 new_q[qi] = np.clip(new_q[qi],
                                      m.lowerPositionLimit[qi],
                                      m.upperPositionLimit[qi])
+
+        # 身体避碰：在末端 null-space 中将肘推出身体
+        new_q = self._avoid_body_collision(new_q, arm)
 
         # 保存并检查位置误差
         self._current_q = new_q
