@@ -580,7 +580,7 @@ class ControlLoop:
         
         # 0.5 头显 → 身体关节 (adapter 做校准+映射+限位)
         headset = self.vr_raw_data.get('headset')
-        if headset:
+        if headset and hasattr(self.robot_interface.adapter, 'feed_headset_raw'):
             self.robot_interface.adapter.feed_headset_raw(headset)
         
         # 1. 获取最新的 VR 数据

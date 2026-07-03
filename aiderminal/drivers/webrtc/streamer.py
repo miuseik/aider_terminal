@@ -33,6 +33,16 @@ from aiderminal.drivers.camera.opencv_camera_driver import OpenCVCameraDriver
 logger = logging.getLogger("webrtc.streamer")
 
 
+def _is_turn_exception(ctx: dict) -> bool:
+    """判断 asyncio 异常上下文是否为 TURN TransactionFailed（无害可忽略）"""
+    exc = ctx.get("exception")
+    if exc is None:
+        return False
+    # aioice.stun.TransactionFailed: "STUN transaction failed (403 - Forbidden IP)"
+    exc_name = type(exc).__qualname__
+    return exc_name in ("TransactionFailed",) and "403" in str(exc)
+
+
 class CameraVideoTrack(VideoStreamTrack):
     """aiortc VideoStreamTrack: 从 OpenCVCameraDriver 读取帧"""
 
@@ -234,6 +244,8 @@ class WebRTCStreamer:
 
         @self._pc.on("connectionstatechange")
         async def _on_conn():
+            if self._pc is None:
+                return
             state = self._pc.connectionState
             print(f"🔗 WebRTC 连接状态: {state}")
             logger.info("连接状态: %s", state)
@@ -242,6 +254,8 @@ class WebRTCStreamer:
 
         @self._pc.on("iceconnectionstatechange")
         async def _on_ice():
+            if self._pc is None:
+                return
             state = self._pc.iceConnectionState
             print(f"🧊 ICE 状态: {state}")
             logger.info("ICE: %s", state)
@@ -327,6 +341,11 @@ class WebRTCStreamer:
         if self._pc:
             await self._pc.close()
             self._pc = None
+
+        # 热插拔检测：之前没摄像头的话再试一次
+        if self._no_camera:
+            self._try_connect_camera()
+
         self._create_peer_connection()
         await asyncio.sleep(0.5)
         await self._send_offer()
@@ -481,6 +500,11 @@ class WebRTCStreamer:
                     print("⚠️ Transport 已断开，等待重连...")
                     self._need_reconnect = True
                     continue
+                # 热插拔检测：摄像头插上了就重建 PC 推流
+                if self._no_camera and self._try_connect_camera():
+                    print("📹 检测到新摄像头，触发推流重建")
+                    self._need_reconnect = True
+                    continue
                 continue
             handler = handlers.get(msg.get("type"))
             if handler:
@@ -489,26 +513,81 @@ class WebRTCStreamer:
 
     # ── 生命周期 ──
 
+    def _try_connect_camera(self) -> bool:
+        """尝试连接摄像头（热插拔：启动时/运行中/订阅者加入时均可用）
+
+        Returns:
+            是否成功连接（或摄像头已被禁用）
+        """
+        # 配置明确禁用
+        if self.config.video_source == "none":
+            self._no_camera = True
+            return False
+
+        # 已经连上了
+        if self._camera and self._camera.is_connected:
+            self._no_camera = False
+            return True
+
+        # 断开旧连接（如果有）
+        if self._camera:
+            self._camera.disconnect()
+            self._camera = None
+
+        base_cfg = dict(
+            width=self.config.camera_width,
+            height=self.config.camera_height,
+            fps=self.config.camera_fps,
+            fourcc=self.config.camera_fourcc,
+            color_mode="bgr",
+        )
+
+        # 要尝试的设备列表：自动扫描优先 → 配置路径兜底 → 整数索引
+        sources: list = []
+        try:
+            found = OpenCVCameraDriver.find_cameras()
+            for cam in found:
+                sid = cam["id"]
+                if sid not in sources:
+                    sources.append(sid)
+        except Exception:
+            pass
+        # 配置路径兜底（自动扫描没找到才试）
+        if self.config.video_source not in sources:
+            sources.append(self.config.video_source)
+        # 整数索引最后兜底
+        for idx in range(10):
+            if idx not in sources:
+                sources.append(idx)
+
+        for src in sources:
+            try:
+                cfg = dict(base_cfg, index_or_path=src)
+                self._camera = OpenCVCameraDriver(cfg)
+                if self._camera.connect():
+                    self._no_camera = False
+                    print(f"📹 摄像头热插拔成功: {src}，视频推流已启用")
+                    return True
+                self._camera.disconnect()
+            except Exception:
+                pass
+            self._camera = None
+
+        self._no_camera = True
+        return False
+
     async def run(self):
         """主入口: 作为 asyncio Task 运行"""
         self._running = True
 
+        # TURN 服务器 IP 白名单限制时会抛 TransactionFailed，
+        # 连接已走 host/srflx 直连，不影响功能，只把 asyncio 报错吞掉
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda loop, ctx: None if _is_turn_exception(ctx) else loop.default_exception_handler(ctx))
+
         try:
-            # 摄像头
-            camera_cfg = {
-                "index_or_path": self.config.video_source,
-                "width": self.config.camera_width,
-                "height": self.config.camera_height,
-                "fps": self.config.camera_fps,
-                "fourcc": self.config.camera_fourcc,
-                "color_mode": "bgr",
-            }
-            self._camera = OpenCVCameraDriver(camera_cfg)
-            self._no_camera = (self.config.video_source == "none")
-            if not self._no_camera and not self._camera.connect():
-                logger.warning("摄像头连接失败，视频推流已禁用")
-                self._no_camera = True
-                self._camera = None
+            # 摄像头（初始连接，失败不阻塞）
+            self._try_connect_camera()
 
             # 麦克风
             if self.config.audio_enabled:

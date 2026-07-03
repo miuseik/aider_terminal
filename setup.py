@@ -22,6 +22,7 @@ setup(
         'websockets',
         'pyyaml',
         'scipy',
+        'opencv-python',
         'pybullet',
         'pyserial',
         'trimesh',

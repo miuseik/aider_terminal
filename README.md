@@ -7,7 +7,7 @@
 ---
 ## 便捷操作
 ```bash
-git add ./;git commit -m "重构动了";git push
+git add ./;git commit -m "视频ok";git push
 ```
 ## 快速开始
 
