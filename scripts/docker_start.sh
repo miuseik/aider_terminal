@@ -1,20 +1,24 @@
 #!/bin/bash
+# 日常启动：删除旧容器 + 启动项目（跳过构建，带仿真窗口）
+#   sudo ./scripts/docker_start.sh
+#   sudo ./scripts/docker_start.sh aloha
 set -e
-
-# ============================================
-# 后续运行（容器已存在，跳过编译）
-#   ./scripts/docker_start.sh
-#   ./scripts/docker_start.sh aloha
-# ============================================
 
 ROBOT="${1:-aider}"
 
-docker start aiderminal
+xhost +local:docker
 
-echo ">>> 启动 terminal_node (robot=$ROBOT) ..."
-docker exec -it aiderminal bash -c "
-    export PYTHONPATH=/ws/src/aiderminal:\$PYTHONPATH && \
-    source /opt/ros/jazzy/setup.bash && \
-    source /ws/install/setup.bash && \
-    ros2 run aiderminal terminal_node --ros-args -p robot_type:=$ROBOT -p no_robot:=true
-"
+echo ">>> 删除旧容器..."
+sudo docker rm -f aiderminal 2>/dev/null || true
+
+echo ">>> 启动项目 (robot=$ROBOT，带仿真窗口) ..."
+sudo docker run -d --name aiderminal \
+    --network host \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    -e DISPLAY=$DISPLAY \
+    -e ROBOT_TYPE=$ROBOT \
+    -e NO_ROBOT=true \
+    aider_ros:x11
+
+echo ">>> 日志："
+sudo docker logs -f aiderminal

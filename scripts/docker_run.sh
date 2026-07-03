@@ -1,51 +1,28 @@
 #!/bin/bash
+# 首次部署：构建镜像 + 删除旧容器 + 启动项目（带仿真窗口）
+#   sudo ./scripts/docker_run.sh
+#   sudo ./scripts/docker_run.sh aloha
 set -e
 
-# ============================================
-# 首次：创建容器 + 编译 + 运行
-#   ./scripts/docker_run.sh
-#   ./scripts/docker_run.sh aloha          # 用 Aloha 机器人
-#   ./scripts/docker_run.sh aider --env-dev # 开发环境
-# ============================================
-
 ROBOT="${1:-aider}"
-EXTRA_ARGS="${2:-}"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# 允许 X11
 xhost +local:docker
 
-# 摄像头设备由 detect_camera.sh 负责
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/detect_camera.sh"
+echo ">>> 构建 Docker 镜像..."
+cd "$SCRIPT_DIR" && sudo docker build -t aider_ros:x11 .
 
-# 创建容器（如果不存在）
-if ! docker ps -a --format '{{.Names}}' | grep -q '^aiderminal$'; then
-    echo ">>> 创建容器 aiderminal ..."
-    docker run -d --name aiderminal \
-        -v /home/miuseik/www/aider/aider_terminal:/ws/src/aiderminal:rw \
-        -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-        -e DISPLAY=$DISPLAY \
-        --network host \
-        --ipc=host \
-        "${CAMERA_DEVICE_ARGS[@]}" \
-        aider_ros:x11 \
-        bash -c "tail -f /dev/null"
-else
-    docker start aiderminal
-fi
+echo ">>> 删除旧容器..."
+sudo docker rm -f aiderminal 2>/dev/null || true
 
-# 编译
-echo ">>> colcon build ..."
-docker exec aiderminal bash -c "
-    source /opt/ros/jazzy/setup.bash && \
-    cd /ws && colcon build --symlink-install --packages-select aiderminal
-"
+echo ">>> 启动项目 (robot=$ROBOT，带仿真窗口) ..."
+sudo docker run -d --name aiderminal \
+    --network host \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    -e DISPLAY=$DISPLAY \
+    -e ROBOT_TYPE=$ROBOT \
+    -e NO_ROBOT=true \
+    aider_ros:x11
 
-# 运行
-echo ">>> 启动 terminal_node (robot=$ROBOT) ..."
-docker exec -it aiderminal bash -c "
-    export PYTHONPATH=/ws/src/aiderminal:\$PYTHONPATH && \
-    source /opt/ros/jazzy/setup.bash && \
-    source /ws/install/setup.bash && \
-    ros2 run aiderminal terminal_node --ros-args -p robot_type:=$ROBOT -p no_robot:=true $EXTRA_ARGS
-"
+echo ">>> 日志："
+sudo docker logs -f aiderminal

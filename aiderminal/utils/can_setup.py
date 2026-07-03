@@ -8,6 +8,7 @@ txqueuelen 并将接口 UP。
 """
 
 import logging
+import os
 import subprocess
 from typing import Optional
 
@@ -32,16 +33,21 @@ def setup_can(
         False 配置失败（硬件不存在或权限不足）
     """
     def _sudo(*args, timeout: float = 3.0) -> subprocess.CompletedProcess:
+        cmd = ["sudo", "-n", *args] if os.geteuid() != 0 else list(args)
         return subprocess.run(
-            ["sudo", "-n", *args],
+            cmd,
             capture_output=True, text=True, timeout=timeout,
         )
 
     # 1) 加载内核模块
     for mod in ("can", "can_raw", "gs_usb"):
-        r = _sudo("modprobe", mod)
-        if r.returncode != 0 and mod != "gs_usb":  # gs_usb 可能不存在
-            logger.debug("modprobe %s: %s", mod, r.stderr.strip())
+        try:
+            r = _sudo("modprobe", mod)
+            if r.returncode != 0 and mod != "gs_usb":
+                logger.debug("modprobe %s: %s", mod, r.stderr.strip())
+        except FileNotFoundError:
+            logger.debug("modprobe not available — skip CAN module loading")
+            break
 
     # 2) 检查 can0 是否存在
     r = subprocess.run(

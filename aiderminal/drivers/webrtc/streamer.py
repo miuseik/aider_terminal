@@ -500,11 +500,7 @@ class WebRTCStreamer:
                     print("⚠️ Transport 已断开，等待重连...")
                     self._need_reconnect = True
                     continue
-                # 热插拔检测：摄像头插上了就重建 PC 推流
-                if self._no_camera and self._try_connect_camera():
-                    print("📹 检测到新摄像头，触发推流重建")
-                    self._need_reconnect = True
-                    continue
+                # 热插拔检测：只在有新订阅者时由 _handle_subscriber_joined 触发
                 continue
             handler = handlers.get(msg.get("type"))
             if handler:
