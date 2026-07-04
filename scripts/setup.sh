@@ -117,11 +117,11 @@ PLUGINEOF
 fi
 info "docker compose 可用"
 
-# 检测使用 docker compose (v2) 还是 docker-compose (v1 standalone)
-if docker compose version &>/dev/null 2>&1; then
-    COMPOSE_CMD="docker compose"
-elif command -v docker-compose &>/dev/null; then
+# 检测 compose 命令：优先用 v1 standalone（不依赖 buildx），再试 v2 插件
+if command -v docker-compose &>/dev/null; then
     COMPOSE_CMD="docker-compose"
+elif docker compose version &>/dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
 else
     error "找不到 docker compose 命令"
     exit 1
