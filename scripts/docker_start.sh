@@ -1,24 +1,27 @@
 #!/bin/bash
-# 日常启动：删除旧容器 + 启动项目（跳过构建，带仿真窗口）
-#   sudo ./scripts/docker_start.sh
-#   sudo ./scripts/docker_start.sh aloha
+# docker_start.sh — 启动 Aider Terminal（兼容旧习惯）
+#
+# 用法:
+#   ./scripts/docker_start.sh          # 默认 aider 机器人
+#   ./scripts/docker_start.sh aloha     # 指定机器人
+#
+# 所有新电脑都一样，无需任何前置步骤。
+# 首次会下载 ROS 基础镜像并构建（约 3-5 分钟），后续秒开。
 set -e
 
 ROBOT="${1:-aider}"
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$SCRIPT_DIR"
 
-xhost +local:docker
+# 允许容器访问 X11（仿真窗口用）
+xhost +local:docker &>/dev/null || true
 
-echo ">>> 删除旧容器..."
-sudo docker rm -f aiderminal 2>/dev/null || true
+# 一条命令：构建（如果需要） + 启动
+echo ">>> 启动 Aider Terminal (robot=$ROBOT) ..."
+docker compose down --remove-orphans &>/dev/null || true
+ROBOT_TYPE=$ROBOT docker compose up --build -d
 
-echo ">>> 启动项目 (robot=$ROBOT，带仿真窗口) ..."
-sudo docker run -d --name aiderminal \
-    --network host \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-    -e DISPLAY=$DISPLAY \
-    -e ROBOT_TYPE=$ROBOT \
-    -e NO_ROBOT=true \
-    aider_ros:x11
-
-echo ">>> 日志："
-sudo docker logs -f aiderminal
+echo ""
+echo ">>> 已启动"
+echo ">>> 查看日志: docker compose logs -f"
+echo ">>> 停止服务: docker compose down"

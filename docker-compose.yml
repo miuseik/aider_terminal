@@ -1,0 +1,42 @@
+# Aider Terminal — 手臂机器人遥操作系统
+#
+# 启动（一键）:
+#   docker compose up --build -d
+#
+# 停止:
+#   docker compose down
+#
+# 切换机器人:
+#   ROBOT_TYPE=aloha docker compose up --build -d
+
+services:
+  aiderminal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aiderminal
+    network_mode: host
+    ipc: host
+    privileged: false
+
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - ROBOT_TYPE=${ROBOT_TYPE:-aider}
+      - NO_ROBOT=${NO_ROBOT:-true}
+      - NO_SIM=${NO_SIM:-false}
+      - NO_VIZ=${NO_VIZ:-false}
+      - QT_X11_NO_MITSHM=1
+
+    # 源码卷挂载 —— 改代码即生效，无需重新构建镜像
+    volumes:
+      - .:/ws/src/aiderminal             # 项目根目录（源码 + URDF）读写挂载，colcon 需要
+      - ./log:/ws/log                     # 日志持久化
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro  # X11 转发（仿真窗口）
+
+    devices:
+      - /dev/dri:/dev/dri                 # GPU 渲染
+      - /dev:/dev                         # 设备透传（摄像头等由 video_source 配置决定）
+
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

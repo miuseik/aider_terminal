@@ -17,7 +17,7 @@ setup(
     ],
     install_requires=[
         'setuptools',
-        'numpy',
+        'numpy<2',
         'requests',
         'websockets',
         'pyyaml',
