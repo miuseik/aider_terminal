@@ -33,13 +33,85 @@ else
     info "Docker 已安装: $(docker --version)"
 fi
 
+# ── 1.5 配置 Docker 国内镜像加速 ──
+if [ ! -f /etc/docker/daemon.json ] || ! grep -q 'registry-mirrors' /etc/docker/daemon.json 2>/dev/null; then
+    warn "配置 Docker 国内镜像加速..."
+    sudo mkdir -p /etc/docker
+    sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+{
+  "registry-mirrors": [
+    "https://mirror.ccs.tencentyun.com",
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://registry.docker-cn.com"
+  ]
+}
+EOF
+    sudo systemctl daemon-reload
+    sudo systemctl restart docker
+    info "Docker 镜像加速已配置"
+else
+    info "Docker 镜像加速已配置"
+fi
+
 # ── 2. docker compose 插件 ──
 if ! docker compose version &>/dev/null; then
     warn "安装 docker compose 插件..."
+
+    # 清理可能损坏的旧插件（避免 segfault）
+    sudo rm -f /usr/local/lib/docker/cli-plugins/docker-compose
+
+    # 优先 apt 安装 docker compose v2
     sudo apt-get install -y -qq docker-compose-v2 2>/dev/null || \
         sudo apt-get install -y -qq docker-compose-plugin 2>/dev/null || true
+
     if ! docker compose version &>/dev/null; then
-        error "docker compose 插件安装失败，请手动安装"
+        # apt 失败 → pip 安装 standalone（走 PyPI 镜像，国内快）
+        warn "apt 不可用，通过 pip 安装 docker-compose (v1)..."
+        sudo pip3 install docker-compose 2>/dev/null || \
+            sudo pip install docker-compose 2>/dev/null || true
+
+        if command -v docker-compose &>/dev/null; then
+            # 创建 docker CLI plugin wrapper
+            # 这样 docker compose 命令也能透明使用 v1 standalone
+            CLI_PLUGIN_DIR="/usr/local/lib/docker/cli-plugins"
+            sudo mkdir -p "$CLI_PLUGIN_DIR"
+            sudo tee "${CLI_PLUGIN_DIR}/docker-compose" > /dev/null << 'PLUGINEOF'
+#!/bin/sh
+exec docker-compose "$@"
+PLUGINEOF
+            sudo chmod +x "${CLI_PLUGIN_DIR}/docker-compose"
+        fi
+    fi
+
+    # 最后兜底：GitHub 直接下载
+    if ! docker compose version &>/dev/null; then
+        ARCH=$(uname -m)
+        case "$ARCH" in
+            aarch64|arm64)   COMPOSE_ARCH="aarch64" ;;
+            x86_64|amd64)    COMPOSE_ARCH="x86_64"  ;;
+            *)               COMPOSE_ARCH="aarch64" ;;
+        esac
+        CLI_PLUGIN_DIR="/usr/local/lib/docker/cli-plugins"
+        sudo mkdir -p "$CLI_PLUGIN_DIR"
+
+        # 多镜像源尝试
+        for URL in \
+            "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${COMPOSE_ARCH}" \
+            "https://ghfast.top/https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${COMPOSE_ARCH}" \
+            "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${COMPOSE_ARCH}"; do
+            warn "尝试下载 (60s超时): $URL"
+            if sudo curl -fsSL --connect-timeout 10 --max-time 60 "$URL" -o "${CLI_PLUGIN_DIR}/docker-compose" 2>/dev/null; then
+                sudo chmod +x "${CLI_PLUGIN_DIR}/docker-compose"
+                break
+            fi
+            warn "该地址超时或失败，试下一条..."
+        done
+    fi
+
+    if ! docker compose version &>/dev/null; then
+        error "docker compose 插件安装失败，请手动执行:"
+        error "  sudo pip3 install docker-compose"
+        error "  然后重新运行 ./scripts/setup.sh"
         exit 1
     fi
 fi
