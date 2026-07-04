@@ -46,10 +46,19 @@ class AlohaVisualizer:
 
     # ==================== 初始化 ====================
 
+    @staticmethod
+    def _has_x11_display() -> bool:
+        """真正检查 X11 是否可用（环境变量 + socket 文件双重验证）。"""
+        display = os.environ.get('DISPLAY', '')
+        if not display:
+            return False
+        display_num = display.split(':')[1].split('.')[0] if ':' in display else '0'
+        x_socket = f'/tmp/.X11-unix/X{display_num}'
+        return os.path.exists(x_socket)
+
     def setup(self) -> bool:
         """初始化 PyBullet 并加载 SO100 双臂 + Aloha 基底。"""
-        # 检查是否有可用的 X 显示，没有的话直接 headless
-        has_display = bool(os.environ.get('DISPLAY'))
+        has_display = self._has_x11_display()
         use_gui = self.use_gui and has_display
 
         if not has_display and self.use_gui:

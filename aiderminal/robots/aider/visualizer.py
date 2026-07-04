@@ -46,11 +46,24 @@ class AiderVisualizer:
 
     # ==================== 初始化 ====================
 
+    @staticmethod
+    def _has_x11_display() -> bool:
+        """真正检查 X11 是否可用（环境变量 + socket 文件双重验证）。
+
+        pybullet GUI 在无 X11 环境会 C 层崩溃，try/except 兜不住，
+        因此必须在 p.connect(GUI) 之前做可靠判断。
+        """
+        display = os.environ.get('DISPLAY', '')
+        if not display:
+            return False
+        # 检查 X socket 文件是否真实存在
+        display_num = display.split(':')[1].split('.')[0] if ':' in display else '0'
+        x_socket = f'/tmp/.X11-unix/X{display_num}'
+        return os.path.exists(x_socket)
+
     def setup(self) -> bool:
         """初始化 PyBullet 并加载 Aider URDF。"""
-        # 检查是否有可用的 X 显示，没有的话直接 headless
-        # （pybullet GUI 在无 X11 环境会 C 层崩溃，try/except 兜不住）
-        has_display = bool(os.environ.get('DISPLAY'))
+        has_display = self._has_x11_display()
         use_gui = self.use_gui and has_display
 
         if not has_display and self.use_gui:
