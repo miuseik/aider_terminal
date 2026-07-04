@@ -311,17 +311,59 @@ class AiderPinkSolver:
         base_task.transform_target_to_world = pin.SE3.Identity()
         tasks.append(base_task)
 
-        # 3. 姿态偏好任务（未求解关节趋向舒适姿态，参考 OpenArmX）
-        # 当前求解臂用其当前角度，另一臂用姿态偏好
+        # 3. 姿态偏好任务
         posture_target = q.copy()
         other = "right" if arm == "left" else "left"
         for jname in self.arm_joints[other]:
             qi = self._q_idx(jname)
             if qi >= 0:
                 posture_target[qi] = self._posture_q[qi]
+
         posture_task = PostureTask(cost=0.05)
         posture_task.set_target(posture_target)
         tasks.append(posture_task)
+
+        # 4. 肘部避碰：直接在肘部 frame 加位置约束，推离身体
+        #    Y 方向：远离 Y=0（以 elbow_x 符号为参考区分左右臂）
+        #    X 方向：远离 X=0（同样用 elbow_x 符号）
+        elbow_frame = f"{arm}_arm4"
+        elbow_fid = self.robot.model.getFrameId(elbow_frame)
+        if elbow_fid < self.robot.model.nframes:
+            elbow_pos = configuration.get_transform_frame_to_world(
+                elbow_frame).translation
+            elbow_y = elbow_pos[1]
+            elbow_x = elbow_pos[0]
+
+            min_clearance = 0.07
+            safe_clearance = 0.16
+
+            if abs(elbow_y) < safe_clearance or abs(elbow_x) < safe_clearance:
+                danger = np.clip(
+                    1.0 - (min(abs(elbow_y), abs(elbow_x)) - min_clearance) /
+                    (safe_clearance - min_clearance), 0.0, 1.0)
+
+                elbow_target = elbow_pos.copy()
+
+                # Y 方向：保持当前符号，放大到 safe_clearance 以外
+                if abs(elbow_y) < safe_clearance:
+                    push_dir_y = 1.0 if elbow_y >= 0 else -1.0
+                    elbow_target[1] = push_dir_y * safe_clearance
+
+                # X 方向：elbow_x 的符号天然区分左右臂，往同符号方向推
+                if abs(elbow_x) < safe_clearance:
+                    push_dir_x = 1.0 if elbow_x >= 0 else -1.0
+                    elbow_target[0] = push_dir_x * safe_clearance
+
+                elbow_task = FrameTask(
+                    elbow_frame,
+                    position_cost=0.05 + danger * 0.80,
+                    orientation_cost=0.0,
+                    lm_damping=1.0,
+                )
+                target_se3 = pin.SE3.Identity()
+                target_se3.translation = elbow_target
+                elbow_task.transform_target_to_world = target_se3
+                tasks.append(elbow_task)
 
         # ---- 求解 ----
         try:
@@ -343,9 +385,6 @@ class AiderPinkSolver:
                 new_q[qi] = np.clip(new_q[qi],
                                      m.lowerPositionLimit[qi],
                                      m.upperPositionLimit[qi])
-
-        # 身体避碰：TODO 未实现，暂时跳过
-        # new_q = self._avoid_body_collision(new_q, arm)
 
         # 保存并检查位置误差
         self._current_q = new_q
