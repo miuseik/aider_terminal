@@ -127,10 +127,13 @@ aider_terminal/
 ---
 ## 便捷操作（勿删）
 ```bash
-git add ./;git commit -m "ik主动避让";git push
+git add ./;git commit -m "hotfix";git push
 ``` 
 ```bash
 git pull
+``` 
+```bash
+ssh gaoda@192.168.0.114
 ``` 
 ---
 

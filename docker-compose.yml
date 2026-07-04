@@ -32,10 +32,7 @@ services:
       - .:/ws/src/aiderminal             # 项目根目录（源码 + URDF）读写挂载，colcon 需要
       - ./log:/ws/log                     # 日志持久化
       - /tmp/.X11-unix:/tmp/.X11-unix:ro  # X11 转发（仿真窗口）
-
-    devices:
-      - /dev/dri:/dev/dri                 # GPU 渲染
-      - /dev:/dev                         # 设备透传（摄像头等由 video_source 配置决定）
+      - /dev:/dev:rw                      # 让容器能看见主机设备，具体使用时机由业务代码决定
 
     restart: unless-stopped
     stdin_open: true
