@@ -5,6 +5,7 @@ Aider 机器人 PyBullet 可视化器。
 
 import os
 import math
+import subprocess
 import numpy as np
 import pybullet as p
 import pybullet_data
@@ -48,18 +49,26 @@ class AiderVisualizer:
 
     @staticmethod
     def _has_x11_display() -> bool:
-        """真正检查 X11 是否可用（环境变量 + socket 文件双重验证）。
+        """可靠检测 X11 是否可用（xdpyinfo 连通性测试）。
 
         pybullet GUI 在无 X11 环境会 C 层崩溃，try/except 兜不住，
         因此必须在 p.connect(GUI) 之前做可靠判断。
+
+        仅检查 DISPLAY + socket 文件不够 —— Xauth cookie/权限
+        可能不匹配。用 xdpyinfo 做真正的连接测试。
         """
         display = os.environ.get('DISPLAY', '')
         if not display:
             return False
-        # 检查 X socket 文件是否真实存在
-        display_num = display.split(':')[1].split('.')[0] if ':' in display else '0'
-        x_socket = f'/tmp/.X11-unix/X{display_num}'
-        return os.path.exists(x_socket)
+        try:
+            subprocess.run(
+                ['xdpyinfo'], check=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+            return True
+        except Exception:
+            return False
 
     def setup(self) -> bool:
         """初始化 PyBullet 并加载 Aider URDF。"""

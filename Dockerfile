@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip build-essential \
     can-utils usbutils \
     iproute2 libgl1 sudo \
+    xvfb x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # ── ROS 2 Jazzy ──

@@ -11,9 +11,5 @@
   具体计算逻辑全部委托给此目录下的适配器。
 """
 
-try:
-    from .aloha.adapter import AlohaAdapter
-except ImportError:
-    AlohaAdapter = None
-
-__all__ = ["AlohaAdapter"]
+# 不在包初始化时导入任何子模块 —— 运行时按 robot_type 动态加载，
+# 避免无条件触发 pybullet/fk_ik 等重量级依赖的导入。

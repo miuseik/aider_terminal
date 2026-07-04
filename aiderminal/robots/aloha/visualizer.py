@@ -5,6 +5,7 @@ Aloha 机器人 PyBullet 可视化器。
 
 import os
 import math
+import subprocess
 import numpy as np
 import pybullet as p
 import pybullet_data
@@ -48,13 +49,19 @@ class AlohaVisualizer:
 
     @staticmethod
     def _has_x11_display() -> bool:
-        """真正检查 X11 是否可用（环境变量 + socket 文件双重验证）。"""
+        """可靠检测 X11 是否可用（xdpyinfo 连通性测试）。"""
         display = os.environ.get('DISPLAY', '')
         if not display:
             return False
-        display_num = display.split(':')[1].split('.')[0] if ':' in display else '0'
-        x_socket = f'/tmp/.X11-unix/X{display_num}'
-        return os.path.exists(x_socket)
+        try:
+            subprocess.run(
+                ['xdpyinfo'], check=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+            return True
+        except Exception:
+            return False
 
     def setup(self) -> bool:
         """初始化 PyBullet 并加载 SO100 双臂 + Aloha 基底。"""
