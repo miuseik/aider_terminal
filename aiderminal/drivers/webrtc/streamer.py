@@ -229,7 +229,7 @@ class WebRTCStreamer:
         self._need_reconnect = False
 
         track_count = 0
-        if not self._no_camera and self._camera:
+        if not getattr(self, '_no_camera', True) and self._camera:
             self._video_track = CameraVideoTrack(self._camera, self.config.camera_fps)
             self._pc.addTrack(self._video_track)
             track_count += 1
@@ -583,7 +583,14 @@ class WebRTCStreamer:
 
         try:
             # 摄像头（初始连接，失败不阻塞）
-            self._try_connect_camera()
+            ok = self._try_connect_camera()
+            if ok:
+                print(f"📹 摄像头已连接: {self._camera.index_or_path if self._camera else '?'}")
+            else:
+                if self.config.video_source == "none":
+                    print("📹 摄像头已禁用 (video_source=none)")
+                else:
+                    print(f"⚠️ 摄像头连接失败 ({self.config.video_source})，视频推流不可用")
 
             # 麦克风
             if self.config.audio_enabled:
