@@ -117,11 +117,21 @@ PLUGINEOF
 fi
 info "docker compose 可用"
 
+# 检测使用 docker compose (v2) 还是 docker-compose (v1 standalone)
+if docker compose version &>/dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+elif command -v docker-compose &>/dev/null; then
+    COMPOSE_CMD="docker-compose"
+else
+    error "找不到 docker compose 命令"
+    exit 1
+fi
+info "compose 命令: $COMPOSE_CMD"
+
 # ── 3. 当前用户加入 docker 组 ──
 if ! groups "$USER" | grep -q docker; then
     warn "将 $USER 加入 docker 组..."
     sudo usermod -aG docker "$USER"
-    warn "请退出终端重新登录，或执行: newgrp docker"
     NEED_RELOGIN=true
 else
     info "$USER 已在 docker 组内"
@@ -136,36 +146,55 @@ if [ -n "$DISPLAY" ]; then
     xhost +local:docker &>/dev/null || true
 fi
 
-# ── 6. 构建镜像（首次从 Docker Hub 下载官方 ros:jazzy，约 3-5 分钟）──
+# ── 6. 构建镜像 ──
 echo ""
 echo ">>> 构建 Docker 镜像..."
 echo "    首次构建会下载 ROS 基础镜像 (~500MB)，请耐心等待。"
 echo "    后续启动无需重复构建，秒级完成。"
 echo ""
-docker compose build
+
+if [ "$NEED_RELOGIN" = true ]; then
+    # 刚加入 docker 组，用 sg 获取新组权限
+    sg docker -c "$COMPOSE_CMD build"
+else
+    $COMPOSE_CMD build
+fi
 info "镜像构建完成"
 
 # ── 7. 启动 ──
 echo ""
-docker compose up -d
+if [ "$NEED_RELOGIN" = true ]; then
+    sg docker -c "$COMPOSE_CMD up -d"
+else
+    $COMPOSE_CMD up -d
+fi
 
 # ── 8. 等待启动 ──
 sleep 3
-if docker ps --format '{{.Names}}' | grep -q aiderminal; then
+if [ "$NEED_RELOGIN" = true ]; then
+    RUNNING=$(sg docker -c "docker ps --format '{{.Names}}'" 2>/dev/null)
+else
+    RUNNING=$(docker ps --format '{{.Names}}' 2>/dev/null)
+fi
+
+if echo "$RUNNING" | grep -q aiderminal; then
     info "项目已启动！"
     echo ""
-    echo "  查看日志:  docker compose logs -f"
-    echo "  停止项目:  docker compose down"
-    echo "  改代码后:  docker compose restart"
+    echo "  查看日志:  $COMPOSE_CMD logs -f"
+    echo "  停止项目:  $COMPOSE_CMD down"
+    echo "  改代码后:  $COMPOSE_CMD restart"
     echo ""
-    docker compose logs --tail=10
 else
-    error "启动失败，查看日志: docker compose logs"
-    docker compose logs --tail=30
+    error "启动失败，查看日志: $COMPOSE_CMD logs"
+    if [ "$NEED_RELOGIN" = true ]; then
+        sg docker -c "$COMPOSE_CMD logs --tail=30"
+    else
+        $COMPOSE_CMD logs --tail=30
+    fi
     exit 1
 fi
 
 if [ "$NEED_RELOGIN" = true ]; then
     echo ""
-    warn "请退出终端并重新登录，使 docker 组权限生效"
+    warn "已通过 sg 命令执行 docker 操作，无需重新登录"
 fi
