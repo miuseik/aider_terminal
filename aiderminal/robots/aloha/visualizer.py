@@ -48,14 +48,21 @@ class AlohaVisualizer:
 
     def setup(self) -> bool:
         """初始化 PyBullet 并加载 SO100 双臂 + Aloha 基底。"""
+        # 检查是否有可用的 X 显示，没有的话直接 headless
+        has_display = bool(os.environ.get('DISPLAY'))
+        use_gui = self.use_gui and has_display
+
+        if not has_display and self.use_gui:
+            print("⚠️ 无 X11 显示，PyBullet 将以 headless 模式运行")
+
         try:
-            if self.use_gui:
+            if use_gui:
                 self.physics_client = p.connect(p.GUI)
                 print("PyBullet GUI 已连接")
             else:
                 self.physics_client = p.connect(p.DIRECT)
         except p.error as e:
-            print(f"PyBullet GUI 连接失败: {e}, 回退 headless")
+            print(f"PyBullet 连接失败: {e}")
             try:
                 self.physics_client = p.connect(p.DIRECT)
             except p.error:
@@ -65,7 +72,7 @@ class AlohaVisualizer:
         if self.physics_client < 0:
             return False
 
-        if self.use_gui:
+        if use_gui:
             p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
             p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1)
             p.configureDebugVisualizer(p.COV_ENABLE_WIREFRAME, 0)

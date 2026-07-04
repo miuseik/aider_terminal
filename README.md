@@ -127,7 +127,7 @@ aider_terminal/
 ---
 ## 便捷操作（勿删）
 ```bash
-git add ./;git commit -m "hotfix";git push
+git add ./;git commit -m "处理pybullet";git push
 ``` 
 ```bash
 git pull
