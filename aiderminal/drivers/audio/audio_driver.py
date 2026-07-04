@@ -71,11 +71,15 @@ class AudioDriver:
             return False
         try:
             if self.mode == MODE_INPUT:
+                # 输入 blocksize 与 WebRTC 20ms 帧对齐，避免读取节奏不均匀导致断续
+                blocksize = int(self.sample_rate * 0.02)  # 20ms
                 self._stream = sd.InputStream(
                     device=self.device,
                     channels=self.channels,
                     samplerate=self.sample_rate,
                     dtype=self.dtype,
+                    blocksize=blocksize,
+                    latency="low",
                 )
             else:
                 # 输出模式：增大缓冲避免网络抖动导致的 underrun

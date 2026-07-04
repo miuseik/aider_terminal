@@ -25,6 +25,10 @@ network:
   # api_host: www.houqicg.com      # API Server 地址
   # server_port: 8442
   enable_webrtc: true   # 启用 aiortc WebRTC 视频推流（纯 Python，全平台可用）
+  # --- 音频 ---
+  audio_enabled: true
+  audio_device: "Yundea A31-1"   # USB 音频设备 (card 2, 1 in + 2 out)
+  audio_sample_rate: 16000
   # --- WebRTC 信令（复用 /ws/terminal 通道，无需独立 URL）---
   webrtc_room_id: robot-camera     # 房间 ID
   # ICE 服务器（兜底：若服务器未响应 webrtc_joined 时使用）

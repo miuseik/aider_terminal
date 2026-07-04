@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip build-essential \
     can-utils usbutils \
     iproute2 libgl1 sudo \
+    libportaudio2 alsa-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # ── ROS 2 Jazzy ──
@@ -34,7 +35,7 @@ RUN pip3 install --break-system-packages --ignore-installed \
     setuptools "numpy<2" requests websockets pyyaml scipy opencv-python \
     pybullet pyserial trimesh "aiortc>=1.7.0" "av>=11.0.0" \
     pin-pink "qpsolvers[quadprog]" meshcat_shapes loop_rate_limiters \
-    colcon-common-extensions
+    colcon-common-extensions sounddevice
 
 # ── 创建工作空间骨架（源码在运行时 volume 挂载）──
 WORKDIR /ws

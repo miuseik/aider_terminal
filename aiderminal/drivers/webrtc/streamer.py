@@ -100,9 +100,13 @@ class MicrophoneAudioTrack(AudioStreamTrack):
         self._sample_rate = sample_rate
         self._start_time: Optional[float] = None
         self._sample_count = 0
-        self._samples_per_frame = 960  # 60ms at 16kHz, opus 兼容
+        # Opus 标准帧长 20ms = 320 samples @ 16kHz
+        # 60ms 会导致编码器 burst（3×20ms → 瞬间发出 → 60ms 沉默），接收端断断续续
+        self._samples_per_frame = int(sample_rate * 0.02)
+        self._frame_duration = self._samples_per_frame / sample_rate  # 秒
 
-        logger.info("MicrophoneAudioTrack: %dHz mono", self._sample_rate)
+        logger.info("MicrophoneAudioTrack: %dHz mono, %d samples/frame (%.0fms)",
+                     self._sample_rate, self._samples_per_frame, self._frame_duration * 1000)
 
     async def recv(self) -> AudioFrame:
         loop = asyncio.get_event_loop()
@@ -117,7 +121,8 @@ class MicrophoneAudioTrack(AudioStreamTrack):
         if self._start_time is None:
             self._start_time = time.time()
 
-        pts = int((time.time() - self._start_time) * self._sample_rate)
+        # pts 用帧序号计算而非 wall clock，避免异步抖动导致时间戳跳跃
+        pts = self._sample_count - self._samples_per_frame
         frame = AudioFrame(format="s16", layout="mono", samples=len(samples))
         frame.planes[0].update(samples.tobytes())
         frame.sample_rate = self._sample_rate
@@ -605,11 +610,11 @@ class WebRTCStreamer:
                     self.config.audio_enabled = False
                     self._mic = None
 
-            # 扬声器（接收远端音频）
+            # 扬声器（接收远端音频，USB声卡通常只支持 44100/48000 输出）
             if self.config.audio_enabled:
                 speaker_cfg = {
                     "device": self.config.audio_device,
-                    "sample_rate": self.config.audio_sample_rate,
+                    "sample_rate": self.config.audio_output_sample_rate,
                     "channels": 1,
                 }
                 self._speaker = AudioDriver(speaker_cfg, mode="output")

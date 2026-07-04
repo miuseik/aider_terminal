@@ -362,6 +362,7 @@ class TelegripConfig:
     audio_enabled: bool = True
     audio_device: str = None
     audio_sample_rate: int = 16000
+    audio_output_sample_rate: int = 48000
     
     # 机器人设置
     robot_type: str = _config_data.get("robot", {}).get("type", "aider")
@@ -416,6 +417,7 @@ class TelegripConfig:
         self.audio_enabled = net.get("audio_enabled", self.audio_enabled)
         self.audio_device = net.get("audio_device", self.audio_device)
         self.audio_sample_rate = int(net.get("audio_sample_rate", self.audio_sample_rate))
+        self.audio_output_sample_rate = int(net.get("audio_output_sample_rate", self.audio_output_sample_rate))
 
         if self.follower_ports is None:
             self.follower_ports = {
