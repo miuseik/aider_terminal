@@ -17,7 +17,7 @@ services:
     container_name: aiderminal
     network_mode: host
     ipc: host
-    privileged: false
+    privileged: true
 
     environment:
       - DISPLAY=${DISPLAY}
