@@ -66,14 +66,27 @@ class AiderVisualizer:
         has_display = self._has_x11_display()
         use_gui = self.use_gui and has_display
 
+        # 写文件诊断（C 层崩溃时 print 可能来不及 flush）
+        try:
+            with open('/tmp/pybullet_diag.log', 'a') as _df:
+                _df.write(f"[AiderVisualizer.setup] use_gui={self.use_gui} "
+                          f"DISPLAY={os.environ.get('DISPLAY', 'NOT_SET')} "
+                          f"has_x11={has_display} use_gui_final={use_gui}\n")
+        except Exception:
+            pass
+
         if not has_display and self.use_gui:
             print("⚠️ 无 X11 显示，PyBullet 将以 headless 模式运行")
 
         try:
             if use_gui:
+                with open('/tmp/pybullet_diag.log', 'a') as _df:
+                    _df.write("[AiderVisualizer.setup] 即将调用 p.connect(p.GUI)...\n")
                 self.physics_client = p.connect(p.GUI)
                 print("PyBullet GUI 已连接")
             else:
+                with open('/tmp/pybullet_diag.log', 'a') as _df:
+                    _df.write("[AiderVisualizer.setup] 即将调用 p.connect(p.DIRECT)...\n")
                 self.physics_client = p.connect(p.DIRECT)
         except p.error as e:
             print(f"PyBullet 连接失败: {e}")

@@ -3,6 +3,10 @@ OpenCV 摄像头驱动
 基于 LeRobot 的 OpenCVCamera 实现，提供稳定可靠的摄像头访问
 """
 
+import os
+os.environ.setdefault('OPENCV_LOG_LEVEL', 'ERROR')
+os.environ.setdefault('OPENCV_VIDEOIO_LOG_LEVEL', 'ERROR')
+
 import cv2
 import threading
 import time
@@ -65,7 +69,7 @@ class OpenCVCameraDriver:
             270: cv2.ROTATE_90_COUNTERCLOCKWISE
         }
 
-        print(f"📷 OpenCVCameraDriver 初始化: {self.index_or_path}")
+        # print(f"📷 OpenCVCameraDriver 初始化: {self.index_or_path}")
 
     @staticmethod
     def find_cameras() -> list[dict]:
@@ -114,13 +118,13 @@ class OpenCVCameraDriver:
                     }
 
                     found_cameras.append(camera_info)
-                    print(f"发现摄像头: {camera_info}")
+                    # print(f"发现摄像头: {camera_info}")
                     cap.release()
             except Exception as e:
-                print(f"检测设备 {target} 失败: {e}")
+                # print(f"检测设备 {target} 失败: {e}")
                 continue
 
-        print(f"✅ 检测到 {len(found_cameras)} 个摄像头")
+        # print(f"✅ 检测到 {len(found_cameras)} 个摄像头")
         return found_cameras
 
     def connect(self) -> bool:
@@ -138,7 +142,7 @@ class OpenCVCameraDriver:
             self.videocapture = cv2.VideoCapture(self.index_or_path, cv2.CAP_V4L2)
 
             if not self.videocapture.isOpened():
-                print(f"❌ 无法打开摄像头: {self.index_or_path}")
+                # print(f"❌ 无法打开摄像头: {self.index_or_path}")
                 return False
 
             # 配置摄像头参数
@@ -291,7 +295,7 @@ class OpenCVCameraDriver:
             finally:
                 self.videocapture = None
                 self.is_connected = False
-                print("🔌 摄像头已断开")
+                # print("🔌 摄像头已断开")
 
     def get_info(self) -> dict:
         """

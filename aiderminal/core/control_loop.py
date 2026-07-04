@@ -176,6 +176,15 @@ class ControlLoop:
         # === 2. 设置 PyBullet 仿真、IK 和可视化器 ===
         if self.config.enable_pybullet:
             try:
+                # 写文件诊断
+                try:
+                    with open('/tmp/pybullet_diag.log', 'a') as _df:
+                        _df.write(f"[ControlLoop.setup] enable_pybullet={self.config.enable_pybullet} "
+                                  f"enable_pybullet_gui={self.config.enable_pybullet_gui} "
+                                  f"robot_type={self.config.robot_type}\n")
+                except Exception:
+                    pass
+
                 # 按需导入可视化器类
                 from aiderminal.robots.aider.visualizer import AiderVisualizer
                 from aiderminal.robots.aloha.visualizer import AlohaVisualizer
