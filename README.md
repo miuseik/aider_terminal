@@ -27,7 +27,10 @@ docker compose up --build -d
 ### 日常使用
 
 ```bash
-docker compose up -d       # 启动
+docker compose up -d       # 后台启动
+```
+```bash
+docker compose up        # 启动
 ```
 ```bash
 docker compose restart     # 改代码后重启

@@ -20,7 +20,7 @@ services:
     privileged: false
 
     environment:
-      - DISPLAY=${DISPLAY:-:0}
+      - DISPLAY=${DISPLAY}
       - ROBOT_TYPE=${ROBOT_TYPE:-aider}
       - NO_ROBOT=${NO_ROBOT:-true}
       - NO_SIM=${NO_SIM:-false}
