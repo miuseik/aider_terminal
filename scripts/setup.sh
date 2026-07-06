@@ -54,7 +54,7 @@ else
         warn "Docker $DOCKER_VER 版本过旧，升级到离线包版本..."
     elif echo "$COMPOSE_VER" | grep -q '^5\.'; then
         NEED_INSTALL=true
-        warn "Compose $COMPOSE_VER (v5) 需要新版 buildx，降级到 v2.40..."
+        warn "Compose $COMPOSE_VER (v5) 缺少 buildx 插件，重新安装含 buildx..."
     fi
 fi
 if [ "$NEED_INSTALL" = true ]; then
