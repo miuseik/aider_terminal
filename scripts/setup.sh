@@ -60,7 +60,7 @@ fi
 if [ "$NEED_INSTALL" = true ]; then
     if [ -f "$OFFLINE_DIR/install_docker.sh" ]; then
         # 强制重新 clone 以获取最新 install_docker.sh
-        rm -rf "$OFFLINE_DIR"
+        sudo rm -rf "$OFFLINE_DIR"
         git clone --depth 1 "$OFFLINE_REPO" "$OFFLINE_DIR"
         (cd "$OFFLINE_DIR" && sudo bash install_docker.sh)
     else
