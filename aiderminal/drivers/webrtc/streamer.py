@@ -149,6 +149,7 @@ class WebRTCStreamer:
         self._speaker: Optional[AudioDriver] = None
         self._remote_audio = None
         self._remote_audio_task: Optional[asyncio.Task] = None
+        self._hotplug_task: Optional[asyncio.Task] = None
         self._ice_servers: list = []
         self._running = False
         self._need_reconnect = False
@@ -472,6 +473,35 @@ class WebRTCStreamer:
             logger.exception("重连失败")
             raise
 
+    async def _camera_hotplug_loop(self):
+        """后台摄像头热插拔检测：每 3 秒尝试一次，检测到后重建 PC 加 video track"""
+        print("📹 摄像头热插拔检测已启动")
+        while self._running and self._no_camera:
+            await asyncio.sleep(3)
+            if not self._running:
+                break
+            if not self._no_camera:
+                break  # 已有摄像头
+
+            ok = self._try_connect_camera()
+            if not ok:
+                continue
+
+            # 摄像头新接入，重建 PC 添加 video track
+            print("📹 检测到摄像头热插拔，重建 WebRTC 连接...")
+            logger.info("摄像头热插拔: 重建 PeerConnection 添加 video track")
+            if self._pc:
+                try:
+                    await self._pc.close()
+                except Exception:
+                    pass
+                self._pc = None
+            self._create_peer_connection()
+            await asyncio.sleep(0.5)
+            await self._send_offer()
+            print("📹 摄像头已加入推流")
+        print("📹 摄像头热插拔检测已停止")
+
     async def _signaling_loop(self):
         """从消息队列读取信令，支持断线自动重连"""
         print("📡 信令循环已启动")
@@ -639,8 +669,17 @@ class WebRTCStreamer:
             await asyncio.sleep(0.5)
             await self._send_offer()
 
-            # 消息循环
-            await self._signaling_loop()
+            # 消息循环（与摄像头热插拔检测并行）
+            hotplug_task = asyncio.create_task(self._camera_hotplug_loop())
+            self._hotplug_task = hotplug_task
+            try:
+                await self._signaling_loop()
+            finally:
+                hotplug_task.cancel()
+                try:
+                    await hotplug_task
+                except asyncio.CancelledError:
+                    pass
 
         except asyncio.CancelledError:
             logger.info("推流任务取消")
@@ -669,6 +708,9 @@ class WebRTCStreamer:
         if self._remote_audio_task:
             self._remote_audio_task.cancel()
             self._remote_audio_task = None
+        if self._hotplug_task:
+            self._hotplug_task.cancel()
+            self._hotplug_task = None
         if self._speaker:
             self._speaker.disconnect()
             self._speaker = None
