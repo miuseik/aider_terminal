@@ -44,7 +44,10 @@ class WSTransport:
             print(f"🔌 正在连接服务器: {ws_url}")
             self.websocket = await websockets.connect(
                 ws_url,
-                ssl=self.ssl_context
+                ssl=self.ssl_context,
+                ping_interval=15,       # 每15秒发一次 ping
+                ping_timeout=60,        # 等60秒超时（默认20秒）
+                close_timeout=10,       # 关闭握手超时
             )
             self.is_connected = True
             print(f"✅ 已连接到服务器")
