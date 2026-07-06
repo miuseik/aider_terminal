@@ -41,20 +41,27 @@ if [ ! -d "$OFFLINE_DIR" ]; then
     git clone --depth 1 "$OFFLINE_REPO" "$OFFLINE_DIR"
 fi
 
-# ── 2. 离线安装 Docker（版本过旧也自动更新） ──
+# ── 2. 离线安装 Docker（版本过旧或 compose 不兼容也自动更新） ──
 NEED_INSTALL=false
 if ! command -v docker &>/dev/null; then
     NEED_INSTALL=true
     warn "Docker 未安装，通过离线包安装..."
 else
     DOCKER_VER=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+    COMPOSE_VER=$(docker compose version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)
     if [ "$(printf '%s\n' "28.0" "$DOCKER_VER" | sort -V | head -1)" != "28.0" ]; then
         NEED_INSTALL=true
         warn "Docker $DOCKER_VER 版本过旧，升级到离线包版本..."
+    elif echo "$COMPOSE_VER" | grep -q '^5\.'; then
+        NEED_INSTALL=true
+        warn "Compose $COMPOSE_VER (v5) 需要新版 buildx，降级到 v2.40..."
     fi
 fi
 if [ "$NEED_INSTALL" = true ]; then
     if [ -f "$OFFLINE_DIR/install_docker.sh" ]; then
+        # 强制重新 clone 以获取最新 install_docker.sh
+        rm -rf "$OFFLINE_DIR"
+        git clone --depth 1 "$OFFLINE_REPO" "$OFFLINE_DIR"
         (cd "$OFFLINE_DIR" && sudo bash install_docker.sh)
     else
         error "Docker 离线包不完整：$OFFLINE_DIR"
