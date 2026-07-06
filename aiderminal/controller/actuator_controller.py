@@ -47,20 +47,23 @@ class ActuatorController:
     # ── 连接池 (参考 aider_terminal MotorController._get_or_create_driver) ──
 
     def _get_or_create_driver(self, port: str):
-        """获取或按需创建驱动实例（连接池模式，自动重连）."""
+        """获取或按需创建驱动实例（连接池模式，自动重连，CAN 热插拔容错）."""
         # 已缓存且连接正常 → 直接返回
         if port in self._joint_drivers:
             driver = self._joint_drivers[port]
             if hasattr(driver, "is_connected") and not driver.is_connected:
-                if driver.connect():
-                    logger.info("Reconnected driver for %s", port)
-                    return driver
+                if self._can_retry_setup(port):
+                    if driver.connect():
+                        logger.info("Reconnected driver for %s", port)
+                        return driver
                 logger.warning("Failed to reconnect driver for %s", port)
                 return None
             return driver
 
         # 按端口类型创建驱动
         if "can" in port.lower():
+            # CAN 热插拔：先尝试 setup_can，再连接
+            self._can_retry_setup(port)
             from aiderminal.drivers.actuator.robStride import RobStrideOfficialDriver
             driver = RobStrideOfficialDriver(can_interface=port)
         else:
@@ -74,6 +77,19 @@ class ActuatorController:
 
         logger.warning("Failed to create driver for %s", port)
         return None
+
+    @staticmethod
+    def _can_retry_setup(port: str) -> bool:
+        """CAN 热插拔恢复：尝试重新初始化 can0 接口（最多一次）."""
+        try:
+            from aiderminal.utils.can_setup import setup_can
+            ok = setup_can(port)
+            if ok:
+                logger.info("CAN setup retry succeeded for %s", port)
+            return ok
+        except Exception as e:
+            logger.debug("CAN setup retry failed: %s", e)
+            return False
 
     # ── 驱动注入 ───────────────────────────────────────
 
