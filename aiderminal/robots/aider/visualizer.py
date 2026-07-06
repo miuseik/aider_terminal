@@ -49,24 +49,31 @@ class AiderVisualizer:
 
     @staticmethod
     def _has_x11_display() -> bool:
-        """可靠检测 X11 是否可用（xdpyinfo 连通性测试）。
+        """检测 X11 是否可用（通过 Unix socket 连通性）。
 
         pybullet GUI 在无 X11 环境会 C 层崩溃，try/except 兜不住，
         因此必须在 p.connect(GUI) 之前做可靠判断。
-
-        仅检查 DISPLAY + socket 文件不够 —— Xauth cookie/权限
-        可能不匹配。用 xdpyinfo 做真正的连接测试。
         """
+        import socket as _socket
+
         display = os.environ.get('DISPLAY', '')
         if not display:
             return False
+
         try:
-            subprocess.run(
-                ['xdpyinfo'], check=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=2,
-            )
-            return True
+            sock_num = display.lstrip(':').split('.')[0]
+            sock_path = f'/tmp/.X11-unix/X{sock_num}'
+            if not os.path.exists(sock_path):
+                return False
+            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            sock.settimeout(1)
+            try:
+                sock.connect(sock_path)
+                return True
+            except (OSError, _socket.timeout):
+                return False
+            finally:
+                sock.close()
         except Exception:
             return False
 
