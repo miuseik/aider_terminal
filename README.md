@@ -142,7 +142,8 @@ cd www/aider_terminal
 密码：gaoda
 ``` 
 ```bash
-ssh gaoda@192.168.0.114
+ssh gaoda@192.168.0.110
+/www/aider/aider_terminal 
 密码：gaoda123
 ``` 
 ---

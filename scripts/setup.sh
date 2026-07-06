@@ -53,6 +53,24 @@ if ! command -v docker &>/dev/null; then
 fi
 info "Docker 已安装: $(docker --version)"
 
+# ── 2.5 配置 Docker 国内镜像（离线包不可用时的 fallback）──
+ARCH=$(uname -m)
+if [ "$ARCH" != "x86_64" ]; then
+    if [ ! -f /etc/docker/daemon.json ] || ! grep -q 'registry-mirrors' /etc/docker/daemon.json 2>/dev/null; then
+        warn "配置 Docker 国内镜像加速..."
+        sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+{
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.m.daocloud.io"
+  ]
+}
+EOF
+        sudo systemctl restart docker
+    fi
+    info "Docker 镜像加速已配置"
+fi
+
 # ── 3. docker compose 检测 ──
 if ! docker compose version &>/dev/null; then
     COMPOSE_SRC="$OFFLINE_DIR/compose-$(uname -m)"
@@ -93,18 +111,27 @@ if [ -n "$DISPLAY" ]; then
     xhost +local:docker &>/dev/null || true
 fi
 
-# ── 7. 加载基础镜像离线包（仅 x86_64，树莓派直接从 Docker Hub 拉） ──
-ARCH=$(uname -m)
-if [ "$ARCH" = "x86_64" ] && [ -f "$OFFLINE_DIR/ubuntu-noble.tar.gz" ]; then
-    info "加载基础镜像离线包..."
-    docker_cmd "docker load -i $OFFLINE_DIR/ubuntu-noble.tar.gz"
+# ── 7. 准备基础镜像（优先离线包，其次镜像源拉取） ──
+if ! docker image inspect ubuntu:noble &>/dev/null; then
+    if [ "$ARCH" = "x86_64" ] && [ -f "$OFFLINE_DIR/ubuntu-noble.tar.gz" ]; then
+        info "从离线包加载 ubuntu:noble (x86_64)..."
+        docker_cmd "docker load -i $OFFLINE_DIR/ubuntu-noble.tar.gz"
+    elif [ "$ARCH" = "aarch64" ] && [ -f "$OFFLINE_DIR/ubuntu-noble-aarch64.tar.gz" ]; then
+        info "从离线包加载 ubuntu:noble (aarch64)..."
+        docker_cmd "docker load -i $OFFLINE_DIR/ubuntu-noble-aarch64.tar.gz"
+    else
+        warn "离线包不可用，通过镜像源拉取 ubuntu:noble ($ARCH)..."
+        docker_cmd "docker pull ubuntu:noble"
+    fi
+    info "ubuntu:noble 就绪"
+else
+    info "ubuntu:noble 已就绪"
 fi
 
 # ── 8. 构建镜像 ──
 echo ""
 echo ">>> 构建 Docker 镜像..."
-echo "    ubuntu:noble 基础镜像已离线加载。"
-echo "    构建过程会自动安装 ROS 系统包 (~500MB)，需要联网。"
+echo "    基础镜像就绪，开始安装 ROS 系统包 (~500MB)，需要联网。"
 echo "    后续启动无需重复构建，秒级完成。"
 echo ""
 
