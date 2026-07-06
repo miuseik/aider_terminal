@@ -149,7 +149,7 @@ class ActuatorController:
             return False
         try:
             if hasattr(driver, 'move_to_angle'):
-                ok = driver.move_to_angle(device_id, position, time_ms)
+                ok = driver.move_to_angle(device_id, position, time_ms=0)
             else:
                 ok = driver.set_position(device_id, position, time_ms)
             if ok:

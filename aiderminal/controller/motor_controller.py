@@ -328,7 +328,8 @@ class MotorController:
         
         # 调用驱动的角度控制方法（自动转换角度到脉冲）
         try:
-            success = driver.move_to_angle(servo_id, angle_deg, time_ms)
+            # 必须用 keyword 传 speed，因为 move_to_angle 签名是 (servo_id, angle, speed, time_ms)
+            success = driver.move_to_angle(servo_id, angle_deg, time_ms=0)
             if success:
                 print(f"✅ 舵机 {servo_id} 角度设置为 {angle_deg}°")
             else:

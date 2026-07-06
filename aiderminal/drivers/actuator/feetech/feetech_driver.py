@@ -90,50 +90,52 @@ class ST3215Driver:
         pos, result, _ = self._servo.ReadPos(servo_id)
         return pos if result == COMM_SUCCESS else None
 
-    def set_position(self, servo_id: int, position: int, time_ms: int = 500) -> bool:
+    # ST3215 速度范围 0-3400，0=EEPROM 默认值（出厂很慢），3400≈712 RPM
+    _DEFAULT_SERVO_SPEED: int = 2000
+    # 加速度范围 0-255，0=EEPROM 默认值（出厂极慢），值越大加速越快
+    _DEFAULT_SERVO_ACC: int = 150
+
+    def set_position(
+        self, servo_id: int, position: int,
+        speed: int = _DEFAULT_SERVO_SPEED, time_ms: int = 0,
+    ) -> bool:
         """设置舵机目标步进位置 (0-4095, 对应 0°-360°)。
 
         Args:
             servo_id: 舵机 ID
             position: 步进值 (自动 clamp 到 0-4095)
-            time_ms: 运动持续时间
-
-        Returns:
-            bool: 是否成功
+            speed:    运动速度 (0-3400)，0 则使用 EEPROM 默认值
+            time_ms:  保留参数（此 SDK 封包 time 固定为 0，不生效）
         """
         if not self.is_connected or self._servo is None:
             print(f"⚠️ [ST3215] 未连接，跳过发送 - ID={servo_id}, Position={position}")
             return False
+        # 速度/加速度为 0 会回退到 EEPROM 出厂默认（通常极慢），保护防止误传
+        actual_speed = speed if speed > 0 else self._DEFAULT_SERVO_SPEED
         position = max(0, min(4095, position))
-        result, _ = self._servo.WritePosEx(servo_id, position, time_ms, 0)
+        result, _ = self._servo.WritePosEx(servo_id, position, actual_speed, self._DEFAULT_SERVO_ACC)
         return result == COMM_SUCCESS
 
     # ── 角度便捷方法 ──
 
-    def move_to_angle(self, servo_id: int, angle: float, time_ms: int = 500) -> bool:
-        """角度制便捷接口：将角度 (°) 转为步进值后发送。
-
-        转换公式: position = (angle + offset + 180) / 360 * 4095
-
-        Args:
-            servo_id: 舵机 ID
-            angle: 目标角度 (°)
-            time_ms: 运动时间
-
-        Returns:
-            bool: 是否成功
-        """
+    def move_to_angle(
+        self, servo_id: int, angle: float,
+        speed: int = _DEFAULT_SERVO_SPEED, time_ms: int = 0,
+    ) -> bool:
+        """角度制便捷接口：将角度 (°) 转为步进值后发送。"""
         offset = self.id_to_offset.get(servo_id, 0.0)
         angle_with_offset = angle + offset
         normalized = angle_with_offset + 180
         position = int((normalized / 360.0) * 4095)
         position = max(0, min(4095, position))
-        return self.set_position(servo_id, position, time_ms)
+        return self.set_position(servo_id, position, speed, time_ms)
 
-    def set_angle(self, servo_id: int, angle_deg: float, time_ms: int = 500) -> bool:
+    def set_angle(
+        self, servo_id: int, angle_deg: float,
+        speed: int = _DEFAULT_SERVO_SPEED, time_ms: int = 0,
+    ) -> bool:
         """move_to_angle 的别名。"""
-        return self.move_to_angle(servo_id, angle_deg, time_ms)
-        return self.move_to_angle(servo_id, angle_deg, time_ms)
+        return self.move_to_angle(servo_id, angle_deg, speed, time_ms)
 
     # ── 扭矩 ──
 
@@ -270,14 +272,14 @@ class ST3215Driver:
 
         Args:
             targets: {servo_id: angle}
-            time_ms: 运动时间
+            time_ms: 运动时间（保留参数）
 
         Returns:
             bool: 是否成功
         """
         try:
             for servo_id, angle in targets.items():
-                self.move_to_angle(servo_id, angle, time_ms)
+                self.move_to_angle(servo_id, angle, time_ms=0)
             return True
         except Exception as e:
             print(f"❌ 同步写入位置失败: {e}")
