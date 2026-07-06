@@ -41,10 +41,20 @@ if [ ! -d "$OFFLINE_DIR" ]; then
     git clone --depth 1 "$OFFLINE_REPO" "$OFFLINE_DIR"
 fi
 
-# ── 2. 离线安装 Docker（如未安装） ──
+# ── 2. 离线安装 Docker（版本过旧也自动更新） ──
+NEED_INSTALL=false
 if ! command -v docker &>/dev/null; then
+    NEED_INSTALL=true
+    warn "Docker 未安装，通过离线包安装..."
+else
+    DOCKER_VER=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+    if [ "$(printf '%s\n' "28.0" "$DOCKER_VER" | sort -V | head -1)" != "28.0" ]; then
+        NEED_INSTALL=true
+        warn "Docker $DOCKER_VER 版本过旧，升级到离线包版本..."
+    fi
+fi
+if [ "$NEED_INSTALL" = true ]; then
     if [ -f "$OFFLINE_DIR/install_docker.sh" ]; then
-        warn "Docker 未安装，通过离线包安装..."
         sudo bash "$OFFLINE_DIR/install_docker.sh"
     else
         error "Docker 离线包不完整：$OFFLINE_DIR"
