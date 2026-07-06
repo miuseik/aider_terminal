@@ -58,15 +58,10 @@ else
     fi
 fi
 if [ "$NEED_INSTALL" = true ]; then
-    if [ -f "$OFFLINE_DIR/install_docker.sh" ]; then
-        # 强制重新 clone 以获取最新 install_docker.sh
-        sudo rm -rf "$OFFLINE_DIR"
-        git clone --depth 1 "$OFFLINE_REPO" "$OFFLINE_DIR"
-        (cd "$OFFLINE_DIR" && sudo bash install_docker.sh)
-    else
-        error "Docker 离线包不完整：$OFFLINE_DIR"
-        exit 1
-    fi
+    # 强制重新 clone 以获取最新 install_docker.sh
+    sudo rm -rf "$OFFLINE_DIR" 2>/dev/null || true
+    git clone --depth 1 "$OFFLINE_REPO" "$OFFLINE_DIR"
+    (cd "$OFFLINE_DIR" && sudo bash install_docker.sh)
 fi
 info "Docker 已安装: $(docker --version)"
 
