@@ -55,7 +55,7 @@ else
 fi
 if [ "$NEED_INSTALL" = true ]; then
     if [ -f "$OFFLINE_DIR/install_docker.sh" ]; then
-        sudo bash "$OFFLINE_DIR/install_docker.sh"
+        (cd "$OFFLINE_DIR" && sudo bash install_docker.sh)
     else
         error "Docker 离线包不完整：$OFFLINE_DIR"
         exit 1
