@@ -130,23 +130,6 @@ class ControlLoop:
         except Exception as e:
             logger.debug(f"推送硬件状态失败: {e}")
 
-    async def _push_robot_hardware_info(self):
-        """推送机器人硬件详情给前端（数据由 reporter 模块收集）。"""
-        if not self._transport or not self._transport.is_connected:
-            return
-        ri = self.robot_interface
-        if not ri:
-            return
-        try:
-            from aiderminal.comm.websocket.protocol import encode_message
-            from aiderminal.utils.hardware_info import collect_hardware_info
-            msg = collect_hardware_info(ri)
-            await self._transport.send_raw(encode_message(msg))
-        except Exception as e:
-            import traceback
-            print(f"❌ 推送机器人硬件详情失败: {e}")
-            traceback.print_exc()
-    
     async def setup(self) -> bool:
         """设置机器人接口和可视化器。
         
@@ -406,7 +389,8 @@ class ControlLoop:
                 if success:
                     print("🔌 机器人已使能")
                     # 一次性推送完整的舵机硬件信息给前端（后台执行，不阻塞）
-                    asyncio.create_task(self._push_robot_hardware_info())
+                    from aiderminal.utils.hardware_info import push_robot_hardware_info
+                    asyncio.create_task(push_robot_hardware_info(self._transport, self.robot_interface))
                 else:
                     print("❌ 使能失败")
             else:
@@ -425,7 +409,8 @@ class ControlLoop:
                             self.visualizer.hide_marker(f"{arm}_target")
                             self.visualizer.hide_frame(f"{arm}_target_frame")
                     # 通知前端机器人已断开连接（后台执行，不阻塞）
-                    asyncio.create_task(self._push_robot_hardware_info())
+                    from aiderminal.utils.hardware_info import push_robot_hardware_info
+                    asyncio.create_task(push_robot_hardware_info(self._transport, self.robot_interface))
                 else:
                     print("❌ 禁能失败")
             else:
