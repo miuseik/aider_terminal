@@ -363,11 +363,11 @@ class ST3215Driver:
             return {
                 'servo_id': servo_id, 'port': self.port,
                 'position': pos, 'angle': round(angle, 2),
-                'voltage': volt / 10.0 if volt else 0,
+                'voltage': round(volt / 10.0, 2) if volt else 0,
                 'temperature': temp or 0,
                 'current': cur or 0,
-                'speed': speed or 0,
-                'load': load or 0,
+                'speed': round(speed, 2) if speed else 0,
+                'load': round(load, 2) if load else 0,
                 'mode': 'position', 'torque_enabled': True,
             }
         except Exception:

@@ -151,20 +151,21 @@ class RobotInterface:
             print(f"❌ 解析舵机配置失败: {e}")
             return False
 
-
-
-    def connect(self) -> bool:
-        print(f"开始连接机器人...：{self.is_connected}")
+    def connect(self, force_scan: bool = False) -> bool:
+        print(f"开始连接机器人...：{self.is_connected} (enable_robot={self.config.enable_robot}, force_scan={force_scan})")
         if self.is_connected:
             print("机器人接口已连接")
             return True
 
         if not self.config.enable_robot:
-            print("⚠️ 配置中禁用了机器人接口，但仍可连接到仿真")
-            print("💡 如需连接真机，请确保启动时未使用 --no-robot 参数")
-            # 即使禁用真机，也标记为已连接（用于仿真）
-            self.is_connected = True
-            return True
+            if not force_scan:
+                print("⚠️ 配置中禁用了机器人接口，但仍可连接到仿真")
+                print("💡 如需连接真机，请确保启动时未使用 --no-robot 参数")
+                # 即使禁用真机，也标记为已连接（用于仿真）
+                self.is_connected = True
+                return True
+            else:
+                print("⚠️ 用户强制扫描（忽略 enable_robot=False）")
 
         try:
             print("正在连接机器人...")

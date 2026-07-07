@@ -110,16 +110,15 @@ class ControlLoop:
         
         self.is_running = False
         
-        # === WebSocket transport 引用（用于推送硬件状态到 Server） ===
+        # === WebSocket transport 引用（用于推送消息到 Server） ===
         self._transport = None
-        self._last_status_push_time = 0
     
     def set_transport(self, transport):
         """设置 WebSocket transport，用于推送硬件状态到 Server。"""
         self._transport = transport
     
     async def _push_hardware_status(self):
-        """将当前硬件状态推送到 Server。"""
+        """将当前硬件状态推送到 Server（供 /api/status 使用）。"""
         if not self._transport or not self._transport.is_connected:
             return
         try:
@@ -130,6 +129,23 @@ class ControlLoop:
             await self._transport.send_raw(encode_message(status))
         except Exception as e:
             logger.debug(f"推送硬件状态失败: {e}")
+
+    async def _push_robot_hardware_info(self):
+        """推送机器人硬件详情给前端（数据由 reporter 模块收集）。"""
+        if not self._transport or not self._transport.is_connected:
+            return
+        ri = self.robot_interface
+        if not ri:
+            return
+        try:
+            from aiderminal.comm.websocket.protocol import encode_message
+            from aiderminal.utils.hardware_info import collect_hardware_info
+            msg = collect_hardware_info(ri)
+            await self._transport.send_raw(encode_message(msg))
+        except Exception as e:
+            import traceback
+            print(f"❌ 推送机器人硬件详情失败: {e}")
+            traceback.print_exc()
     
     async def setup(self) -> bool:
         """设置机器人接口和可视化器。
@@ -285,12 +301,6 @@ class ControlLoop:
                 # 定期打印状态日志
                 self._periodic_logging()
                 
-                # 定期推送硬件状态到 Server（约 1Hz）
-                now = time.time()
-                if now - self._last_status_push_time >= 1.0:
-                    await self._push_hardware_status()
-                    self._last_status_push_time = now
-                
                 # 控制频率 (默认 50Hz,即每 0.02 秒一帧)
                 await asyncio.sleep(self.config.send_interval)
                 
@@ -377,19 +387,26 @@ class ControlLoop:
                     self.web_keyboard_handler.on_key_release(key)
         elif action == 'robot_connect':
             if self.robot_interface:
-                if not self.robot_interface.is_connected:
-                    success = self.robot_interface.connect()
-                    if not success:
-                        print("❌ 机器人连接失败")
-                        return
-                    # 连接成功后绑定 ServoConfigManager
-                    if hasattr(self.robot_interface, 'servo_config_manager'):
-                        self.actuator_router.bind_servo_config(
-                            self.robot_interface.servo_config_manager
-                        )
-                success = self.robot_interface.engage()
+                ri = self.robot_interface
+                # 用户点"连接"时总是重新扫描硬件，确保新插上的舵机也能被发现
+                print(f"🔍 用户触发连接，重新扫描硬件 "
+                      f"(is_connected={ri.is_connected}, online_servos现有={len(ri.online_servos)}个: {sorted(ri.online_servos.keys())})")
+                ri.is_connected = False  # 重置以允许 connect() 重新执行扫描
+                success = ri.connect(force_scan=True)
+                if not success:
+                    print("❌ 机器人连接失败")
+                    return
+                print(f"🟢 扫描完成，在线舵机: {sorted(ri.online_servos.keys())}")
+                # 连接成功后绑定 ServoConfigManager
+                if hasattr(ri, 'servo_config_manager'):
+                    self.actuator_router.bind_servo_config(
+                        ri.servo_config_manager
+                    )
+                success = ri.engage()
                 if success:
                     print("🔌 机器人已使能")
+                    # 一次性推送完整的舵机硬件信息给前端（后台执行，不阻塞）
+                    asyncio.create_task(self._push_robot_hardware_info())
                 else:
                     print("❌ 使能失败")
             else:
@@ -407,6 +424,8 @@ class ControlLoop:
                             self.visualizer.hide_frame(f"{arm}_goal_frame")
                             self.visualizer.hide_marker(f"{arm}_target")
                             self.visualizer.hide_frame(f"{arm}_target_frame")
+                    # 通知前端机器人已断开连接（后台执行，不阻塞）
+                    asyncio.create_task(self._push_robot_hardware_info())
                 else:
                     print("❌ 禁能失败")
             else:
@@ -737,6 +756,7 @@ class ControlLoop:
             status.update({
                 # 连接状态
                 "robot_connected": self.robot_interface.is_connected,
+                "is_engaged": self.robot_interface.is_engaged,
                 "left_arm_connected": self.robot_interface.left_arm_connected,
                 "right_arm_connected": self.robot_interface.right_arm_connected,
                 

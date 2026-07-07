@@ -4,6 +4,7 @@
 支持 async 方法和同步包装（兼容同步调用方）。
 """
 import asyncio
+import time
 import logging
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, asdict
@@ -58,6 +59,21 @@ class ActuatorController:
                         return driver
                 logger.warning("Failed to reconnect driver for %s", port)
                 return None
+            # CAN 健康检查：电机断电再上电后，is_connected 仍为 True（socket 还在），
+            # 但 _last_frame_time 会停滞。检测到超过 5 秒无反馈帧时自动重连。
+            if "can" in port.lower() and hasattr(driver, "_can"):
+                can = driver._can
+                idle = can.idle_seconds
+                if idle > 5.0:
+                    logger.warning(
+                        "CAN %s: 已 %.1fs 未收到反馈帧，触发重连...", port, idle,
+                    )
+                    try:
+                        driver.disconnect()
+                    except Exception:
+                        pass
+                    del self._joint_drivers[port]
+                    return self._get_or_create_driver(port)
             return driver
 
         # 按端口类型创建驱动

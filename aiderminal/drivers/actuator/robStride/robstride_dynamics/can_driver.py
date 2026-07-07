@@ -89,6 +89,9 @@ class RobstrideCanDriver:
         self._tx_fail_rate = 0.0
         self._tx_warn_time = 0.0
 
+        # 最近收到帧的时间（用于检测 CAN 总线是否实际有数据）
+        self._last_frame_time = 0.0
+
     # ========== 连接管理 ==========
 
     def connect(self) -> bool:
@@ -215,9 +218,12 @@ class RobstrideCanDriver:
         elif comm_type == CommType.FAULT_FEEDBACK:
             self._parse_fault_feedback(data, motor_id)
 
+        # 更新最近收到帧的时间戳
+        self._last_frame_time = time.time()
+
         # 帧率统计
         self._frame_count += 1
-        now = time.time()
+        now = self._last_frame_time
         elapsed = now - self._fps_start_time
         if elapsed >= 1.0:
             self._current_fps = self._frame_count / elapsed
@@ -541,6 +547,18 @@ class RobstrideCanDriver:
                 return f.read().strip().upper()
         except (FileNotFoundError, PermissionError, OSError):
             return "UNKNOWN"
+
+    @property
+    def last_frame_time(self) -> float:
+        """最近收到 CAN 帧的时间戳（秒），0 表示从未收到"""
+        return self._last_frame_time
+
+    @property
+    def idle_seconds(self) -> float:
+        """距离上一次收到帧的空闲时间（秒），从未收到返回 -1"""
+        if self._last_frame_time <= 0:
+            return -1.0
+        return time.time() - self._last_frame_time
 
     @property
     def is_bus_healthy(self) -> bool:
