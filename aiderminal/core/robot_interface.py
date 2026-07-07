@@ -181,6 +181,10 @@ class RobotInterface:
             # 保存配置
             self.set_servo_ids_config(servo_config)
             print("✅ 舵机配置已从 Server 同步")
+
+            # 构建 ServoConfigManager（供 ActuatorRouter 连接时使用 brand/motor_type）
+            from aiderminal.config.servo_config_manager import ServoConfigManager
+            self.servo_config_manager = ServoConfigManager(servo_config)
             
             # ✅ 第二步：从扁平配置中收集所有舵机 ID
             all_ids = set()

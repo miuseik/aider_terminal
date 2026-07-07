@@ -36,6 +36,9 @@ JOINT_LIMIT_OVERRIDES = {
 
 # ---- 姿态偏好（度） ----
 # IK 求解时的默认舒适姿态，PostureTask 以此为目标
+# TODO: 将 POSTURE 硬编码值迁移到 servo_ids.yaml 的 default_angle 字段，
+#       统一从 YAML 读取默认姿态，避免 settings.py 和 YAML 各存一份。
+#       参考: aider_server/sql/servo_ids.yaml (已加好 default_angle 字段)
 POSTURE = {
     # "left_arm1":   45,
     # "left_arm2":   20,

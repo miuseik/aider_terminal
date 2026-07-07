@@ -25,9 +25,11 @@ services:
       - NO_ROBOT=${NO_ROBOT:-true}
       - NO_SIM=${NO_SIM:-false}
       - NO_VIZ=${NO_VIZ:-false}
+      - ENV=${ENV:-pro}
       - QT_X11_NO_MITSHM=1
 
-    # 源码卷挂载 —— 改代码即生效，无需重新构建镜像
+    # 使用 volume 挂载的入口脚本，改脚本无需重建镜像
+    entrypoint: ["/bin/bash", "/ws/src/aiderminal/scripts/docker_entrypoint.sh"]
     volumes:
       - .:/ws/src/aiderminal             # 项目根目录（源码 + URDF）读写挂载，colcon 需要
       - ./log:/ws/log                     # 日志持久化

@@ -17,9 +17,19 @@ export PYTHONPATH=/ws/src/aiderminal:$PYTHONPATH
 
 ROBOT_TYPE="${ROBOT_TYPE:-aider}"
 NO_ROBOT="${NO_ROBOT:-true}"
+ENV="${ENV:-pro}"
 
-echo ">>> 启动 terminal_node (robot=$ROBOT_TYPE, no_robot=$NO_ROBOT)"
-exec ros2 launch aiderminal terminal.launch.py \
-    robot_type:=$ROBOT_TYPE \
-    no_robot:=$NO_ROBOT \
-    "$@"
+if [ "$ENV" = "dev" ]; then
+    echo ">>> 启动 terminal_node (robot=$ROBOT_TYPE, no_robot=$NO_ROBOT, env=dev → localhost)"
+    exec ros2 launch aiderminal terminal.launch.py \
+        robot_type:=$ROBOT_TYPE \
+        no_robot:=$NO_ROBOT \
+        env_dev:=true \
+        "$@"
+else
+    echo ">>> 启动 terminal_node (robot=$ROBOT_TYPE, no_robot=$NO_ROBOT, env=pro → houqicg.com)"
+    exec ros2 launch aiderminal terminal.launch.py \
+        robot_type:=$ROBOT_TYPE \
+        no_robot:=$NO_ROBOT \
+        "$@"
+fi

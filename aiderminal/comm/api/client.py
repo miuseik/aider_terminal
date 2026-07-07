@@ -100,6 +100,27 @@ class ServerAPIClient:
         """
         result = self._make_request('/api/update-servo-config', 'POST', {'config': config})
         return result is not None
+
+    def batch_calibrate_servo_zeros(self, offsets: Dict[int, float], role: str = 'aider') -> bool:
+        """
+        批量写入舵机零位偏移量到 Server 的 YAML 配置。
+
+        Args:
+            offsets: {servo_id: zero_offset} 映射
+            role: 机器人角色，默认 'aider'
+
+        Returns:
+            bool: 是否成功
+        """
+        result = self._make_request('/api/servo/batch-calibrate-zeros', 'POST', {
+            'role': role,
+            'offsets': offsets,
+        })
+        if result:
+            updated = result.get('updated', 0)
+            print(f"✅ Batch calibrate saved: {updated} joints updated on server")
+            return True
+        return False
     
     # ==================== 用户管理 API（预留）====================
     

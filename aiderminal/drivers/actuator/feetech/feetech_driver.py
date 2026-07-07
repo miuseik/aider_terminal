@@ -1,7 +1,7 @@
 """
 飞特 ST3215 舵机驱动 - 直接基于 scservo_sdk
 """
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import numpy as np
 
 from .scservo_sdk import PortHandler, sms_sts
@@ -406,3 +406,61 @@ class ST3215Driver:
         except Exception as e:
             print(f"⚠️ 构建 ID-offset 映射失败: {e}")
         return id_to_offset
+
+    # ── 零位偏移校准 ────────────────────────────────────
+
+    @staticmethod
+    def _raw_to_offset(raw_position: int) -> float:
+        """将原始编码器值 (0-4095) 转为 zero_offset (度)。
+
+        推导: 当关节物理处于零位 (angle=0) 时，编码器值为 raw_position，
+        为让 angle=0 映射到正确的编码器位置，需要:
+            zero_offset = (raw_position / 4095 * 360) - 180
+
+        Args:
+            raw_position: 舵机当前原始位置 (步进值 0-4095)
+
+        Returns:
+            float: zero_offset 角度值 (度)
+        """
+        return round((raw_position / 4095.0) * 360.0 - 180.0, 2)
+
+    def calibrate_zero_offset(self, servo_id: int) -> Optional[float]:
+        """读取当前编码器位置，计算并应用 zero_offset。
+
+        将舵机物理上置于期望的零位后调用此方法：
+        1. 读取当前编码器原始位置
+        2. 计算对应的 zero_offset 值
+        3. 更新内存中的 id_to_offset 映射
+        4. 返回计算出的偏移量
+
+        Args:
+            servo_id: 舵机 ID
+
+        Returns:
+            Optional[float]: 新的 zero_offset 值，读取失败返回 None
+        """
+        raw_pos = self.get_position(servo_id)
+        if raw_pos is None:
+            print(f"⚠️ [舵机校准] ID={servo_id} 读取位置失败")
+            return None
+        offset = self._raw_to_offset(raw_pos)
+        self.id_to_offset[servo_id] = offset
+        print(f"✅ [舵机校准] ID={servo_id} raw={raw_pos} → zero_offset={offset}°")
+        return offset
+
+    def batch_calibrate_offsets(self, servo_ids: List[int]) -> Dict[int, float]:
+        """批量校准零位偏移。
+
+        Args:
+            servo_ids: 需要校准的舵机 ID 列表
+
+        Returns:
+            Dict[int, float]: {servo_id: new_zero_offset}
+        """
+        results = {}
+        for sid in servo_ids:
+            offset = self.calibrate_zero_offset(sid)
+            if offset is not None:
+                results[sid] = offset
+        return results

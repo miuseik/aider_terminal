@@ -315,6 +315,39 @@ class ActuatorController:
             logger.warning("set_zero_position %d failed: %s", device_id, e)
             return False
 
+    async def calibrate_servo_offsets(self, port: str, servo_ids: Optional[List[int]] = None) -> Dict[int, float]:
+        """批量校准舵机零位偏移量。
+
+        将舵机物理上转到期望零位后调用，读取当前编码器位置并反算 zero_offset。
+        偏移量同时写入驱动内存 (id_to_offset)，即时生效。
+
+        Args:
+            port: 物理端口
+            servo_ids: 要校准的舵机 ID 列表，为 None 则校准该端口所有在线 Feetech 舵机
+
+        Returns:
+            Dict[int, float]: {servo_id: zero_offset}，只包含成功校准的舵机
+        """
+        driver = self._get_or_create_driver(port)
+        if driver is None:
+            return {}
+        if not hasattr(driver, 'batch_calibrate_offsets'):
+            logger.warning("Driver for %s does not support batch_calibrate_offsets", port)
+            return {}
+
+        if servo_ids is None:
+            # 收集该端口上所有 Feetech 舵机
+            servo_ids = [sid for (p, sid) in self._registry if p == port]
+
+        if not servo_ids:
+            logger.warning("No servos to calibrate on %s", port)
+            return {}
+
+        logger.info("Calibrating %d servos on %s ...", len(servo_ids), port)
+        results = driver.batch_calibrate_offsets(servo_ids)
+        logger.info("Calibration done: %d/%d servos", len(results), len(servo_ids))
+        return results
+
     # ── 状态读取 ───────────────────────────────────────
 
     async def get_actuator_info(self, port: str, device_id: int) -> Optional[Dict]:

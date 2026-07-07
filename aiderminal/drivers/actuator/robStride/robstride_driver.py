@@ -387,13 +387,14 @@ class RobStrideOfficialDriver:
 
         if not fb or not fb.is_valid:
             return {
-                "position": 0.0, "velocity": 0.0, "torque": 0.0,
+                "position": 0.0, "angle": 0.0, "velocity": 0.0, "torque": 0.0,
                 "temperature": 0.0, "voltage": voltage or 0.0,
                 "motor_id": device_id, "online": False,
             }
 
         return {
             "position": rad_to_deg(fb.position),
+            "angle": rad_to_deg(fb.position),
             "velocity": rad_to_deg(fb.velocity),
             "torque": fb.torque,
             "temperature": fb.temperature,

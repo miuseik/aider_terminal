@@ -346,6 +346,8 @@ class ActuatorRouter:
             "disable_torques":   self._route_disable_torques,
             "sync_positions":    self._route_sync_positions,
             "calibrate_servo_zero": self._route_set_zero,
+            "calibrate_all_servo_offsets": self._route_calibrate_all_offsets,
+            "calibrate_single_servo_offset": self._route_calibrate_single_offset,
         }
 
         handler = route_map.get(action)
@@ -539,3 +541,101 @@ class ActuatorRouter:
             "success": ok,
             "message": f"Zero set for servo {device_id}" if ok else "Failed to set zero",
         }
+
+    async def _route_calibrate_all_offsets(self, ctrl, cmd: Dict) -> Dict:
+        """批量校准所有 Feetech 舵机的零位偏移量并写回配置 YAML。
+
+        流程:
+        1. 遍历所有 Feetech 端口，读取每个舵机当前位置
+        2. 反算 zero_offset = (raw_pos / 4095 * 360) - 180
+        3. 更新驱动内存中的 id_to_offset（即时生效）
+        4. 通过 Server API 写回 servo_ids.yaml
+
+        cmd 参数: port (可选，不传则校准所有 Feetech 端口)
+        """
+        # 收集所有需要校准的舵机（Feetech 品牌）
+        calibrate_ports = []
+        specified_port = cmd.get("port")
+        if specified_port:
+            if specified_port in ctrl.joint_drivers:
+                calibrate_ports = [specified_port]
+            else:
+                return {"success": False, "message": f"Port {specified_port} not connected"}
+        else:
+            calibrate_ports = list(ctrl.joint_drivers.keys())
+
+        all_offsets: Dict[int, float] = {}
+        for port in calibrate_ports:
+            try:
+                port_offsets = await ctrl.calibrate_servo_offsets(port)
+                all_offsets.update(port_offsets)
+            except Exception as e:
+                logger.warning("Calibrate %s failed: %s", port, e)
+
+        if not all_offsets:
+            return {"success": False, "message": "No servos calibrated"}
+
+        # 写回配置到 Server
+        try:
+            from aiderminal.comm.api.client import ServerAPIClient
+            api = ServerAPIClient()
+            ok = api.batch_calibrate_servo_zeros(all_offsets)
+            if ok:
+                return {
+                    "success": True,
+                    "message": f"Calibrated {len(all_offsets)} servos, config saved",
+                    "data": all_offsets,
+                }
+            else:
+                return {
+                    "success": True,
+                    "message": f"Calibrated {len(all_offsets)} servos but failed to save config",
+                    "data": all_offsets,
+                }
+        except Exception as e:
+            logger.warning("Failed to save calibration to server: %s", e)
+            return {
+                "success": True,
+                "message": f"Calibrated {len(all_offsets)} servos, but config save failed: {e}",
+                "data": all_offsets,
+            }
+
+    async def _route_calibrate_single_offset(self, ctrl, cmd: Dict) -> Dict:
+        """校准单个舵机的零位偏移量并写回配置 YAML。
+
+        cmd 参数: port, servo_id
+        """
+        port = cmd.get("port", "/dev/ttyACM0")
+        servo_id = cmd.get("servo_id")
+        if servo_id is None:
+            return {"success": False, "message": "Missing servo_id"}
+
+        # 复用批量校准接口，只校准一个舵机
+        all_offsets = await ctrl.calibrate_servo_offsets(port, [servo_id])
+        if not all_offsets or servo_id not in all_offsets:
+            return {"success": False, "message": f"Servo {servo_id} calibration failed"}
+
+        # 写回配置到 Server
+        try:
+            from aiderminal.comm.api.client import ServerAPIClient
+            api = ServerAPIClient()
+            ok = api.batch_calibrate_servo_zeros(all_offsets)
+            if ok:
+                return {
+                    "success": True,
+                    "message": f"Servo {servo_id} offset calibrated: {all_offsets[servo_id]}°",
+                    "data": all_offsets,
+                }
+            else:
+                return {
+                    "success": True,
+                    "message": f"Offset computed but config save failed",
+                    "data": all_offsets,
+                }
+        except Exception as e:
+            logger.warning("Failed to save single offset: %s", e)
+            return {
+                "success": True,
+                "message": f"Offset computed ({all_offsets[servo_id]}°) but save failed: {e}",
+                "data": all_offsets,
+            }

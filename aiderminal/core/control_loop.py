@@ -167,6 +167,13 @@ class ControlLoop:
                 control_loop=self
             )
             print("✅ API命令路由器已初始化")
+
+            # 绑定 ServoConfigManager（连接真机时 brand → motor_type 映射）
+            if self.robot_interface and hasattr(self.robot_interface, 'servo_config_manager'):
+                self.actuator_router.bind_servo_config(
+                    self.robot_interface.servo_config_manager
+                )
+                print("✅ ServoConfigManager 已绑定到 ActuatorRouter")
         except Exception as e:
             error_msg = f"Robot interface setup failed with exception: {e}"
             print(error_msg)
@@ -375,6 +382,11 @@ class ControlLoop:
                     if not success:
                         print("❌ 机器人连接失败")
                         return
+                    # 连接成功后绑定 ServoConfigManager
+                    if hasattr(self.robot_interface, 'servo_config_manager'):
+                        self.actuator_router.bind_servo_config(
+                            self.robot_interface.servo_config_manager
+                        )
                 success = self.robot_interface.engage()
                 if success:
                     print("🔌 机器人已使能")
