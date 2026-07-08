@@ -21,7 +21,7 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from aiderminal.config.settings import TelegripConfig, get_config_data, set_robot_type, _ROBOT_TYPE_CONFIGS
+from aiderminal.config.settings import TelegripConfig, get_config_data, set_robot_type, get_robot_urdf_path
 
 
 def _ros_param_to_config(node: Node) -> TelegripConfig:
@@ -30,7 +30,6 @@ def _ros_param_to_config(node: Node) -> TelegripConfig:
     config = TelegripConfig()
 
     # 控制标志
-    config.enable_robot = not node.get_parameter('no_robot').value
     config.enable_pybullet = not node.get_parameter('no_sim').value
     config.enable_pybullet_gui = config.enable_pybullet and not node.get_parameter('no_viz').value
     config.enable_vr = not node.get_parameter('no_vr').value
@@ -45,10 +44,10 @@ def _ros_param_to_config(node: Node) -> TelegripConfig:
 
     # 设置 URDF 路径
     set_robot_type(robot_type)
-    rt_cfg = _ROBOT_TYPE_CONFIGS.get(robot_type, _ROBOT_TYPE_CONFIGS["aider"])
-    config.urdf_path = rt_cfg["urdf_path"]
-    if hasattr(config, 'aloha_urdf_path') and "aloha_urdf_path" in rt_cfg:
-        config.aloha_urdf_path = rt_cfg["aloha_urdf_path"]
+    config.urdf_path = get_robot_urdf_path()
+    if hasattr(config, 'aloha_urdf_path'):
+        from aiderminal.config.settings import get_robot_aloha_urdf_path
+        config.aloha_urdf_path = get_robot_aloha_urdf_path()
 
     # 网络设置
     config.websocket_port = node.get_parameter('ws_port').value
@@ -78,7 +77,6 @@ class TerminalNode(Node):
 
         # 声明所有参数
         self.declare_parameter('robot_type', 'aider')
-        self.declare_parameter('no_robot', False)
         self.declare_parameter('no_sim', False)
         self.declare_parameter('no_viz', False)
         self.declare_parameter('no_vr', False)

@@ -11,6 +11,7 @@ import time
 from typing import Dict, Optional
 
 from aiderminal.inputs.base import BaseInputProvider, ControlGoal, ControlMode
+from aiderminal.inputs.base import mark_input_active, mark_input_inactive
 from aiderminal.config.settings import TelegripConfig, POS_STEP, ANGLE_STEP
 import aiderminal.config.settings as _settings
 
@@ -180,6 +181,7 @@ class WebKeyboardHandler(BaseInputProvider):
     def on_key_press(self, key: str):
         """处理来自Web UI的按键按下事件。"""
         try:
+            mark_input_active("keyboard")
             # 左臂控制(WASD + QE)
             if key == 'w':
                 self._auto_activate_arm_if_needed("left")
@@ -417,6 +419,9 @@ class WebKeyboardHandler(BaseInputProvider):
                 self.base_state["velocity_theta"] == 0.0):
                 self.base_state["base_control_active"] = False
 
+            # 更新全局输入活跃状态
+            self._check_keyboard_fully_idle()
+
         except Exception as e:
             print(f"处理网页按键释放 '{key}' 错误: {e}")
 
@@ -428,6 +433,16 @@ class WebKeyboardHandler(BaseInputProvider):
             arm_state["delta_wrist_roll"] == 0 and
             arm_state["delta_wrist_flex"] == 0):
             arm_state["any_key_pressed"] = False
+
+    def _check_keyboard_fully_idle(self):
+        """检查键盘是否完全空闲（双臂 + 底盘 + 身体），更新全局输入状态。"""
+        left_idle = not self.left_arm_state["any_key_pressed"]
+        right_idle = not self.right_arm_state["any_key_pressed"]
+        base_idle = not self.base_state["base_control_active"]
+        body_idle = all(v == 0.0 for v in self.body_state.values())
+
+        if left_idle and right_idle and base_idle and body_idle:
+            mark_input_inactive("keyboard")
 
     def _send_gripper_goal(self, arm: str):
         """发送夹爪控制目标到队列。"""

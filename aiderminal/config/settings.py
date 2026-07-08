@@ -151,93 +151,14 @@ GRIPPER_STEP = _config_data["control"]["keyboard"]["gripper_step"]
 
 # =========================== 机器人类型相关常量 ===========================
 
-# 各机器人类型的关节/URDF 配置
-_ROBOT_TYPE_CONFIGS = {
-    "aider": {
-        "num_joints": 8,
-        "num_ik_joints": 8,
-        "wrist_flex_index": 5,
-        "wrist_roll_index": 4,
-        "wrist_yaw_index": 6,
-        "gripper_index": 7,
-        "joint_names": ["arm1", "arm2", "arm3", "arm4", "arm5", "arm6", "arm7", "arm8"],
-        "arm_joint_names_left": [f"left_arm{i}" for i in range(1, 9)],
-        "arm_joint_names_right": [f"right_arm{i}" for i in range(1, 9)],
-        "urdf_path": _config_data.get("paths", {}).get("aider_urdf", "URDF/aider/urdf/aider_pro.SLDASM.urdf"),
-        "end_effector_link_name": "left_arm8",
-        "common_motors": {
-            "arm1": [1, "sts3215"], "arm2": [2, "sts3215"], "arm3": [3, "sts3215"],
-            "arm4": [4, "sts3215"], "arm5": [5, "sts3215"], "arm6": [6, "sts3215"],
-            "arm7": [7, "sts3215"], "arm8": [8, "sts3215"],
-        },
-        "urdf_to_internal_name_map": {
-            "left_arm1": "arm1", "left_arm2": "arm2", "left_arm3": "arm3",
-            "left_arm4": "arm4", "left_arm5": "arm5", "left_arm6": "arm6",
-            "left_arm7": "arm7", "left_arm8": "arm8",
-            "right_arm1": "arm1", "right_arm2": "arm2", "right_arm3": "arm3",
-            "right_arm4": "arm4", "right_arm5": "arm5", "right_arm6": "arm6",
-            "right_arm7": "arm7", "right_arm8": "arm8",
-        },
-        "initial_left_arm": [0, -100, 100, 60, 0, 0, 0, 0],
-        "initial_right_arm": [0, -100, 100, 60, 0, 0, 0, 0],
-        # 关节限位 (度), 参考人体结构
-        "joint_limits_deg": {
-            # arm1: 肩部水平旋转 (X轴) — 人体外展/内收约 -90°~90°
-            "arm1": {"lower": -90, "upper": 90},
-            # arm2: 肩部上举 (Y轴) — 人体屈曲/伸展约 -150°~30°
-            "arm2": {"lower": -150, "upper": 30},
-            # arm3: 肘部弯曲 (Z轴) — 0°=直臂, 负=曲臂, 人体肘屈约 0°~145°
-            "arm3": {"lower": -150, "upper": 30},
-            # arm4: 前臂旋转 (X轴) — 人体旋前/旋后约 ±90°
-            "arm4": {"lower": -90, "upper": 90},
-            # arm5: 腕部翻滚 (Z轴) — 人体桡偏/尺偏约 -30°~40°, 机械放宽
-            "arm5": {"lower": -45, "upper": 45},
-            # arm6: 腕部俯仰 (X轴) — 人体腕屈/腕伸约 -80°~70°
-            "arm6": {"lower": -70, "upper": 70},
-            # arm7: 腕部偏航 (Y轴) — 人体腕部独立偏航范围小, 放宽至 ±45°
-            "arm7": {"lower": -45, "upper": 45},
-            # arm8: 夹爪 (X轴) — 张开=0°, 闭合=-90°
-            "arm8": {"lower": -90, "upper": 0},
-        },
-        # 身体关节限位
-        "body_joint_limits": {
-            "waist_Link":  {"lower_deg": -90, "upper_deg": 90},
-            "head_Link":   {"lower_deg": -60, "upper_deg": 60},
-            "head_Link2":  {"lower_deg": -30, "upper_deg": 45},
-            "lift_Link":   {"lower_m":    0.0, "upper_m":  0.5},
-        },
-    },
-    "aloha": {
-        "num_joints": 6,
-        "num_ik_joints": 6,
-        "wrist_flex_index": 3,
-        "wrist_roll_index": 4,
-        "wrist_yaw_index": 0,
-        "gripper_index": 5,
-        "joint_names": ["shoulder_pan", "shoulder_lift", "elbow_flex",
-                       "wrist_flex", "wrist_roll", "gripper"],
-        "arm_joint_names_left": ["1", "2", "3", "4", "5", "6"],
-        "arm_joint_names_right": ["1", "2", "3", "4", "5", "6"],
-        "urdf_path": _config_data.get("paths", {}).get("so100_urdf", "URDF/SO100/so100.urdf"),
-        "aloha_urdf_path": _config_data.get("paths", {}).get("aloha_urdf", "URDF/aloha/Aloha.urdf"),
-        "end_effector_link_name": "Fixed_Jaw_tip_joint",
-        "common_motors": {
-            "shoulder_pan": [1, "sts3215"], "shoulder_lift": [2, "sts3215"],
-            "elbow_flex": [3, "sts3215"], "wrist_flex": [4, "sts3215"],
-            "wrist_roll": [5, "sts3215"], "gripper": [6, "sts3215"],
-        },
-        "urdf_to_internal_name_map": {
-            "1": "shoulder_pan", "2": "shoulder_lift",
-            "3": "elbow_flex", "4": "wrist_flex",
-            "5": "wrist_roll", "6": "gripper",
-        },
-        "initial_left_arm": [0, -100, 100, 60, 0, 0],
-        "initial_right_arm": [0, -100, 100, 60, 0, 0],
-    },
-}
-
 # 当前活跃的机器人类型（由 set_robot_type() 设置）
 _ROBOT_TYPE: str = _config_data.get("robot", {}).get("type", "aider")
+
+
+def _get_robot_settings(robot_type: str = None):
+    """动态导入机器人类型的私有 settings 模块。"""
+    rt = robot_type or _ROBOT_TYPE
+    return __import__(f"aiderminal.robots.{rt}.settings", fromlist=["*"])
 
 
 def set_robot_type(robot_type: str) -> None:
@@ -253,27 +174,29 @@ def set_robot_type(robot_type: str) -> None:
         COMMON_MOTORS, URDF_TO_INTERNAL_NAME_MAP
 
     robot_type = robot_type.lower()
-    if robot_type not in _ROBOT_TYPE_CONFIGS:
+    try:
+        robot = _get_robot_settings(robot_type)
+    except (ImportError, ModuleNotFoundError):
         print(f"⚠️ 未知机器人类型 '{robot_type}'，使用默认 'aider'")
         robot_type = "aider"
+        robot = _get_robot_settings("aider")
 
     _ROBOT_TYPE = robot_type
-    cfg = _ROBOT_TYPE_CONFIGS[robot_type]
 
-    NUM_JOINTS = cfg["num_joints"]
-    NUM_IK_JOINTS = cfg["num_ik_joints"]
-    WRIST_FLEX_INDEX = cfg["wrist_flex_index"]
-    WRIST_ROLL_INDEX = cfg["wrist_roll_index"]
-    WRIST_YAW_INDEX = cfg.get("wrist_yaw_index", 6)
-    GRIPPER_INDEX = cfg["gripper_index"]
-    JOINT_NAMES = cfg["joint_names"]
-    ARM_JOINT_NAMES_LEFT = cfg["arm_joint_names_left"]
-    ARM_JOINT_NAMES_RIGHT = cfg["arm_joint_names_right"]
-    URDF_PATH = cfg["urdf_path"]
-    ALOHA_URDF_PATH = cfg.get("aloha_urdf_path", "URDF/aloha/Aloha.urdf")
-    END_EFFECTOR_LINK_NAME = cfg["end_effector_link_name"]
-    COMMON_MOTORS = cfg["common_motors"]
-    URDF_TO_INTERNAL_NAME_MAP = cfg["urdf_to_internal_name_map"]
+    NUM_JOINTS = robot.NUM_JOINTS
+    NUM_IK_JOINTS = getattr(robot, "NUM_IK_JOINTS", robot.NUM_JOINTS)
+    WRIST_FLEX_INDEX = robot.WRIST_FLEX_INDEX
+    WRIST_ROLL_INDEX = robot.WRIST_ROLL_INDEX
+    WRIST_YAW_INDEX = getattr(robot, "WRIST_YAW_INDEX", 6)
+    GRIPPER_INDEX = robot.GRIPPER_INDEX
+    JOINT_NAMES = robot.JOINT_NAMES
+    ARM_JOINT_NAMES_LEFT = robot.ARM_JOINT_NAMES_LEFT
+    ARM_JOINT_NAMES_RIGHT = robot.ARM_JOINT_NAMES_RIGHT
+    URDF_PATH = robot.URDF_PATH
+    ALOHA_URDF_PATH = getattr(robot, "ALOHA_URDF_PATH", "URDF/aloha/Aloha.urdf")
+    END_EFFECTOR_LINK_NAME = robot.END_EFFECTOR_LINK_NAME
+    COMMON_MOTORS = robot.COMMON_MOTORS
+    URDF_TO_INTERNAL_NAME_MAP = robot.URDF_TO_INTERNAL_NAME_MAP
 
     print(f"✅ 机器人类型已设为: {robot_type} (NUM_JOINTS={NUM_JOINTS}, IK={NUM_IK_JOINTS})")
 
@@ -282,39 +205,66 @@ def get_robot_type() -> str:
     return _ROBOT_TYPE
 
 
+def get_robot_urdf_path(robot_type: str = None) -> str:
+    """返回指定（或当前）机器人类型的 URDF 路径。"""
+    robot = _get_robot_settings(robot_type)
+    return robot.URDF_PATH
+
+
+def get_robot_aloha_urdf_path() -> str:
+    """返回 Aloha URDF 路径（需 aloha 机器人类型）。"""
+    robot = _get_robot_settings("aloha")
+    return getattr(robot, "ALOHA_URDF_PATH", "URDF/aloha/Aloha.urdf")
+
+
 def get_robot_initial_arm(arm: str) -> list:
-    cfg = _ROBOT_TYPE_CONFIGS.get(_ROBOT_TYPE, _ROBOT_TYPE_CONFIGS["aider"])
-    return cfg[f"initial_{arm}_arm"]
+    robot = _get_robot_settings()
+    return getattr(robot, f"INITIAL_{arm.upper()}_ARM")
 
 
 def get_joint_limits_deg() -> dict:
     """返回当前机器人类型的关节限位字典 {joint_name: {lower, upper}} (度)。"""
-    cfg = _ROBOT_TYPE_CONFIGS.get(_ROBOT_TYPE, _ROBOT_TYPE_CONFIGS["aider"])
-    return cfg.get("joint_limits_deg", {})
+    robot = _get_robot_settings()
+    return getattr(robot, "JOINT_LIMITS_DEG", {})
 
 
 def get_body_joint_limits() -> dict:
     """返回身体关节限位字典。"""
-    cfg = _ROBOT_TYPE_CONFIGS.get(_ROBOT_TYPE, _ROBOT_TYPE_CONFIGS["aider"])
-    return cfg.get("body_joint_limits", {})
+    robot = _get_robot_settings()
+    return getattr(robot, "BODY_JOINT_LIMITS", {})
 
 
 # --- 默认初始化 (aider) ---
-# 模块加载时设默认值，main.py 会调用 set_robot_type() 覆盖
-NUM_JOINTS = _ROBOT_TYPE_CONFIGS["aider"]["num_joints"]
-NUM_IK_JOINTS = _ROBOT_TYPE_CONFIGS["aider"]["num_ik_joints"]
-WRIST_FLEX_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["wrist_flex_index"]
-WRIST_ROLL_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["wrist_roll_index"]
-WRIST_YAW_INDEX = _ROBOT_TYPE_CONFIGS["aider"].get("wrist_yaw_index", 6)
-GRIPPER_INDEX = _ROBOT_TYPE_CONFIGS["aider"]["gripper_index"]
-JOINT_NAMES = _ROBOT_TYPE_CONFIGS["aider"]["joint_names"]
-ARM_JOINT_NAMES_LEFT = _ROBOT_TYPE_CONFIGS["aider"]["arm_joint_names_left"]
-ARM_JOINT_NAMES_RIGHT = _ROBOT_TYPE_CONFIGS["aider"]["arm_joint_names_right"]
-URDF_PATH = _ROBOT_TYPE_CONFIGS["aider"]["urdf_path"]
-ALOHA_URDF_PATH = _ROBOT_TYPE_CONFIGS["aloha"].get("aloha_urdf_path", "URDF/aloha/Aloha.urdf")
-END_EFFECTOR_LINK_NAME = _ROBOT_TYPE_CONFIGS["aider"]["end_effector_link_name"]
-COMMON_MOTORS = _ROBOT_TYPE_CONFIGS["aider"]["common_motors"]
-URDF_TO_INTERNAL_NAME_MAP = _ROBOT_TYPE_CONFIGS["aider"]["urdf_to_internal_name_map"]
+# 模块加载时设默认值，main.py/teminal_node.py 会调用 set_robot_type() 覆盖。
+# 注意：不能用 __import__("robots/aider/settings")，因为 robots/aider/__init__.py
+#   会 import adapter -> adapter import TelegripConfig from settings → 循环导入。
+NUM_JOINTS = 8
+NUM_IK_JOINTS = 8
+WRIST_FLEX_INDEX = 5
+WRIST_ROLL_INDEX = 4
+WRIST_YAW_INDEX = 6
+GRIPPER_INDEX = 7
+JOINT_NAMES = ["arm1", "arm2", "arm3", "arm4", "arm5", "arm6", "arm7", "arm8"]
+ARM_JOINT_NAMES_LEFT = ["left_arm1", "left_arm2", "left_arm3", "left_arm4",
+                         "left_arm5", "left_arm6", "left_arm7", "left_arm8"]
+ARM_JOINT_NAMES_RIGHT = ["right_arm1", "right_arm2", "right_arm3", "right_arm4",
+                          "right_arm5", "right_arm6", "right_arm7", "right_arm8"]
+URDF_PATH = _config_data.get("paths", {}).get("aider_urdf", "URDF/aider/urdf/aider_pro.SLDASM.urdf")
+ALOHA_URDF_PATH = _config_data.get("paths", {}).get("aloha_urdf", "URDF/aloha/Aloha.urdf")
+END_EFFECTOR_LINK_NAME = "left_arm8"
+COMMON_MOTORS = {
+    "arm1": [1, "sts3215"], "arm2": [2, "sts3215"], "arm3": [3, "sts3215"],
+    "arm4": [4, "sts3215"], "arm5": [5, "sts3215"], "arm6": [6, "sts3215"],
+    "arm7": [7, "sts3215"], "arm8": [8, "sts3215"],
+}
+URDF_TO_INTERNAL_NAME_MAP = {
+    "left_arm1": "arm1", "left_arm2": "arm2", "left_arm3": "arm3",
+    "left_arm4": "arm4", "left_arm5": "arm5", "left_arm6": "arm6",
+    "left_arm7": "arm7", "left_arm8": "arm8",
+    "right_arm1": "arm1", "right_arm2": "arm2", "right_arm3": "arm3",
+    "right_arm4": "arm4", "right_arm5": "arm5", "right_arm6": "arm6",
+    "right_arm7": "arm7", "right_arm8": "arm8",
+}
 
 # 夹爪通用配置
 GRIPPER_OPEN_ANGLE = _config_data["gripper"]["open_angle"]
@@ -375,7 +325,6 @@ class TelegripConfig:
     # 控制标志
     enable_pybullet: bool = True
     enable_pybullet_gui: bool = True
-    enable_robot: bool = True
     enable_vr: bool = True
     enable_keyboard: bool = True
     autoconnect: bool = False

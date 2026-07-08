@@ -40,6 +40,8 @@ class ActuatorController:
         self._running = False
         self._motor_type_overrides: Dict[int, int] = motor_type_overrides or {}
         self._pipeline = None  # MotionPipeline (扫描后自动同步)
+        # 共享线程池：避免每次同步包装都创建/销毁 ThreadPoolExecutor
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="actuator")
 
     def set_pipeline(self, pipeline) -> None:
         """注入运动管线：扫描完成后自动同步关节映射."""
@@ -676,13 +678,11 @@ class ActuatorController:
             asyncio.set_event_loop(loop)
 
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                future = pool.submit(
-                    asyncio.run,
-                    self._async_discover_ports_by_ids(target_ids)
-                )
-                return future.result()
+            future = self._executor.submit(
+                asyncio.run,
+                self._async_discover_ports_by_ids(target_ids)
+            )
+            return future.result(timeout=30)
         return loop.run_until_complete(self._async_discover_ports_by_ids(target_ids))
 
     async def _async_discover_ports_by_ids(self, target_ids: set) -> Dict[int, str]:
@@ -738,10 +738,8 @@ class ActuatorController:
             asyncio.set_event_loop(loop)
 
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, self._async_scan_all_servos())
-                return future.result()
+            future = self._executor.submit(asyncio.run, self._async_scan_all_servos())
+            return future.result(timeout=30)
         return loop.run_until_complete(self._async_scan_all_servos())
 
     async def _async_scan_all_servos(self) -> Dict[str, List['ActuatorInfo']]:
@@ -766,12 +764,10 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(
-                    asyncio.run,
-                    self.set_position(port, device_id, angle_deg, time_ms)
-                ).result()
+            return self._executor.submit(
+                asyncio.run,
+                self.set_position(port, device_id, angle_deg, time_ms)
+            ).result(timeout=10)
         return loop.run_until_complete(self.set_position(port, device_id, angle_deg, time_ms))
 
     # ── 同步包装（兼容 motor_controller 调用方）───────────────
@@ -784,10 +780,8 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                pool.submit(asyncio.run, self.register_actuator(port, device_id, 254, brand, "", joint_name)).result()
-                return
+            self._executor.submit(asyncio.run, self.register_actuator(port, device_id, 254, brand, "", joint_name)).result(timeout=10)
+            return
         loop.run_until_complete(self.register_actuator(port, device_id, 254, brand, "", joint_name))
 
     def set_servo_angle(self, port: str, device_id: int, angle_deg: float, time_ms: int = 500) -> bool:
@@ -798,9 +792,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.set_position(port, device_id, angle_deg, time_ms)).result()
+            return self._executor.submit(asyncio.run, self.set_position(port, device_id, angle_deg, time_ms)).result(timeout=10)
         return loop.run_until_complete(self.set_position(port, device_id, angle_deg, time_ms))
 
     def set_servos_angles(self, port: str, targets: Dict[int, float], time_ms: int = 500) -> bool:
@@ -811,9 +803,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.set_positions(port, targets, time_ms)).result()
+            return self._executor.submit(asyncio.run, self.set_positions(port, targets, time_ms)).result(timeout=10)
         return loop.run_until_complete(self.set_positions(port, targets, time_ms))
 
     def change_servo_id(self, port: str, old_id: int, new_id: int) -> bool:
@@ -824,9 +814,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.change_id(port, old_id, new_id)).result()
+            return self._executor.submit(asyncio.run, self.change_id(port, old_id, new_id)).result(timeout=10)
         return loop.run_until_complete(self.change_id(port, old_id, new_id))
 
     def set_servo_velocity_mode(self, port: str, device_id: int) -> bool:
@@ -837,9 +825,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.set_velocity_mode(port, device_id)).result()
+            return self._executor.submit(asyncio.run, self.set_velocity_mode(port, device_id)).result(timeout=10)
         return loop.run_until_complete(self.set_velocity_mode(port, device_id))
 
     def write_positions_sync(self, port: str, targets: Dict[int, float], time_ms: int = 500) -> bool:
@@ -850,9 +836,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.sync_write_positions(port, targets, time_ms)).result()
+            return self._executor.submit(asyncio.run, self.sync_write_positions(port, targets, time_ms)).result(timeout=5)
         return loop.run_until_complete(self.sync_write_positions(port, targets, time_ms))
 
     def set_servo_speed(self, port: str, device_id: int, speed: int) -> bool:
@@ -863,9 +847,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.set_velocity(port, device_id, float(speed))).result()
+            return self._executor.submit(asyncio.run, self.set_velocity(port, device_id, float(speed))).result(timeout=5)
         return loop.run_until_complete(self.set_velocity(port, device_id, float(speed)))
 
     def scan_servos_on_port(self, port: str, start_id: int = 1, end_id: int = 253) -> List:
@@ -876,9 +858,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.scan_servos(port, start_id, end_id)).result()
+            return self._executor.submit(asyncio.run, self.scan_servos(port, start_id, end_id)).result(timeout=30)
         return loop.run_until_complete(self.scan_servos(port, start_id, end_id))
 
     def get_servo_info(self, port: str, device_id: int) -> Optional[Dict]:
@@ -889,9 +869,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.get_actuator_info(port, device_id)).result()
+            return self._executor.submit(asyncio.run, self.get_actuator_info(port, device_id)).result(timeout=5)
         return loop.run_until_complete(self.get_actuator_info(port, device_id))
 
     def set_torque(self, port: str, device_id: int, enable: bool) -> bool:
@@ -902,12 +880,10 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(
-                    asyncio.run,
-                    self.enable(port, device_id) if enable else self.disable(port, device_id)
-                ).result()
+            return self._executor.submit(
+                asyncio.run,
+                self.enable(port, device_id) if enable else self.disable(port, device_id)
+            ).result(timeout=5)
         return loop.run_until_complete(
             self.enable(port, device_id) if enable else self.disable(port, device_id)
         )
@@ -919,9 +895,7 @@ class ActuatorController:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         if loop.is_running():
-            import threading
-            with ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, self.disable_port(port)).result()
+            return self._executor.submit(asyncio.run, self.disable_port(port)).result(timeout=5)
         return loop.run_until_complete(self.disable_port(port))
 
     async def cleanup(self) -> None:
@@ -934,4 +908,5 @@ class ActuatorController:
         self._registry.clear()
         self._joint_map.clear()
         self._last_targets.clear()
+        self._executor.shutdown(wait=False, cancel_futures=True)
         logger.info("ActuatorController cleaned up")

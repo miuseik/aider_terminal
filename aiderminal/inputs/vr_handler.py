@@ -12,6 +12,7 @@ from typing import Dict
 from scipy.spatial.transform import Rotation as R
 
 from aiderminal.inputs.base import BaseInputProvider, ControlGoal, ControlMode
+from aiderminal.inputs.base import mark_input_active, mark_input_inactive
 from aiderminal.config.settings import TelegripConfig
 from aiderminal.core.kinematic.pybullet.utils import compute_relative_position
 
@@ -236,6 +237,7 @@ class VRHandler(BaseInputProvider):
             if not controller.grip_active:
                 # 握把刚激活 - 设置原点并重置目标位置
                 controller.grip_active = True
+                mark_input_active("vr")
                 controller.origin_position = position.copy()
                 
                 # 如果有四元数数据则直接使用
@@ -320,6 +322,11 @@ class VRHandler(BaseInputProvider):
         if controller.grip_active:
             controller.reset_grip()
             
+            # 检查两个控制器是否都已释放
+            if not self.left_controller.grip_active and not self.right_controller.grip_active:
+                if not self.left_controller.trigger_active and not self.right_controller.trigger_active:
+                    mark_input_inactive("vr")
+
             # 发送 idle 目标以停止机械臂控制
             goal = ControlGoal(
                 arm=hand,

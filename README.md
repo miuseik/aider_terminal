@@ -12,6 +12,8 @@
 | 有 Docker，第一次 | `docker compose up --build -d` |
 | 之后每次启动（生产） | `./start-pro.sh` |
 | 之后每次启动（本地） | `./start-dev.sh` |
+| 启动 Aloha（生产） | `ROBOT_TYPE=aloha ./start-pro.sh` |
+| 启动 Aloha（本地） | `ROBOT_TYPE=aloha ENV=dev docker compose up -d` |
 | 改代码后重启 | `docker compose restart` |
 | 停止 | `docker compose down` |
 | 查看日志 | `docker compose logs -f` |
@@ -24,7 +26,6 @@
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `ROBOT_TYPE` | `aider` | `aider` / `aloha` |
-| `NO_ROBOT` | `true` | `false`=连接真机 |
 | `NO_SIM` | `false` | 禁用仿真 |
 | `NO_VIZ` | `false` | 无头模式 |
 

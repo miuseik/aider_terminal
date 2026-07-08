@@ -22,7 +22,6 @@ services:
     environment:
       - DISPLAY=${DISPLAY}
       - ROBOT_TYPE=${ROBOT_TYPE:-aider}
-      - NO_ROBOT=${NO_ROBOT:-true}
       - NO_SIM=${NO_SIM:-false}
       - NO_VIZ=${NO_VIZ:-false}
       - ENV=${ENV:-pro}

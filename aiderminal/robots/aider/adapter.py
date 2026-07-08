@@ -398,6 +398,27 @@ class AiderAdapter:
 
     # ======================== 硬件命令构建 ========================
 
+    @staticmethod
+    def _build_arm_targets(servo_ids: dict, arm_name: str, angles: np.ndarray) -> dict:
+        """根据关节名解析序号来建立 angle[index] → motor_id 映射（不依赖 dict 迭代顺序）。
+
+        从键名如 "right_arm4" 提取序号 4 → 索引 3，取 angles[3] 写到 motor_id。
+        修复了 enumerate() 依赖 dict 顺序导致的 arm4/arm5/arm6 ID 交换 bug。
+        """
+        targets = {}
+        arm_config = servo_ids.get(arm_name, {})
+        for jname, jinfo in arm_config.items():
+            if not isinstance(jinfo, dict):
+                continue
+            # 从键名提取序号: "right_arm4" → 4, "left_arm2" → 2
+            try:
+                idx = int(jname.split("arm")[-1]) - 1
+            except (ValueError, IndexError):
+                continue
+            if idx < len(angles):
+                targets[jinfo["id"]] = float(angles[idx])
+        return targets
+
     def build_hardware_actions(self, servo_ids: dict, servo_ports: dict = None) -> dict:
         """根据当前状态和舵机配置，构建结构化的硬件命令。
 
@@ -421,20 +442,14 @@ class AiderAdapter:
         # --- 左臂（位置控制） ---
         left_port = servo_ports.get("left_arm")
         if left_port:
-            targets = {}
-            for i, (_jname, jinfo) in enumerate(servo_ids.get("left_arm", {}).items()):
-                if isinstance(jinfo, dict) and i < len(self.left_angles):
-                    targets[jinfo["id"]] = float(self.left_angles[i])
+            targets = self._build_arm_targets(servo_ids, "left_arm", self.left_angles)
             if targets:
                 actions["position_commands"].append({"port": left_port, "targets": targets})
 
         # --- 右臂（位置控制） ---
         right_port = servo_ports.get("right_arm")
         if right_port:
-            targets = {}
-            for i, (_jname, jinfo) in enumerate(servo_ids.get("right_arm", {}).items()):
-                if isinstance(jinfo, dict) and i < len(self.right_angles):
-                    targets[jinfo["id"]] = float(self.right_angles[i])
+            targets = self._build_arm_targets(servo_ids, "right_arm", self.right_angles)
             if targets:
                 actions["position_commands"].append({"port": right_port, "targets": targets})
 

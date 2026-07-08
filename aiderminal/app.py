@@ -259,7 +259,7 @@ class TelegripSystem:
             print("系统重启成功完成")
 
             # 如果请求则自动连接机器人（在重启后保留自动连接行为）
-            if self.config.autoconnect and self.config.enable_robot:
+            if self.config.autoconnect:
                 print("🔌 重启后自动连接机器人电机...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle
                 self.add_control_command("robot_connect")
@@ -317,7 +317,7 @@ class TelegripSystem:
             print("所有系统组件启动成功")
 
             # 如果请求则自动连接机器人
-            if self.config.autoconnect and self.config.enable_robot:
+            if self.config.autoconnect:
                 print("🔌 自动连接机器人电机...")
                 await asyncio.sleep(0.5)  # Brief delay to let components settle
                 self.add_control_command("robot_connect")
@@ -434,7 +434,6 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Unified SO100 Robot Teleoperation System")
     
     # 控制标志
-    parser.add_argument("--no-robot", action="store_true", help="Disable robot connection (visualization only)")
     parser.add_argument("--no-sim", action="store_true", help="Disable PyBullet simulation and inverse kinematics")
     parser.add_argument("--no-viz", action="store_true", help="Disable PyBullet visualization (headless mode)")
     parser.add_argument("--no-vr", action="store_true", help="Disable VR WebSocket server")
@@ -476,7 +475,6 @@ def create_config_from_args(args) -> TelegripConfig:
     config = TelegripConfig()
     
     # 应用命令行覆盖
-    config.enable_robot = not args.no_robot
     config.enable_pybullet = not args.no_sim
     config.enable_pybullet_gui = config.enable_pybullet and not args.no_viz
     config.enable_vr = not args.no_vr
@@ -514,12 +512,11 @@ def create_config_from_args(args) -> TelegripConfig:
         print(f"🤖 机器人类型: {config.robot_type} (配置文件)")
     
     # 根据机器人类型设置 URDF 路径
-    from aiderminal.config.settings import set_robot_type, _ROBOT_TYPE_CONFIGS
+    from aiderminal.config.settings import set_robot_type, get_robot_urdf_path, get_robot_aloha_urdf_path
     set_robot_type(config.robot_type)
-    rt_cfg = _ROBOT_TYPE_CONFIGS.get(config.robot_type, _ROBOT_TYPE_CONFIGS["aider"])
-    config.urdf_path = args.urdf if args.urdf != "URDF/SO100/so100.urdf" else rt_cfg["urdf_path"]
+    config.urdf_path = args.urdf if args.urdf != "URDF/SO100/so100.urdf" else get_robot_urdf_path()
     if hasattr(config, 'aloha_urdf_path'):
-        config.aloha_urdf_path = rt_cfg.get("aloha_urdf_path", config.aloha_urdf_path)
+        config.aloha_urdf_path = get_robot_aloha_urdf_path()
     
     # 处理端口配置
     if args.left_port or args.right_port:
@@ -557,7 +554,6 @@ async def main():
     if log_level <= logging.INFO:
         print("使用以下配置启动:")
         print(f"  机器人类型: {config.robot_type}")
-        print(f"  机器人: {'启用' if config.enable_robot else '禁用'}")
         print(f"  PyBullet: {'启用' if config.enable_pybullet else '禁用'}")
         print(f"  无头模式: {'启用' if not config.enable_pybullet_gui and config.enable_pybullet else '禁用'}")
         print(f"  VR: {'启用' if config.enable_vr else '禁用'}")

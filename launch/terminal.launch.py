@@ -4,7 +4,6 @@
 用法:
     ros2 launch aiderminal terminal.launch.py
     ros2 launch aiderminal terminal.launch.py robot_type:=aider
-    ros2 launch aiderminal terminal.launch.py no_robot:=true
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -15,7 +14,6 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('robot_type', default_value='aider'),
-        DeclareLaunchArgument('no_robot', default_value='false'),
         DeclareLaunchArgument('no_sim', default_value='false'),
         DeclareLaunchArgument('no_viz', default_value='false'),
         DeclareLaunchArgument('no_vr', default_value='false'),
@@ -35,7 +33,6 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'robot_type': LaunchConfiguration('robot_type'),
-                'no_robot': LaunchConfiguration('no_robot'),
                 'no_sim': LaunchConfiguration('no_sim'),
                 'no_viz': LaunchConfiguration('no_viz'),
                 'no_vr': LaunchConfiguration('no_vr'),

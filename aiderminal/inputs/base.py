@@ -9,6 +9,25 @@ from dataclasses import dataclass
 from typing import Optional, Literal, Dict, Any
 from enum import Enum
 
+# ======================== 全局输入活跃状态 ========================
+# 使用 set 追踪活跃输入源，避免 VR/键盘互相覆盖
+_ACTIVE_INPUT_SOURCES: set = set()
+
+
+def mark_input_active(source: str):
+    """标记输入源为活跃状态（source: 'vr' / 'keyboard'）"""
+    _ACTIVE_INPUT_SOURCES.add(source)
+
+
+def mark_input_inactive(source: str):
+    """标记输入源为非活跃状态"""
+    _ACTIVE_INPUT_SOURCES.discard(source)
+
+
+def is_any_input_active() -> bool:
+    """检查是否有任何输入源（VR 或键盘）处于活跃状态"""
+    return len(_ACTIVE_INPUT_SOURCES) > 0
+
 class ControlMode(Enum):
     """遥操作系统的控制模式。"""
     POSITION_CONTROL = "position"  # 位置控制

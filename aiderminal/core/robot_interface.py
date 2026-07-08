@@ -12,6 +12,9 @@ import logging
 import os
 import sys
 import yaml
+import asyncio
+
+from aiderminal.inputs.base import is_any_input_active
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
@@ -65,6 +68,8 @@ class RobotInterface:
 
         # 控制时序
         self.last_send_time = 0
+        self._hw_lock = asyncio.Lock()  # 硬件写入锁，防止串口并发写入
+        self._hw_version = 0  # 硬件写入版本号，旧任务拿锁后跳过
 
         # 错误跟踪
         self.left_arm_errors = 0
@@ -74,10 +79,9 @@ class RobotInterface:
         self.max_general_errors = 8
 
         # 安全关机初始位置 (由适配器类型决定)
-        from aiderminal.config.settings import _ROBOT_TYPE_CONFIGS
-        rt_cfg = _ROBOT_TYPE_CONFIGS.get(self.robot_type, _ROBOT_TYPE_CONFIGS["aider"])
-        self.initial_left_arm = np.array(rt_cfg["initial_left_arm"])
-        self.initial_right_arm = np.array(rt_cfg["initial_right_arm"])
+        from aiderminal.config.settings import get_robot_initial_arm
+        self.initial_left_arm = np.array(get_robot_initial_arm("left"))
+        self.initial_right_arm = np.array(get_robot_initial_arm("right"))
 
         # 底盘状态 (由 control_loop 更新)
         self.base_connected = False
@@ -152,20 +156,10 @@ class RobotInterface:
             return False
 
     def connect(self, force_scan: bool = False) -> bool:
-        print(f"开始连接机器人...：{self.is_connected} (enable_robot={self.config.enable_robot}, force_scan={force_scan})")
+        print(f"开始连接机器人...：{self.is_connected} (force_scan={force_scan})")
         if self.is_connected:
             print("机器人接口已连接")
             return True
-
-        if not self.config.enable_robot:
-            if not force_scan:
-                print("⚠️ 配置中禁用了机器人接口，但仍可连接到仿真")
-                print("💡 如需连接真机，请确保启动时未使用 --no-robot 参数")
-                # 即使禁用真机，也标记为已连接（用于仿真）
-                self.is_connected = True
-                return True
-            else:
-                print("⚠️ 用户强制扫描（忽略 enable_robot=False）")
 
         try:
             print("正在连接机器人...")
@@ -402,17 +396,14 @@ class RobotInterface:
         print("🔌 机器人电机已使能 - 将发送指令")
         return True
 
-    def disengage(self) -> bool:
+    async def disengage(self) -> bool:
         """禁能机器人电机(停止发送指令)。"""
         if not self.is_connected:
             print("机器人已断开")
             return True
 
         try:
-            # 禁能前返回安全位置
-            self.return_to_initial_position()
-
-            # 禁能力矩
+            # 禁能力矩（不回初始位置 — 部分舵机在线时硬编码初始位可能导致危险姿势）
             self.disable_torque()
 
             self.is_engaged = False
@@ -423,19 +414,28 @@ class RobotInterface:
             print(f"禁能机器人错误: {e}")
             return False
 
-    def send_command(self) -> bool:
-        """使用字典格式向机器人发送当前关节角度，并更新仿真。"""
+    async def send_command(self) -> bool:
+        """使用字典格式向机器人发送当前关节角度，并更新仿真。
+        
+        关键优化：硬件写入以 fire-and-forget 方式提交到后台线程，
+        不阻塞控制循环。仿真始终以全速（50Hz）运行。
+        """
         current_time = time.time()
 
         # 检查时间间隔（真机和仿真共用）
         if current_time - self.last_send_time < self.config.send_interval:
             return True  # 未到发送时间
 
-        # 1. 发送到真机（如果连接且使能）
+        # ✅ 立即更新时间戳，保证控制循环不受硬件延迟影响
+        self.last_send_time = current_time
+
+        # 1. 发送到真机（如果连接且使能）—— fire-and-forget，不阻塞事件循环
+        #    每次递增版本号，旧任务拿锁后发现版本过期直接跳过
         success = True
         if self.is_connected and self.is_engaged:
             try:
-                self._send_to_hardware()
+                self._hw_version += 1
+                asyncio.ensure_future(self._send_to_hardware(self._hw_version))
             except Exception as e:
                 print(f"发送机器人指令错误: {e}")
                 self.general_errors += 1
@@ -443,17 +443,11 @@ class RobotInterface:
                     self.is_connected = False
                     print("❌ 机器人接口因重复错误而断开")
                 success = False
-        elif not hasattr(self, '_diag_hw_skip_printed'):
-            self._diag_hw_skip_printed = True
-            print(f"[DIAG] 硬件派发跳过: is_connected={self.is_connected}, is_engaged={self.is_engaged}, "
-                  f"servo_ids keys={list(self.servo_ids.keys())}, servo_ports={self.servo_ports}")
 
-        # 2. 更新仿真（无论真机是否连接）
+        # 2. 更新仿真（无论真机是否连接，始终全速运行）
         if self.visualizer:
             self._update_simulation()
 
-        # 更新时间戳
-        self.last_send_time = current_time
         return success
 
     def set_gripper(self, arm: str, closed: bool, trigger_value: Optional[float] = None):
@@ -508,7 +502,7 @@ class RobotInterface:
         # 如果无法读取实际角度，回退到指令角度
         return self.get_arm_angles(arm)
 
-    def return_to_initial_position(self):
+    async def return_to_initial_position(self):
         """将两个机械臂返回到初始位置。"""
         print("⏪ 正在将机器人返回到初始位置...")
 
@@ -519,8 +513,8 @@ class RobotInterface:
 
             # 发送几次指令以确保移动
             for i in range(10):
-                self.send_command
-                time.sleep(0.1)
+                await self.send_command()
+                await asyncio.sleep(0.1)
 
             print("✅ 机器人已返回到初始位置")
         except Exception as e:
@@ -566,54 +560,112 @@ class RobotInterface:
             lift_vel=self.lift_velocity,
         )
 
-    def _send_to_hardware(self):
-        """发送指令到真机硬件。
+    async def _send_to_hardware(self, version: int = 0):
+        """发送指令到真机硬件（异步，串口 I/O 在独立线程执行，不阻塞事件循环）。
         
-        委托 adapter 构建结构化的硬件命令（位置 + 速度），
-        本方法只负责无脑派发，不包含任何机器人特有的底盘/轮子逻辑。
+        用 asyncio.Lock 保证同一时刻只有一个任务在执行串口写入，
+        版本号机制确保锁定释放后只有最新任务才真正写入硬件。
         """
         if not self.motor_controller:
             return
         
-        # 先同步状态到 adapter（确保 keyboard 设置的 base_velocity_target 生效）
-        self._sync_to_adapter()
-        
-        actions = self.adapter.build_hardware_actions(self.servo_ids, self.servo_ports)
+        # 硬件写入锁：只允许一个任务同时操作串口
+        async with self._hw_lock:
+            # 版本过期则跳过——说明有更新的任务在排队
+            if version < self._hw_version:
+                return
+            # 先同步状态到 adapter（确保 keyboard 设置的 base_velocity_target 生效）
+            self._sync_to_adapter()
+            
+            actions = self.adapter.build_hardware_actions(self.servo_ids, self.servo_ports)
 
-        # 一次性诊断：看看硬件命令是否生成
-        if not hasattr(self, '_diag_hw_actions_printed'):
-            self._diag_hw_actions_printed = True
             pos_cmds = actions.get("position_commands", [])
             spd_cmds = actions.get("speed_commands", [])
-            print(f"[DIAG] build_hardware_actions: "
-                  f"position_commands={len(pos_cmds)}, speed_commands={len(spd_cmds)}")
+
+            # 当 VR/键盘有输入时打印硬件命令（便于排查电机 ID 和角度）
+            if is_any_input_active():
+                for cmd in pos_cmds:
+                    tgt_str = ",".join(f"{sid}:{ang:.1f}°" for sid, ang in cmd['targets'].items())
+                    print(f"[HW] pos_cmd port={cmd['port']} targets=[{tgt_str}]")
+
+            loop = asyncio.get_event_loop()
+            executor = self.motor_controller._executor
+            _HW_TIMEOUT = 1.0  # 单个串口操作超时（秒），超时则跳过该端口
+
+            # 派发位置命令（双臂关节角度）—— 在独立线程中执行串口写入
+            for cmd in pos_cmds:
+                if not cmd.get("targets"):
+                    continue
+                port = cmd["port"]
+                targets = cmd["targets"]
+                driver = self.motor_controller._get_or_create_driver(port)
+                if driver and hasattr(driver, 'sync_write_positions'):
+                    try:
+                        await asyncio.wait_for(
+                            loop.run_in_executor(
+                                executor,
+                                driver.sync_write_positions,
+                                targets, 0
+                            ),
+                            timeout=_HW_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"[HW] position port={port} 超时，跳过")
+                    except Exception as e:
+                        print(f"[HW] position port={port} 异常: {e}")
+
+            # 派发速度命令（底盘轮子 + 升降轴）
             for cmd in spd_cmds:
-                print(f"  [DIAG] speed_cmd port={cmd['port']} targets={cmd['targets']}")
-
-        # 派发位置命令（双臂关节角度）
-        for cmd in actions.get("position_commands", []):
-            if cmd.get("targets"):
-                self.motor_controller.write_positions_sync(cmd["port"], cmd["targets"], time_ms=0)
-
-        # 派发速度命令（底盘轮子 + 升降轴）
-        # 使用批量同步写入，将 N 次串口往返压缩为 1 次广播写
-        for cmd in actions.get("speed_commands", []):
-            if not cmd.get("targets"):
-                continue
-            port = cmd["port"]
-            # 确保所有目标电机处于速度模式
-            for servo_id in cmd["targets"]:
-                self._ensure_speed_mode(port, servo_id)
-            # 批量写入：一次串口事务发送所有速度
-            driver = self.motor_controller._get_or_create_driver(port)
-            if driver and hasattr(driver, 'sync_write_spec_batch'):
-                driver.sync_write_spec_batch(cmd["targets"])
+                if not cmd.get("targets"):
+                    continue
+                port = cmd["port"]
+                # 确保所有目标电机处于速度模式（一次性的 EEPROM 写）
+                for servo_id in cmd["targets"]:
+                    try:
+                        await asyncio.wait_for(
+                            self._ensure_speed_mode_async(port, servo_id),
+                            timeout=_HW_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"[HW] speed_mode port={port} id={servo_id} 超时，跳过")
+                # 批量写入速度
+                driver = self.motor_controller._get_or_create_driver(port)
+                if driver and hasattr(driver, 'sync_write_spec_batch'):
+                    try:
+                        await asyncio.wait_for(
+                            loop.run_in_executor(
+                                executor,
+                                driver.sync_write_spec_batch,
+                                cmd["targets"]
+                            ),
+                            timeout=_HW_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"[HW] speed port={port} 超时，跳过")
+                    except Exception as e:
+                        print(f"[HW] speed port={port} 异常: {e}")
 
     def _ensure_speed_mode(self, port, servo_id):
-        """确保指定舵机处于速度模式（同一 port+servo 只切换一次）。"""
+        """确保指定舵机处于速度模式（同一 port+servo 只切换一次，同步版）。"""
         key = f"_speed_mode_{port}_{servo_id}"
         if not hasattr(self, key):
             self.motor_controller.set_servo_velocity_mode(port, servo_id)
+            setattr(self, key, True)
+
+    async def _ensure_speed_mode_async(self, port, servo_id):
+        """确保指定舵机处于速度模式（异步版，模式切换在独立线程执行）。"""
+        key = f"_speed_mode_{port}_{servo_id}"
+        if not hasattr(self, key):
+            loop = asyncio.get_event_loop()
+            driver = self.motor_controller._get_or_create_driver(port)
+            if driver and hasattr(driver, 'set_velocity_mode'):
+                await loop.run_in_executor(
+                    self.motor_controller._executor,
+                    driver.set_velocity_mode,
+                    servo_id
+                )
+            else:
+                self.motor_controller.set_servo_velocity_mode(port, servo_id)
             setattr(self, key, True)
 
     def _update_simulation(self):

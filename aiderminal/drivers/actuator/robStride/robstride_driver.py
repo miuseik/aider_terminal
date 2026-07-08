@@ -71,8 +71,8 @@ class RobStrideOfficialDriver:
         )
         self._can_name = can_interface
         self._motors: Dict[int, RobStrideMotor] = {}   # motor_id → motor info
-        self._kp: float = 10.0   # openArmX 默认值，平滑不抖动
-        self._kd: float = 1.0
+        self._kp: float = 25.0   # 从 openArmX 的 10 提高到 25，腕部关节需要更大增益
+        self._kd: float = 2.0
         self._recv_started: bool = False
         self._initialized: set = set()  # 已使能+切MIT位置模式的电机ID
         self._csp_initialized: set = set()  # 已使能+切CSP模式的电机ID
@@ -471,16 +471,31 @@ class RobStrideOfficialDriver:
     # ── 批量同步 ──
 
     def sync_write_positions(self, targets: Dict[int, float], time_ms: int = 500) -> bool:
-        """批量写入位置 (°) — 前端传角度制，转为弧度发给电机"""
+        """批量写入位置 (°) — 前端传角度制，转为弧度发给电机。
+        
+        首次调用会自动初始化所有电机（MIT模式+使能），后续调用复用已初始化状态。
+        """
         ok = 0
+        fail_reasons = []
         for mid, pos in targets.items():
+            ready = self._ensure_ready(mid)
+            if not ready:
+                fail_reasons.append(f"id={mid}")
+                continue
             pos_rad = deg_to_rad(pos)
-            if self._can.send_motion_control(
+            sent = self._can.send_motion_control(
                 motor_id=mid, position=pos_rad, velocity=0.0,
                 kp=self._kp, kd=self._kd, torque=0.0,
-            ):
+            )
+            if sent:
                 ok += 1
+            else:
+                fail_reasons.append(f"id={mid}")
             _busy_wait_us(150)  # CAN 帧间间隔，防止总线缓冲区溢出丢帧
+
+        if fail_reasons:
+            logger.warning("[Motor] sync_write: ok=%d/%d fail=%s",
+                          ok, len(targets), ",".join(fail_reasons))
         return ok > 0
 
     def sync_write_spec_batch(self, targets: Dict[int, int], acc: int = 0) -> bool:

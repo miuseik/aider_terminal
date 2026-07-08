@@ -152,9 +152,6 @@ class ControlLoop:
                 # 真机连接失败
                 error_msg = "真机连接失败"
                 print(f"⚠️ {error_msg}（真机连接失败仿真仍可运行）")
-                # ✅ 真机连接失败不影响仿真启动
-                # if self.config.enable_robot:
-                #     success = False
             
             # ✅ 关键修改：无论真机是否连接，都初始化 ActuatorController
             # 这样 API 命令（如扫描舵机）在 setup() 之前到达时也能正常工作
@@ -176,8 +173,6 @@ class ControlLoop:
         except Exception as e:
             error_msg = f"Robot interface setup failed with exception: {e}"
             print(error_msg)
-            if self.config.enable_robot:
-                success = False
         
         # === 2. 设置 PyBullet 仿真、IK 和可视化器 ===
         if self.config.enable_pybullet:
@@ -301,7 +296,7 @@ class ControlLoop:
         if self.robot_interface:
             if self.robot_interface.is_engaged:
                 print("🛑 关闭前断开机器人...")
-                self.robot_interface.disengage()
+                await self.robot_interface.disengage()
             self.robot_interface.disconnect()
 
         if self.visualizer:
@@ -375,7 +370,13 @@ class ControlLoop:
                 print(f"🔍 用户触发连接，重新扫描硬件 "
                       f"(is_connected={ri.is_connected}, online_servos现有={len(ri.online_servos)}个: {sorted(ri.online_servos.keys())})")
                 ri.is_connected = False  # 重置以允许 connect() 重新执行扫描
-                success = ri.connect(force_scan=True)
+                # connect() 包含 HTTP 请求 + 串口扫描，在独立线程中执行，不阻塞事件循环
+                loop = asyncio.get_event_loop()
+                executor = self.motor_controller._executor if self.motor_controller else None
+                if executor:
+                    success = await loop.run_in_executor(executor, ri.connect, True)
+                else:
+                    success = ri.connect(force_scan=True)
                 if not success:
                     print("❌ 机器人连接失败")
                     return
@@ -397,7 +398,7 @@ class ControlLoop:
                 print("❌ 无机器人接口")
         elif action == 'robot_disconnect':
             if self.robot_interface:
-                success = self.robot_interface.disengage()
+                success = await self.robot_interface.disengage()
                 if success:
                     print("🔌 机器人已禁能")
                     self.left_arm.reset()
@@ -583,7 +584,7 @@ class ControlLoop:
             return
         
         try:
-            self._update_robot()
+            await self._update_robot()
             # 每次 PyBullet stepSimulation 后 yield，防止阻塞事件循环
             await asyncio.sleep(0)
         except Exception as e:
@@ -591,7 +592,7 @@ class ControlLoop:
             print(f"更新机器人错误: {e}")
             traceback.print_exc()
     
-    def _update_robot(self):
+    async def _update_robot(self):
         """用当前控制目标更新机器人。"""
         if not self.robot_interface:
             return
@@ -678,7 +679,7 @@ class ControlLoop:
             self.robot_interface.visualizer = self.visualizer
         
         # === 发送指令到真机并更新仿真 ===
-        self.robot_interface.send_command()
+        await self.robot_interface.send_command()
 
     def _periodic_logging(self):
         """定期打印诊断信息（每2秒一次）。"""
@@ -703,10 +704,9 @@ class ControlLoop:
             bv = self.base_velocity_target
             base_active = abs(bv["x"]) > 0.001 or abs(bv["y"]) > 0.001 or abs(bv["theta"]) > 0.001
             
-            # 只有在有控制动作时才打印DIAG信息，避免刷屏
-            left_active = self.left_arm.mode != ControlMode.IDLE if self.left_arm else False
-            right_active = self.right_arm.mode != ControlMode.IDLE if self.right_arm else False
-            if left_active or right_active or base_active:
+            # 只在 VR/键盘有输入时才打印DIAG信息
+            from aiderminal.inputs.base import is_any_input_active
+            if is_any_input_active():
                 print(f"[DIAG] IK解算器={ik_solver_count} | "
                       f"左臂={'🟢' if left_ik_ok else '🔴'} | "
                       f"右臂={'🟢' if right_ik_ok else '🔴'} | "
