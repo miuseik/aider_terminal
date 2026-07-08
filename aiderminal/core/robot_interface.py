@@ -467,6 +467,9 @@ class RobotInterface:
 
         # 使能并发送一次指令让舵机开始运动
         self.engage()
+        # 重置 last_send_time 绕过频率限制，确保姿态指令立刻发送到硬件
+        # （否则控制循环刚发完命令时 send_command 会因间隔检查跳过）
+        self.last_send_time = 0
         await self.send_command()
         print(f"✅ 已发送 goto_pose 指令: arm={arm}, pose={pose_name}")
         return {"success": True, "message": f"已移动到 '{pose_name}' 姿态"}

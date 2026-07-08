@@ -6,6 +6,7 @@ WebSocket 客户端 - 连接到 Aider Server。
 import asyncio
 import json
 import logging
+import numpy as np
 from typing import Optional
 
 from .transport import WSTransport
@@ -90,6 +91,9 @@ class VRWebSocketClient:
 
         if action == 'enable_keyboard':
             if cl and cl.web_keyboard_handler:
+                # 重连后 is_engaged 可能为 False，自动使能
+                if cl.robot_interface and cl.robot_interface.is_connected and not cl.robot_interface.is_engaged:
+                    cl.robot_interface.engage()
                 await cl.web_keyboard_handler.start()
                 print("🎮 键盘控制已启用")
         elif action == 'disable_keyboard':
@@ -138,6 +142,21 @@ class VRWebSocketClient:
             if cl and cl.robot_interface:
                 arm = command.get('arm', 'both')
                 pose_name = command.get('pose_name', 'safe')
+
+                # 防止控制循环的 IK 覆盖姿态角度：
+                # 1. 重置 ArmState → IDLE，让 _update_robot 跳过 IK
+                # 2. 排空命令队列中目标手臂的 POSITION_CONTROL 指令，防止重新激活
+                arms = ["left", "right"] if arm == "both" else [arm]
+                for a in arms:
+                    (cl.left_arm if a == "left" else cl.right_arm).reset()
+                kept = []
+                while not cl.command_queue.empty():
+                    g = cl.command_queue.get_nowait()
+                    if not (g.arm in arms and g.mode and g.mode.name == "POSITION_CONTROL"):
+                        kept.append(g)
+                for g in kept:
+                    cl.command_queue.put_nowait(g)
+
                 result = await cl.robot_interface.goto_pose(arm, pose_name)
                 print(f"goto_pose result: {result}")
                 # 推送结果给前端
