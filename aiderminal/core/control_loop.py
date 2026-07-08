@@ -143,16 +143,12 @@ class ControlLoop:
         """
         success = True
         setup_errors = []
-        # === 1. 设置机器人接口(连接真机) ===
+        # === 1. 设置机器人接口(不自动连接) ===
+        # 连接由用户通过 UI 的「连接」按钮显式触发，
+        # 避免用户在未点击连接的情况下启用键盘就能控制真机
         try:
             self.robot_interface = RobotInterface(self.config)
-            robot_connected = self.robot_interface.connect()
-            
-            if not robot_connected:
-                # 真机连接失败
-                error_msg = "真机连接失败"
-                print(f"⚠️ {error_msg}（真机连接失败仿真仍可运行）")
-            
+
             # ✅ 关键修改：无论真机是否连接，都初始化 ActuatorController
             # 这样 API 命令（如扫描舵机）在 setup() 之前到达时也能正常工作
             self.motor_controller = ActuatorController()
