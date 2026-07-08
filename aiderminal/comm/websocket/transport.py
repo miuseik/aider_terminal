@@ -45,13 +45,13 @@ class WSTransport:
             self.websocket = await websockets.connect(
                 ws_url,
                 ssl=self.ssl_context,
-                ping_interval=15,       # 每15秒发一次 ping
-                ping_timeout=60,        # 等60秒超时（默认20秒）
+                ping_interval=20,       # 每20秒发一次 ping
+                ping_timeout=90,        # 等90秒超时（容忍高负载/慢网络）
                 close_timeout=10,       # 关闭握手超时
+                max_size=10 * 1024 * 1024,  # 最大消息10MB
             )
             self.is_connected = True
-            print(f"✅ 已连接到服务器")
-            print(f"✅ WebSocket 客户端连接成功: {ws_url}")
+            print(f"✅ WebSocket 已连接: {ws_url}")
             
             # 启动消息接收任务
             asyncio.create_task(self._receive_loop())

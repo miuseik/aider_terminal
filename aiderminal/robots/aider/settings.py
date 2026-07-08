@@ -90,6 +90,24 @@ JOINT_LIMIT_OVERRIDES = {
     "head_Link2":  (-30, 45),   # 负值=低头, 正值=抬头
 }
 
+# ---- 姿态预设（度） ----
+# 用户可在前端动作列表中选择姿态，机器人按预设角度移动到目标位置。
+# 键 = 姿态名称（前端会显示），值 = {left: [...], right: [...]}
+POSES = {
+    "safe": {
+        "left":  INITIAL_LEFT_ARM,
+        "right": INITIAL_RIGHT_ARM,
+    },
+    "default": {
+        "left":  [10, 30, 50, 50, 0, 0, 0, 0],
+        "right": [-10, -30, -50, -50, 0, 0, 0, 0],
+    },
+    "zero": {
+        "left":  [0, 0, 0, 0, 0, 0, 0, 0],
+        "right": [0, 0, 0, 0, 0, 0, 0, 0],
+    },
+}
+
 # ---- 姿态偏好（度） ----
 # IK 求解时的默认舒适姿态，PostureTask 以此为目标
 # TODO: 将 POSTURE 硬编码值迁移到 servo_ids.yaml 的 default_angle 字段，

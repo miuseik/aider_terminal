@@ -222,6 +222,12 @@ def get_robot_initial_arm(arm: str) -> list:
     return getattr(robot, f"INITIAL_{arm.upper()}_ARM")
 
 
+def get_robot_poses() -> dict:
+    """返回当前机器人类型的姿态预设字典 {pose_name: {left: [...], right: [...]}}。"""
+    robot = _get_robot_settings()
+    return getattr(robot, "POSES", {})
+
+
 def get_joint_limits_deg() -> dict:
     """返回当前机器人类型的关节限位字典 {joint_name: {lower, upper}} (度)。"""
     robot = _get_robot_settings()

@@ -18,7 +18,12 @@
 | 停止 | `docker compose down` |
 | 查看日志 | `docker compose logs -f` |
 | 重建镜像 | `docker compose down && docker compose build --no-cache && docker compose up -d` |
-
+```bash
+docker compose restart
+```
+```bash
+docker compose logs -f
+```
 ---
 
 ## 环境变量

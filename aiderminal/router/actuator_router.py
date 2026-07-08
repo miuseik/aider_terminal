@@ -348,6 +348,8 @@ class ActuatorRouter:
             "calibrate_servo_zero": self._route_set_zero,
             "calibrate_all_servo_offsets": self._route_calibrate_all_offsets,
             "calibrate_single_servo_offset": self._route_calibrate_single_offset,
+            "goto_pose":         self._route_goto_pose,
+            "list_poses":        self._route_list_poses,
         }
 
         handler = route_map.get(action)
@@ -639,3 +641,26 @@ class ActuatorRouter:
                 "message": f"Offset computed ({all_offsets[servo_id]}°) but save failed: {e}",
                 "data": all_offsets,
             }
+
+    async def _route_goto_pose(self, ctrl, cmd: Dict) -> Dict:
+        """将机器人移动到指定姿态（安全/默认等）。
+
+        cmd 参数: arm (left/right/both), pose_name (safe/default/...)
+        """
+        arm = cmd.get("arm", "both")
+        pose_name = cmd.get("pose_name", "safe")
+        cl = self._control_loop
+        if cl and cl.robot_interface:
+            return await cl.robot_interface.goto_pose(arm, pose_name)
+        return {"success": False, "message": "Robot interface not available"}
+
+    async def _route_list_poses(self, ctrl, cmd: Dict) -> Dict:
+        """返回当前机器人类型可用的姿态预设列表。
+
+        cmd 参数: 无
+        """
+        cl = self._control_loop
+        if cl and cl.robot_interface:
+            poses = cl.robot_interface.list_poses()
+            return {"success": True, "data": poses}
+        return {"success": False, "message": "Robot interface not available"}

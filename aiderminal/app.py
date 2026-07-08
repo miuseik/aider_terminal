@@ -70,7 +70,7 @@ class TelegripSystem:
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
         self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
         
-        self.vr_ws_client = VRWebSocketClient(config, self.vr_handler, self.actuator_router)
+        self.ws_client = VRWebSocketClient(config, self.vr_handler, self.actuator_router, self.control_loop)
         
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
 
@@ -79,7 +79,6 @@ class TelegripSystem:
 
         # 设置交叉引用
         self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
-        self.vr_handler.control_loop = self.control_loop  # ← 添加 control_loop 引用
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
         self.control_loop.main_app = self  # ← 添加 main_app 引用
 
@@ -94,9 +93,7 @@ class TelegripSystem:
         """添加控制命令到队列进行处理。"""
         try:
             command = {"action": action}
-            print(f"🔌 Queueing control command: {command}")
             self.control_commands_queue.put_nowait(command)
-            print(f"🔌 Command queued successfully")
         except queue.Full:
             print(f"Control commands queue is full, dropping command: {action}")
         except Exception as e:
@@ -105,9 +102,7 @@ class TelegripSystem:
     def add_keypress_command(self, command: dict):
         """添加按键命令到队列进行处理。"""
         try:
-            print(f"🎮 Queueing keypress command: {command}")
             self.control_commands_queue.put_nowait(command)
-            print(f"🎮 Keypress command queued successfully")
         except queue.Full:
             print(f"Control commands queue is full, dropping keypress command: {command}")
         except Exception as e:
@@ -127,8 +122,8 @@ class TelegripSystem:
             
             # 处理每个命令
             for command in commands_to_process:
-                if self.control_loop:
-                    await self.control_loop._handle_command(command)
+                if self.ws_client:
+                    await self.ws_client._handle_command(command)
                     
         except Exception as e:
             print(f"处理控制命令时出错: {e}")
@@ -177,7 +172,7 @@ class TelegripSystem:
             # 按相反顺序停止组件
             await self.control_loop.stop()
             await self.web_keyboard_handler.stop()
-            await self.vr_ws_client.disconnect()
+            await self.ws_client.disconnect()
             await self.vr_handler.stop()
             # HTTPS server disabled - UI migrated to external Vue project
 
@@ -207,14 +202,13 @@ class TelegripSystem:
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
             self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
             
-            self.vr_ws_client = VRWebSocketClient(self.config, self.vr_handler, self.actuator_router)
+            self.ws_client = VRWebSocketClient(self.config, self.vr_handler, self.actuator_router, self.control_loop)
 
             # WebRTC 推流器
             self.webrtc_streamer = WebRTCStreamer(self.config)
 
             # 设置交叉引用
             self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
-            self.vr_handler.control_loop = self.control_loop  # ← 添加 control_loop 引用
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
             self.control_loop.main_app = self  # ← 添加 main_app 引用
 
@@ -228,15 +222,15 @@ class TelegripSystem:
             await self.vr_handler.start()
 
             # 通过 WebSocket 客户端连接到 Aider Server
-            await self.vr_ws_client.connect()
+            await self.ws_client.connect()
 
             # 将 transport 传给 control_loop，用于推送硬件状态
-            self.control_loop.set_transport(self.vr_ws_client.transport)
+            self.control_loop.set_transport(self.ws_client.transport)
 
             # WebRTC 视频推流
             if getattr(self.config, 'enable_webrtc', False):
                 print("📹 启动 WebRTC 视频推流...")
-                self.webrtc_streamer.set_transport(self.vr_ws_client.transport)
+                self.webrtc_streamer.set_transport(self.ws_client.transport)
                 webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
                 self.tasks.append(webrtc_task)
                 # 等待 WebRTC 加入房间完成，再启动控制循环（PyBullet 会阻塞事件循环）
@@ -286,15 +280,15 @@ class TelegripSystem:
             await self.vr_handler.start()
 
             # 通过 WebSocket 客户端连接到 Aider Server
-            await self.vr_ws_client.connect()
+            await self.ws_client.connect()
 
             # 将 transport 传给 control_loop，用于推送硬件状态
-            self.control_loop.set_transport(self.vr_ws_client.transport)
+            self.control_loop.set_transport(self.ws_client.transport)
 
             # WebRTC 视频推流
             if getattr(self.config, 'enable_webrtc', False):
                 print("📹 启动 WebRTC 视频推流...")
-                self.webrtc_streamer.set_transport(self.vr_ws_client.transport)
+                self.webrtc_streamer.set_transport(self.ws_client.transport)
                 webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
                 self.tasks.append(webrtc_task)
                 # 等待 WebRTC 加入房间完成，再启动控制循环（PyBullet 会阻塞事件循环）
@@ -370,7 +364,7 @@ class TelegripSystem:
 
         # 首先停止 VR 服务器以关闭 websocket 连接（解除任何等待的处理程序的阻塞）
         try:
-            await asyncio.wait_for(self.vr_ws_client.disconnect(), timeout=2.0)
+            await asyncio.wait_for(self.ws_client.disconnect(), timeout=2.0)
         except asyncio.TimeoutError:
             print("VR WebSocket 客户端断开超时")
         except Exception as e:

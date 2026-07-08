@@ -87,81 +87,13 @@ class VRHandler(BaseInputProvider):
         """处理来自 WebSocket 客户端的 VR 控制器数据。"""
         try:
             data = json.loads(message)
-            
-            # 处理 API 类命令
-            if 'action' in data:
-                await self.handle_api_command(data)
-            else:
-                # 处理 VR 控制器数据
-                await self.process_controller_data(data)
+            # 只处理 VR 控制器数据（无 action 字段的消息）
+            # 带 action 的 API 命令已在 client.py 中路由到 control_loop
+            await self.process_controller_data(data)
         except json.JSONDecodeError:
             print(f"⚠️ 收到非 JSON 消息: {message}")
         except Exception as e:
             print(f"❌ 处理数据错误: {e}")
-    
-    async def handle_api_command(self, data: Dict):
-        """处理 API 类命令。"""
-        action = data.get('action')
-        print(f"📡 VR API 命令: {action}")
-        
-        if action == 'get_status':
-            # 如果有回调，通过回调返回当前状态
-            status = {
-                "type": "status_response",
-                "robotEngaged": False,
-                "keyboardEnabled": self.is_running,
-                "vrConnected": True
-            }
-            if hasattr(self, 'on_status_callback'):
-                await self.on_status_callback(status)
-        
-        elif action == 'enable_keyboard':
-            print("🎮 键盘控制已启用")
-            await self.control_loop._handle_command({'action': 'enable_keyboard'})
-        
-        elif action == 'disable_keyboard':
-            print("🎮 键盘控制已禁用")
-            await self.control_loop._handle_command({'action': 'disable_keyboard'})
-        
-        elif action == 'robot_connect':
-            print("🔌 收到机器人连接命令")
-            await self.control_loop._handle_command({'action': 'robot_connect'})
-        
-        elif action == 'robot_disconnect':
-            print("🔌 收到机器人断开命令")
-            await self.control_loop._handle_command({'action': 'robot_disconnect'})
-        
-        elif action == 'restart':
-            print("🔄 收到重启命令")
-            # 调用主应用的软重启方法
-            self.control_loop.main_app.restart()
-            
-            # 设置超时保护：10秒后强制硬重启
-            import threading
-            import os
-            import sys
-            
-            def force_restart():
-                import time
-                time.sleep(10)
-                print("⚠️ 软重启超时，执行强制硬重启")
-                os.execv(sys.executable, [sys.executable] + sys.argv)
-            
-            restart_thread = threading.Thread(target=force_restart, daemon=True)
-            restart_thread.start()
-        
-        elif action == 'keypress':
-            key = data.get('key')
-            event = data.get('event')
-            print(f"⌨️ 按键 {event}: {key}")
-            if hasattr(self, 'web_keyboard_handler') and self.web_keyboard_handler:
-                if event == 'press':
-                    self.web_keyboard_handler.on_key_press(key)
-                elif event == 'release':
-                    self.web_keyboard_handler.on_key_release(key)
-        
-        else:
-            print(f"⚠️ 未知 VR 命令: {action}")
     
     async def process_controller_data(self, data: Dict):
         """处理传入的 VR 控制器数据。"""

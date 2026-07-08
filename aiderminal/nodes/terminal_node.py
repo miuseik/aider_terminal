@@ -66,6 +66,13 @@ def _ros_param_to_config(node: Node) -> TelegripConfig:
         if api_host:
             config.api_host = api_host
 
+    # 同步到模块级单例 —— client.py / actuator_router.py 等从 settings 读配置
+    from aiderminal.config import settings
+    settings.config.server_host = config.server_host
+    settings.config.api_host = config.api_host
+    settings.config.websocket_port = config.websocket_port
+    settings.config.robot_type = config.robot_type
+
     return config
 
 

@@ -220,12 +220,16 @@ class RobStrideOfficialDriver:
                 torque=0.0,
             )
 
-    def get_position(self, device_id: int) -> float:
-        """读取当前位置 (°) — 返回角度制供前端显示"""
+    def get_position(self, device_id: int) -> Optional[float]:
+        """读取当前位置 (°) — 返回角度制；读取失败返回 None。
+
+        注意: 与 Feetech 驱动的 get_position (返回步进值 0~4095) 语义不同，
+        本方法直接返回角度制。换算由调用方按 brand 区分处理。
+        """
         fb = self._can.get_feedback(device_id)
         if fb and fb.is_valid:
             return rad_to_deg(fb.position)
-        return 0.0
+        return None
 
     # ── 速度控制 ──
 

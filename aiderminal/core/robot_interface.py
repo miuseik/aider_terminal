@@ -291,9 +291,10 @@ class RobotInterface:
                     self.motor_controller.bind_joint_driver(port, driver)
                 print(f"✅ 底层驱动已初始化: {list(port_drivers.keys())}")
 
-                # ✅ 第八步：读取初始关节状态
-                self._read_initial_state()
+                # ✅ 第八步：连接完成（不自动读取状态，不自动移动到安全位，
+                #     角度保持在适配器默认值 np.zeros。前端姿态列表由用户选择。）
                 print(f"🤖 机器人接口已连接: 左臂={self.left_arm_connected}, 右臂={self.right_arm_connected}, 底盘={self.base_connected}")
+                print("💡 机器人已连接但未使能，请在前端动作列表中选择姿态（安全/默认/...）")
             else:
                 print("❌ 无法连接任何机械臂")
 
@@ -306,55 +307,78 @@ class RobotInterface:
             self.is_connected = False
             return False
 
+    def _servo_angle(self, driver, servo_id, brand):
+        """读取单个舵机角度 (°)。
+
+        - Feetech: get_position 返回步进值(0~4095)，需换算为角度(-180~180)
+        - RobStride: get_position 直接返回角度制
+        读取失败 (返回 None) 时返回 None，由调用方回退到安全位。
+        """
+        pos = driver.get_position(servo_id)
+        if pos is None:
+            return None
+        if 'robstride' in (brand or '').lower():
+            return float(pos)
+        # feetech: 步进值(0~4095) → 角度(-180~180)
+        return (pos / 4095.0) * 360.0 - 180.0
+
     def _read_initial_state(self):
-        """从机器人读取初始关节状态（通过 ST3215Driver）。"""
+        """从机器人读取当前关节角度（按品牌换算）；读不到时填 NaN，不自动回退到安全位。
+        
+        设计意图: 连接后不做任何自动移动。前端用户选择姿态后才发送位置指令。
+        """
+        nan = float('nan')
         try:
             # 左臂
             if self.left_robot and self.left_arm_connected:
                 left_arm_config = self.servo_ids.get('left_arm', {})
                 angles = []
-                
-                for joint_name, joint_info in left_arm_config.items():
+
+                for idx, (joint_name, joint_info) in enumerate(left_arm_config.items()):
                     servo_id = joint_info.get('id')
+                    brand = joint_info.get('brand') or ''
+                    if not brand:
+                        brand = 'robstride' if 'robstride' in type(self.left_robot).__module__.lower() else 'feetech'
                     if servo_id:
-                        position = self.left_robot.get_position(servo_id)
-                        if position is not None:
-                            angle = (position / 4095.0) * 360.0 - 180.0
-                            angles.append(angle)
-                        else:
-                            angles.append(0.0)
+                        angle = self._servo_angle(self.left_robot, servo_id, brand)
+                        if angle is None:
+                            angle = nan
+                            print(f"  ⚠️ 左臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 NaN")
+                        angles.append(angle)
                     else:
-                        angles.append(0.0)
-                
+                        angles.append(nan)
+
                 if len(angles) == NUM_JOINTS:
                     self.left_arm_angles = np.array(angles)
-                    print(f"✅ 左臂初始状态: {self.left_arm_angles.round(1)}")
+                    print(f"📡 左臂当前角度: {self.left_arm_angles.round(1)} (NaN=未读取)")
                 else:
                     print(f"⚠️ 左臂舵机数量不匹配: {len(angles)} != {NUM_JOINTS}")
-            
+
             # 右臂
             if self.right_robot and self.right_arm_connected:
                 right_arm_config = self.servo_ids.get('right_arm', {})
                 angles = []
-                
-                for joint_name, joint_info in right_arm_config.items():
+
+                for idx, (joint_name, joint_info) in enumerate(right_arm_config.items()):
                     servo_id = joint_info.get('id')
+                    brand = joint_info.get('brand') or ''
+                    if not brand:
+                        brand = 'robstride' if 'robstride' in type(self.right_robot).__module__.lower() else 'feetech'
                     if servo_id:
-                        position = self.right_robot.get_position(servo_id)
-                        if position is not None:
-                            angle = (position / 4095.0) * 360.0 - 180.0
-                            angles.append(angle)
-                        else:
-                            angles.append(0.0)
+                        angle = self._servo_angle(self.right_robot, servo_id, brand)
+                        if angle is None:
+                            angle = nan
+                            print(f"  ⚠️ 右臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 NaN")
+                        angles.append(angle)
                     else:
-                        angles.append(0.0)
-                
+                        angles.append(nan)
+
                 if len(angles) == NUM_JOINTS:
                     self.right_arm_angles = np.array(angles)
-                    print(f"✅ 右臂初始状态: {self.right_arm_angles.round(1)}")
+                    print(f"📡 右臂当前角度: {self.right_arm_angles.round(1)} (NaN=未读取)")
                 else:
                     print(f"⚠️ 右臂舵机数量不匹配: {len(angles)} != {NUM_JOINTS}")
-                    
+
         except Exception as e:
             print(f"❌ 读取初始状态错误: {e}")
             import traceback
@@ -395,6 +419,57 @@ class RobotInterface:
         self.is_engaged = True
         print("🔌 机器人电机已使能 - 将发送指令")
         return True
+
+    def list_poses(self) -> Dict:
+        """返回可用的姿态预设列表，供前端动作列表使用。"""
+        from aiderminal.config.settings import get_robot_poses
+        poses = get_robot_poses()
+        result = {}
+        for name, data in poses.items():
+            result[name] = {
+                "left": data.get("left", []),
+                "right": data.get("right", []),
+            }
+        return result
+
+    async def goto_pose(self, arm: str, pose_name: str) -> Dict:
+        """将指定机械臂移动到命名姿态（安全/默认/...）。
+
+        Args:
+            arm: 'left', 'right', 或 'both'
+            pose_name: 姿态名称，需在 POSES 字典中存在
+
+        Returns:
+            {"success": bool, "message": str}
+        """
+        if not self.is_connected:
+            return {"success": False, "message": "机器人未连接"}
+
+        poses = self.list_poses()
+        if pose_name not in poses:
+            return {"success": False, "message": f"未知姿态 '{pose_name}'，可选: {list(poses.keys())}"}
+
+        pose = poses[pose_name]
+        arms_to_move = ["left", "right"] if arm == "both" else [arm]
+
+        for target_arm in arms_to_move:
+            targets = pose.get(target_arm)
+            if targets is None:
+                print(f"  ⚠️ 姿态 '{pose_name}' 未定义 {target_arm} 臂角度")
+                continue
+
+            if target_arm == "left":
+                self.left_arm_angles = np.array(targets, dtype=float)
+                print(f"  🎯 左臂 → '{pose_name}': {self.left_arm_angles.round(1)}")
+            else:
+                self.right_arm_angles = np.array(targets, dtype=float)
+                print(f"  🎯 右臂 → '{pose_name}': {self.right_arm_angles.round(1)}")
+
+        # 使能并发送一次指令让舵机开始运动
+        self.engage()
+        await self.send_command()
+        print(f"✅ 已发送 goto_pose 指令: arm={arm}, pose={pose_name}")
+        return {"success": True, "message": f"已移动到 '{pose_name}' 姿态"}
 
     async def disengage(self) -> bool:
         """禁能机器人电机(停止发送指令)。"""
