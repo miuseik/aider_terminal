@@ -71,13 +71,14 @@ class RobStrideOfficialDriver:
         )
         self._can_name = can_interface
         self._motors: Dict[int, RobStrideMotor] = {}   # motor_id → motor info
-        self._kp: float = 25.0   # 从 openArmX 的 10 提高到 25，腕部关节需要更大增益
+        self._kp: float = 30.0   # KP=30 确保足够力矩克服静摩擦（实测 KP=15 电机不转）
         self._kd: float = 2.0
         self._recv_started: bool = False
         self._initialized: set = set()  # 已使能+切MIT位置模式的电机ID
         self._csp_initialized: set = set()  # 已使能+切CSP模式的电机ID
         self._vel_initialized: set = set()  # 已使能+切速度模式的电机ID
         self._csp_speed_limit: float = 1.0  # CSP 最大速度 (rad/s)，openArmX 默认 1 rad/s ≈ 57°/s
+        self._last_positions: Dict[int, float] = {}  # motor_id → 上次已知角度(°)，用于断电后解绕单圈位置
 
     # ── 生命周期 ──
 
@@ -113,7 +114,12 @@ class RobStrideOfficialDriver:
     # ── 位置控制 ──
 
     def _ensure_ready(self, device_id: int) -> bool:
-        """确保电机已使能并处于 MIT 运控模式"""
+        """确保电机已使能并处于 MIT 运控模式，同时禁用 CAN 超时看门狗.
+
+        关键：设置 CAN_TIMEOUT=0 禁用超时，否则电机在最后一次收到 MIT
+        控制帧后会在超时窗口内自动退出跟踪，导致 set_position 单帧指令
+        无法让电机到达目标位置。
+        """
         if device_id in self._initialized:
             return True
 
@@ -139,10 +145,16 @@ class RobStrideOfficialDriver:
             return False
         time.sleep(0.01)
 
+        # 禁用 CAN 超时看门狗 (0x7028 = 0 表示永不超时)
+        # 默认值可能很小（如 20~100ms），导致 set_position 发一帧后电机
+        # 在超时窗口内停止追踪，永远到不了目标角度
+        if not self._can.write_parameter_int(device_id, ParamIndex.CAN_TIMEOUT, 0):
+            logger.warning("Motor %d: failed to disable CAN timeout watchdog", device_id)
+
         self._initialized.add(device_id)
         if device_id in self._motors:
             self._motors[device_id].enabled = True
-        logger.info("Motor %d initialized (MIT mode + enabled)", device_id)
+        logger.info("Motor %d initialized (MIT mode + enabled + CAN_TIMEOUT=0)", device_id)
         return True
 
     def _ensure_csp_ready(self, device_id: int) -> bool:
@@ -204,14 +216,15 @@ class RobStrideOfficialDriver:
         """
         pos_rad = deg_to_rad(position)
 
+        ok = False
         if use_csp:
             if not self._ensure_csp_ready(device_id):
                 return False
-            return self._can.set_position_csp(device_id, pos_rad)
+            ok = self._can.set_position_csp(device_id, pos_rad)
         else:
             if not self._ensure_ready(device_id):
                 return False
-            return self._can.send_motion_control(
+            ok = self._can.send_motion_control(
                 motor_id=device_id,
                 position=pos_rad,
                 velocity=velocity,
@@ -220,16 +233,71 @@ class RobStrideOfficialDriver:
                 torque=0.0,
             )
 
+        if ok:
+            # 记录目标位置，确保后续 get_position/get_status 解绕时有正确参考
+            self._last_positions[device_id] = position
+
+        return ok
+
+    def _unwrap_position(self, device_id: int, raw_deg: float) -> float:
+        """解绕单圈位置 (0~360°) 到最近的多圈等效角度。
+        
+        单圈编码器断电后 turn count 丢失，-30° 会报告为 330°。
+        根据上次已知角度 _last_positions，找到最接近的等效角度。
+        例如：上次=0°, 原始=330° → 解绕为 -30°（330-360）。
+        """
+        last = self._last_positions.get(device_id)
+        if last is None:
+            return raw_deg
+        diff = raw_deg - last
+        turns = round(diff / 360.0)
+        unwrapped = raw_deg - turns * 360.0
+        return round(unwrapped, 2)
+
     def get_position(self, device_id: int) -> Optional[float]:
         """读取当前位置 (°) — 返回角度制；读取失败返回 None。
 
         注意: 与 Feetech 驱动的 get_position (返回步进值 0~4095) 语义不同，
         本方法直接返回角度制。换算由调用方按 brand 区分处理。
+
+        返回的是多圈位置（反馈帧 position），不是单圈机械角 MECH_POS。
+        反馈帧里的 position 是电机 MIT 控制器追踪的多圈真值，
+        MECH_POS (0x7019) 只是单圈机械角（0~360° 循环），不适用于多圈场景。
+        
+        读取后自动解绕：如果编码器是单圈类型（断电后位置跳变），
+        根据上次已知位置 _last_positions 推算出正确的多圈角度。
         """
         fb = self._can.get_feedback(device_id)
-        if fb and fb.is_valid:
-            return rad_to_deg(fb.position)
-        return None
+        now = time.time()
+
+        raw_deg = None
+        # 反馈帧存在且新鲜（1 秒内）→ 直接取多圈位置
+        if fb and fb.is_valid and (now - fb.timestamp) < 1.0:
+            raw_deg = rad_to_deg(fb.position)
+        else:
+            # 反馈帧不存在或过期 → 主动读硬件 MECH_POS（耗时，最多 3 次重试）
+            logger.warning(
+                "[%s] motor %d feedback stale (age=%.2fs), falling back to MECH_POS read",
+                self._can_name, device_id,
+                now - fb.timestamp if fb else float('inf'),
+            )
+            for attempt in range(3):
+                result = self._can.read_parameter(device_id, ParamIndex.MECH_POS, timeout=0.3)
+                if result and result.success:
+                    raw_deg = rad_to_deg(result.value)
+                    break
+                logger.warning("[%s] motor %d MECH_POS read attempt %d/3 failed", self._can_name, device_id, attempt + 1)
+            if raw_deg is None:
+                logger.error("[%s] motor %d MECH_POS FAILED after 3 retries", self._can_name, device_id)
+                return None
+
+        # 解绕单圈位置到多圈（处理断电后 turn count 丢失的情况）
+        position = self._unwrap_position(device_id, raw_deg)
+
+        # 更新已知位置
+        self._last_positions[device_id] = position
+
+        return position
 
     # ── 速度控制 ──
 
@@ -382,23 +450,61 @@ class RobStrideOfficialDriver:
     # ── 状态读取 ──
 
     def get_status(self, device_id: int) -> dict:
-        """返回 {position(°), velocity(°/s), torque(Nm), temperature(°C), voltage(V), ...}"""
+        """返回 {position(°), velocity(°/s), torque(Nm), temperature(°C), voltage(V), ...}
+
+        位置优先取反馈帧的多圈 position（电机 MIT 控制器追踪的真值）。
+        只在反馈帧过期时才退去主动读 MECH_POS 单圈机械角（慢且有循环问题）。
+        读取后自动解绕：处理单圈编码器断电后 turn count 丢失的情况。
+        """
         fb = self._can.get_feedback(device_id)
+        now = time.time()
+        fb_fresh = fb and fb.is_valid and (now - fb.timestamp) < 1.0
+
+        raw_deg = None
+        if fb_fresh:
+            # 反馈帧新鲜 → 直接用多圈位置，不发起昂贵的 CAN 参数读取
+            raw_deg = rad_to_deg(fb.position)
+        else:
+            # 反馈帧过期或不存在 → 退去 MECH_POS（单圈机械角，带重试）
+            stale_age = now - fb.timestamp if (fb and fb.timestamp) else float('inf')
+            logger.warning(
+                "[%s] motor %d feedback stale (age=%.2fs), fallback to MECH_POS",
+                self._can_name, device_id, stale_age,
+            )
+            for attempt in range(3):
+                pos_result = self._can.read_parameter(device_id, ParamIndex.MECH_POS, timeout=0.3)
+                if pos_result and pos_result.success:
+                    raw_deg = rad_to_deg(pos_result.value)
+                    break
+                logger.warning("[%s] motor %d MECH_POS read attempt %d/3 failed",
+                               self._can_name, device_id, attempt + 1)
+            if raw_deg is None:
+                logger.error("[%s] motor %d MECH_POS FAILED after 3 retries — returning 0",
+                             self._can_name, device_id)
+
+        # 解绕单圈位置到多圈（处理断电后 turn count 丢失的情况）
+        position = self._unwrap_position(device_id, raw_deg if raw_deg is not None else 0.0)
+        if raw_deg is not None:
+            self._last_positions[device_id] = position
+
+        # 电压：只要电机有反馈就主动读（反馈帧不带电压）
         voltage = None
-        v_result = self._can.read_parameter(device_id, ParamIndex.VBUS, timeout=0.1)
-        if v_result and v_result.success:
-            voltage = v_result.value
+        if fb and fb.is_valid:
+            v_result = self._can.read_parameter(device_id, ParamIndex.VBUS, timeout=0.2)
+            if v_result and v_result.success:
+                voltage = v_result.value
 
         if not fb or not fb.is_valid:
             return {
-                "position": 0.0, "angle": 0.0, "velocity": 0.0, "torque": 0.0,
+                "position": position or 0.0, "angle": position or 0.0,
+                "velocity": 0.0, "torque": 0.0,
                 "temperature": 0.0, "voltage": round(voltage, 2) if voltage else 0.0,
                 "motor_id": device_id, "online": False,
             }
 
         return {
-            "position": round(rad_to_deg(fb.position), 2),
-            "angle": round(rad_to_deg(fb.position), 2),
+            "position": position or 0.0,
+            "angle": position or 0.0,
             "velocity": round(rad_to_deg(fb.velocity), 2),
             "torque": round(fb.torque, 2),
             "temperature": round(fb.temperature, 2),
