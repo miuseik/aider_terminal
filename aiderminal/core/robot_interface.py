@@ -291,10 +291,13 @@ class RobotInterface:
                     self.motor_controller.bind_joint_driver(port, driver)
                 print(f"✅ 底层驱动已初始化: {list(port_drivers.keys())}")
 
-                # ✅ 第八步：连接完成（不自动读取状态，不自动移动到安全位，
-                #     角度保持在适配器默认值 np.zeros。前端姿态列表由用户选择。）
+                # ✅ 第八步：读取电机当前实际位置作为 IK 起点
+                #     电机标零后断电上电位置即正确，无需依赖 _unwrap_position 软件 hack。
+                #     未标零的电机读取值可能不准确（单圈编码器 0-360° 循环），
+                #     建议先通过前端标零按钮完成硬件零位校准。
+                self._read_initial_state()
+
                 print(f"🤖 机器人接口已连接: 左臂={self.left_arm_connected}, 右臂={self.right_arm_connected}, 底盘={self.base_connected}")
-                print("💡 机器人已连接但未使能，请在前端动作列表中选择姿态（安全/默认/...）")
             else:
                 print("❌ 无法连接任何机械臂")
 

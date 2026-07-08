@@ -346,6 +346,7 @@ class ActuatorRouter:
             "disable_torques":   self._route_disable_torques,
             "sync_positions":    self._route_sync_positions,
             "calibrate_servo_zero": self._route_set_zero,
+            "calibrate_all_servo_zero": self._route_set_zero_all,
             "calibrate_all_servo_offsets": self._route_calibrate_all_offsets,
             "calibrate_single_servo_offset": self._route_calibrate_single_offset,
             "goto_pose":         self._route_goto_pose,
@@ -543,6 +544,23 @@ class ActuatorRouter:
             "success": ok,
             "message": f"Zero set for servo {device_id}" if ok else "Failed to set zero",
         }
+
+    async def _route_set_zero_all(self, ctrl, cmd: Dict) -> Dict:
+        """批量设置所有电机当前位置为零位并保存到 Flash。
+
+        cmd 参数: port
+        所有已注册的电机在失能→标零→存 Flash→恢复使能流水线中处理。
+        """
+        port = cmd.get("port", "can0")
+        try:
+            ok = ctrl.set_zero_all_motors(port)
+            return {
+                "success": ok,
+                "message": "Batch zero calibration completed" if ok else "Batch zero calibration failed",
+            }
+        except Exception as e:
+            logger.error("Batch set_zero_all failed on %s: %s", port, e)
+            return {"success": False, "message": str(e)}
 
     async def _route_calibrate_all_offsets(self, ctrl, cmd: Dict) -> Dict:
         """批量校准所有 Feetech 舵机的零位偏移量并写回配置 YAML。

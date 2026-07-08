@@ -565,8 +565,15 @@ class MotorController:
                 if brand.lower() == 'robstride':
                     try:
                         from aiderminal.drivers.actuator.robStride import RobStrideOfficialDriver
+                        from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import (
+                            DEFAULT_JOINT_DIRECTIONS, DEFAULT_JOINT_OFFSETS,
+                        )
                         # Robstride 使用 CAN 接口，不是串口
-                        driver = RobStrideOfficialDriver(can_name='can0')
+                        driver = RobStrideOfficialDriver(
+                            can_interface='can0',
+                            directions=DEFAULT_JOINT_DIRECTIONS,
+                            offsets_rad=DEFAULT_JOINT_OFFSETS,
+                        )
                         if driver.connect():
                             self.drivers[port] = driver
                             print(f"✅ 创建 Robstride 驱动: {brand} @ {port}")

@@ -42,12 +42,42 @@ class ActuatorController:
         self._pipeline = None  # MotionPipeline (扫描后自动同步)
         # 共享线程池：避免每次同步包装都创建/销毁 ThreadPoolExecutor
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="actuator")
+        # CAN 重连冷却：防止硬件故障时无限重连
+        self._last_reconnect_attempt: Dict[str, float] = {}     # port → timestamp
+        self._reconnect_backoff: Dict[str, float] = {}           # port → cooldown_seconds
+        self._reconnect_skip_count: Dict[str, int] = {}          # port → 已跳过次数
+        # 跨 driver 生命周期保存电机最后已知位置（断电重连后解绕需要）
+        self._saved_positions: Dict[str, Dict[int, float]] = {}  # port → {motor_id: angle}
 
     def set_pipeline(self, pipeline) -> None:
         """注入运动管线：扫描完成后自动同步关节映射."""
         self._pipeline = pipeline
 
-    # ── 连接池 (参考 aider_terminal MotorController._get_or_create_driver) ──
+    def _can_reconnect_cooldown(self, port: str) -> float:
+        """检查 CAN 重连冷却期，返回还需等待秒数（0=允许重连）."""
+        now = time.time()
+        last = self._last_reconnect_attempt.get(port, 0)
+        cooldown = self._reconnect_backoff.get(port, 10.0)  # 默认 10s
+        elapsed = now - last
+        if elapsed < cooldown:
+            return cooldown - elapsed
+        return 0.0
+
+    def _record_reconnect(self, port: str) -> None:
+        """记录一次重连尝试，指数退避."""
+        now = time.time()
+        self._last_reconnect_attempt[port] = now
+        prev = self._reconnect_backoff.get(port, 10.0)
+        self._reconnect_backoff[port] = min(prev * 2, 120.0)  # 最大 120s
+
+    def _reset_reconnect_backoff(self, port: str) -> None:
+        """反馈恢复时重置退避."""
+        if port in self._last_reconnect_attempt:
+            del self._last_reconnect_attempt[port]
+        if port in self._reconnect_backoff:
+            del self._reconnect_backoff[port]
+        if port in self._reconnect_skip_count:
+            del self._reconnect_skip_count[port]
 
     def _get_or_create_driver(self, port: str):
         """获取或按需创建驱动实例（连接池模式，自动重连，CAN 热插拔容错）."""
@@ -67,28 +97,64 @@ class ActuatorController:
                 can = driver._can
                 idle = can.idle_seconds
                 if idle > 5.0:
-                    logger.warning(
-                        "CAN %s: 已 %.1fs 未收到反馈帧，触发重连...", port, idle,
-                    )
-                    try:
-                        driver.disconnect()
-                    except Exception:
-                        pass
-                    del self._joint_drivers[port]
-                    return self._get_or_create_driver(port)
+                    cooldown_left = self._can_reconnect_cooldown(port)
+                    if cooldown_left > 0:
+                        # 冷却期内，跳过重连（避免硬件故障时无限重连 spam）
+                        cnt = self._reconnect_skip_count.get(port, 0) + 1
+                        self._reconnect_skip_count[port] = cnt
+                        # 每 30 次跳过才打一次 WARNING，避免刷屏
+                        if cnt % 30 == 1:
+                            logger.warning(
+                                "CAN %s: 已 %.1fs 无反馈帧（已跳过 %d 次重连，冷却剩余 %.0fs）",
+                                port, idle, cnt, cooldown_left,
+                            )
+                    else:
+                        logger.warning(
+                            "CAN %s: 已 %.1fs 未收到反馈帧，触发重连...",
+                            port, idle,
+                        )
+                        # 保存旧 driver 的位置缓存，跨生命周期恢复
+                        if hasattr(driver, "_last_positions"):
+                            self._saved_positions[port] = dict(driver._last_positions)
+                        try:
+                            driver.disconnect()
+                        except Exception:
+                            pass
+                        del self._joint_drivers[port]
+                        self._record_reconnect(port)
+                        return self._get_or_create_driver(port)
+                else:
+                    # 反馈帧恢复 → 重置退避计数器
+                    self._reset_reconnect_backoff(port)
             return driver
+
+        # 拒绝无效端口名（如前端下拉的 "all"）
+        if port.lower() == "all":
+            logger.warning("Invalid port 'all' — refusing to create driver")
+            return None
 
         # 按端口类型创建驱动
         if "can" in port.lower():
             # CAN 热插拔：先尝试 setup_can，再连接
             self._can_retry_setup(port)
             from aiderminal.drivers.actuator.robStride import RobStrideOfficialDriver
-            driver = RobStrideOfficialDriver(can_interface=port)
+            from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import (
+                DEFAULT_JOINT_DIRECTIONS, DEFAULT_JOINT_OFFSETS,
+            )
+            driver = RobStrideOfficialDriver(
+                can_interface=port,
+                directions=DEFAULT_JOINT_DIRECTIONS,
+                offsets_rad=DEFAULT_JOINT_OFFSETS,
+            )
         else:
             from aiderminal.drivers.actuator.feetech.feetech_driver import ST3215Driver
             driver = ST3215Driver(port)
 
         if driver.connect():
+            # 恢复跨生命周期保存的电机位置（断电重连后解绕需要）
+            if port in self._saved_positions:
+                driver._last_positions.update(self._saved_positions[port])
+                logger.debug("Restored %d saved positions for %s", len(self._saved_positions[port]), port)
             self._joint_drivers[port] = driver
             logger.info("Created and cached driver for %s", port)
             return driver
