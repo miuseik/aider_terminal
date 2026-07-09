@@ -431,7 +431,7 @@ class RobotInterface:
             }
         return result
 
-    async def goto_pose(self, arm: str, pose_name: str, duration: float = 2.0) -> Dict:
+    async def goto_pose(self, arm: str, pose_name: str, duration: float = 5.0) -> Dict:
         """将指定机械臂平滑移动到命名姿态（smoothstep 缓动）。
 
         Args:
@@ -502,7 +502,7 @@ class RobotInterface:
         print(f"✅ 已发送 goto_pose 指令: arm={arm}, pose={pose_name}")
         return {"success": True, "message": f"已移动到 '{pose_name}' 姿态"}
 
-    async def return_to_initial_position(self, duration: float = 2.0):
+    async def return_to_initial_position(self, duration: float = 5.0):
         """将双臂平滑移动到安全初始位置（线性插值 + smoothstep 缓动）。"""
         print("⏪ 正在将机器人平滑返回到初始位置...")
         try:
@@ -537,18 +537,20 @@ class RobotInterface:
             print(f"返回初始位置错误: {e}")
 
     async def disengage(self) -> bool:
-        """回到初始工作位置，保持使能状态。"""
+        """回到初始安全位置后禁能电机力矩。"""
         if not self.is_connected:
             print("机器人已断开")
             return True
 
         try:
             await self.return_to_initial_position()
-            print("✅ 机器人已回到初始工作位置")
+            self.disable_torque()
+            self.is_engaged = False
+            print("✅ 机器人已回到安全位置并禁能")
             return True
 
         except Exception as e:
-            print(f"返回初始位置错误: {e}")
+            print(f"断开过程错误: {e}")
             return False
 
     async def send_command(self) -> bool:

@@ -212,12 +212,23 @@ class VRWebSocketClient:
         elif action == 'robot_disconnect':
             if cl and cl.robot_interface:
                 ri = cl.robot_interface
+
+                # 防止控制循环的 IK 覆盖姿态角度：
+                # 在 disengage() 前重置 ArmState → IDLE，排空命令队列
+                cl.left_arm.reset()
+                cl.right_arm.reset()
+                kept = []
+                while not cl.command_queue.empty():
+                    g = cl.command_queue.get_nowait()
+                    if not (g.mode and g.mode.name == "POSITION_CONTROL"):
+                        kept.append(g)
+                for g in kept:
+                    cl.command_queue.put_nowait(g)
+
                 success = await ri.disengage()
                 if success:
                     ri.is_connected = False  # 标记已断开，推送的 hardware_info 会反映此状态
                     print("🔌 机器人已断开")
-                    cl.left_arm.reset()
-                    cl.right_arm.reset()
                     if cl.visualizer:
                         for arm in ["left", "right"]:
                             cl.visualizer.hide_marker(f"{arm}_goal")
