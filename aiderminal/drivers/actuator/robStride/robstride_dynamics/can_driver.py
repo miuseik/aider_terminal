@@ -311,6 +311,9 @@ class RobstrideCanDriver:
                     self._socket.send(frame)
                     self._tx_ok_count += 1
                     self._tx_ok_window_count += 1
+                    # 发送成功也刷新活跃时间戳，避免仅有单向发送时
+                    # 被 CAN 健康检查误判为"无通信"而触发重连
+                    self._last_frame_time = time.time()
                     return True
                 except (socket.timeout, TimeoutError):
                     _busy_wait_us(200 << attempt)

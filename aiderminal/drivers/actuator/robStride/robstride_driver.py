@@ -80,7 +80,6 @@ class RobStrideOfficialDriver:
         self._csp_initialized: set = set()  # 已使能+切CSP模式的电机ID
         self._vel_initialized: set = set()  # 已使能+切速度模式的电机ID
         self._csp_speed_limit: float = 1.0  # CSP 最大速度 (rad/s)，openArmX 默认 1 rad/s ≈ 57°/s
-        self._last_positions: Dict[int, float] = {}  # motor_id → 上次已知角度(°)，用于断电后解绕单圈位置
         self._last_stale_warn: Dict[int, float] = {}  # motor_id → 上次 stale 日志时间戳（防刷屏）
 
         # 关节方向/偏移校正：处理电机反向安装和机械零点不重合
@@ -236,25 +235,17 @@ class RobStrideOfficialDriver:
             use_csp: True=CSP 平滑模式（实验）, False=MIT PD 模式（推荐）
         """
         # 逻辑角度 → 电机角度 → 弧度
-        # 根据电机当前内部位置，把目标就近到 360° 的等价值，避免走远路
         motor_deg = self._logical_deg_to_motor_deg(device_id, position)
-        fb = self._can.get_feedback(device_id)
-        if fb and fb.is_valid:
-            cur_motor_deg = rad_to_deg(fb.position)
-            diff = motor_deg - cur_motor_deg
-            turns = round(diff / 360.0)
-            motor_deg = motor_deg - turns * 360.0
         pos_rad = deg_to_rad(motor_deg)
 
-        ok = False
         if use_csp:
             if not self._ensure_csp_ready(device_id):
                 return False
-            ok = self._can.set_position_csp(device_id, pos_rad)
+            return self._can.set_position_csp(device_id, pos_rad)
         else:
             if not self._ensure_ready(device_id):
                 return False
-            ok = self._can.send_motion_control(
+            return self._can.send_motion_control(
                 motor_id=device_id,
                 position=pos_rad,
                 velocity=velocity,
@@ -262,34 +253,6 @@ class RobStrideOfficialDriver:
                 kd=self._kd,
                 torque=0.0,
             )
-
-        if ok:
-            # 记录逻辑目标位置，确保后续 get_position/get_status 解绕时有正确参考
-            self._last_positions[device_id] = position
-
-        return ok
-
-    def _unwrap_position(self, device_id: int, raw_deg: float) -> float:
-        """解绕单圈位置 (0~360°) 到最近的多圈等效角度。
-        
-        单圈编码器断电后 turn count 丢失，-30° 会报告为 330°。
-        根据上次已知位置，找到最接近的等效角度。
-        例如：上次=0°, 原始=330° → 解绕为 -30°（330-360）。
-
-        注意：解绕在电机原始坐标系进行（未应用 direction/offset），
-        _last_positions 中存储的是逻辑角度，需先反算回电机角度再解绕。
-        """
-        last_logical = self._last_positions.get(device_id)
-        if last_logical is None:
-            # 无历史参考 → 将值归一化到 [-180, 180) 范围
-            # 关节电机物理范围通常不超过 ±180°，350° → -10° 更合理
-            return round((raw_deg + 180.0) % 360.0 - 180.0, 2)
-        # 反算上次电机角度
-        last_motor = self._logical_deg_to_motor_deg(device_id, last_logical)
-        diff = raw_deg - last_motor
-        turns = round(diff / 360.0)
-        unwrapped_motor = raw_deg - turns * 360.0
-        return round(unwrapped_motor, 2)
 
     # ── 方向/偏移变换 ──
 
@@ -352,13 +315,8 @@ class RobStrideOfficialDriver:
                 logger.error("[%s] motor %d MECH_POS FAILED after 3 retries", self._can_name, device_id)
                 return None
 
-        # 电机坐标系 → 解绕 → 逻辑坐标系
-        motor_deg = self._unwrap_position(device_id, raw_deg)
-        logical_deg = self._motor_deg_to_logical_deg(device_id, motor_deg)
-
-        # 更新已知逻辑位置
-        self._last_positions[device_id] = logical_deg
-
+        # 电机坐标系 → 逻辑坐标系
+        logical_deg = self._motor_deg_to_logical_deg(device_id, raw_deg)
         return logical_deg
 
     # ── 速度控制 ──
@@ -526,14 +484,11 @@ class RobStrideOfficialDriver:
             self._can.save_parameters(device_id)
             time.sleep(0.05)
             logger.info("Motor %d: zero position set and saved to Flash", device_id)
-            # 清除解绕缓存 — 标零后编码器从 0 开始，不再需要解绕
-            self._last_positions.pop(device_id, None)
         else:
             logger.error("Motor %d: failed to set zero position", device_id)
             return False
 
         # 4. 如果原来处于使能状态，重新使能
-        #    但不清除 _unwrap_position 对初始读取的依赖（标零后位置正确）
         if was_mit:
             self._ensure_ready(device_id)
         elif was_csp:
@@ -575,11 +530,8 @@ class RobStrideOfficialDriver:
                 logger.error("[%s] motor %d MECH_POS FAILED after 3 retries — returning 0",
                              self._can_name, device_id)
 
-        # 电机坐标系 → 解绕 → 逻辑坐标系
-        motor_deg = self._unwrap_position(device_id, raw_deg if raw_deg is not None else 0.0)
-        logical_deg = self._motor_deg_to_logical_deg(device_id, motor_deg)
-        if raw_deg is not None:
-            self._last_positions[device_id] = logical_deg
+        # 电机坐标系 → 逻辑坐标系
+        logical_deg = self._motor_deg_to_logical_deg(device_id, raw_deg if raw_deg is not None else 0.0)
 
         # 电压：只要电机有反馈就主动读（反馈帧不带电压）
         voltage = None
@@ -594,11 +546,14 @@ class RobStrideOfficialDriver:
         logical_vel_dps = round(motor_vel_dps * d, 2)
 
         if not fb or not fb.is_valid:
+            # MECH_POS 读取成功（raw_deg 非 None）说明 CAN 通信双向正常，
+            # 只是电机不在主动上报反馈帧 → 应视为"在线"
+            online = raw_deg is not None
             return {
                 "position": logical_deg or 0.0, "angle": logical_deg or 0.0,
                 "velocity": 0.0, "torque": 0.0,
                 "temperature": 0.0, "voltage": round(voltage, 2) if voltage else 0.0,
-                "motor_id": device_id, "online": False,
+                "motor_id": device_id, "online": online,
             }
 
         return {
@@ -692,13 +647,6 @@ class RobStrideOfficialDriver:
                 fail_reasons.append(f"id={mid}")
                 continue
             motor_deg = self._logical_deg_to_motor_deg(mid, logical_deg)
-            # 根据电机当前内部位置，把目标就近到 360° 的等价值，避免走远路
-            fb = self._can.get_feedback(mid)
-            if fb and fb.is_valid:
-                cur_motor_deg = rad_to_deg(fb.position)
-                diff = motor_deg - cur_motor_deg
-                turns = round(diff / 360.0)
-                motor_deg = motor_deg - turns * 360.0
             pos_rad = deg_to_rad(motor_deg)
             sent = self._can.send_motion_control(
                 motor_id=mid, position=pos_rad, velocity=0.0,
@@ -706,7 +654,6 @@ class RobStrideOfficialDriver:
             )
             if sent:
                 ok += 1
-                self._last_positions[mid] = logical_deg
             else:
                 fail_reasons.append(f"id={mid}")
             _busy_wait_us(150)  # CAN 帧间间隔，防止总线缓冲区溢出丢帧
@@ -812,7 +759,6 @@ class RobStrideOfficialDriver:
             motor_zero_rad = self._logical_rad_to_motor_rad(mid, 0.0)
             if self._can.send_motion_control(mid, motor_zero_rad, 0.0, _kp, _kd, 0.0):
                 ok += 1
-                self._last_positions[mid] = 0.0
             _busy_wait_us(300)
         logger.info("move_all_to_zero(kp=%.1f, kd=%.1f): %d/%d", _kp, _kd, ok, len(self._motors))
         return ok > 0
@@ -870,7 +816,6 @@ class RobStrideOfficialDriver:
             time.sleep(0.05)
             self._can.save_parameters(mid)
             time.sleep(0.05)
-            self._last_positions.pop(mid, None)  # 标零后无需解绕
 
         logger.info("set_zero_all: %d/%d motors zeroed and saved to Flash", ok, len(self._motors))
 

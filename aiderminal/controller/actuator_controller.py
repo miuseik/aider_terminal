@@ -46,8 +46,6 @@ class ActuatorController:
         self._last_reconnect_attempt: Dict[str, float] = {}     # port → timestamp
         self._reconnect_backoff: Dict[str, float] = {}           # port → cooldown_seconds
         self._reconnect_skip_count: Dict[str, int] = {}          # port → 已跳过次数
-        # 跨 driver 生命周期保存电机最后已知位置（断电重连后解绕需要）
-        self._saved_positions: Dict[str, Dict[int, float]] = {}  # port → {motor_id: angle}
 
     def set_pipeline(self, pipeline) -> None:
         """注入运动管线：扫描完成后自动同步关节映射."""
@@ -113,9 +111,6 @@ class ActuatorController:
                             "CAN %s: 已 %.1fs 未收到反馈帧，触发重连...",
                             port, idle,
                         )
-                        # 保存旧 driver 的位置缓存，跨生命周期恢复
-                        if hasattr(driver, "_last_positions"):
-                            self._saved_positions[port] = dict(driver._last_positions)
                         try:
                             driver.disconnect()
                         except Exception:
@@ -151,10 +146,6 @@ class ActuatorController:
             driver = ST3215Driver(port)
 
         if driver.connect():
-            # 恢复跨生命周期保存的电机位置（断电重连后解绕需要）
-            if port in self._saved_positions:
-                driver._last_positions.update(self._saved_positions[port])
-                logger.debug("Restored %d saved positions for %s", len(self._saved_positions[port]), port)
             self._joint_drivers[port] = driver
             logger.info("Created and cached driver for %s", port)
             return driver

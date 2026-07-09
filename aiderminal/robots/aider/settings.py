@@ -37,8 +37,10 @@ URDF_TO_INTERNAL_NAME_MAP = {
 
 # ---- 初始位置（度） ----
 # 断开/复位时的目标角度（arm1~arm8）
-INITIAL_LEFT_ARM = [0, 0, 0, 0, 0, 0, 0, 0]
-INITIAL_RIGHT_ARM = [0, 0, 0, 0, 0, 0, 0, 0]
+# 非零安全姿态：arm2=-100（肩后收）、arm3=100（肘上扬）、arm4=60（肘内弯），
+# 使双臂自然收拢避免碰撞，同时所有角度在关节限位范围内。
+INITIAL_LEFT_ARM = [0, -100, 100, 60, 0, 0, 0, 0]
+INITIAL_RIGHT_ARM = [0, -100, 100, 60, 0, 0, 0, 0]
 
 # ---- 关节限位（度，通用 internal 名） ----
 # 用于 custom IK (_clamp)，key 为 arm1~arm8

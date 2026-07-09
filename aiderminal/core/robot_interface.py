@@ -292,7 +292,7 @@ class RobotInterface:
                 print(f"✅ 底层驱动已初始化: {list(port_drivers.keys())}")
 
                 # ✅ 第八步：读取电机当前实际位置作为 IK 起点
-                #     电机标零后断电上电位置即正确，无需依赖 _unwrap_position 软件 hack。
+                #     电机标零后断电上电位置即正确。
                 #     未标零的电机读取值可能不准确（单圈编码器 0-360° 循环），
                 #     建议先通过前端标零按钮完成硬件零位校准。
                 self._read_initial_state()
@@ -431,12 +431,13 @@ class RobotInterface:
             }
         return result
 
-    async def goto_pose(self, arm: str, pose_name: str) -> Dict:
-        """将指定机械臂移动到命名姿态（安全/默认/...）。
+    async def goto_pose(self, arm: str, pose_name: str, duration: float = 2.0) -> Dict:
+        """将指定机械臂平滑移动到命名姿态（smoothstep 缓动）。
 
         Args:
             arm: 'left', 'right', 或 'both'
             pose_name: 姿态名称，需在 POSES 字典中存在
+            duration: 过渡时长（秒），默认 2.0
 
         Returns:
             {"success": bool, "message": str}
@@ -451,44 +452,103 @@ class RobotInterface:
         pose = poses[pose_name]
         arms_to_move = ["left", "right"] if arm == "both" else [arm]
 
+        # 记录起始位置和目标位置
+        start_left = self.left_arm_angles.copy()
+        start_right = self.right_arm_angles.copy()
+        target_left = None
+        target_right = None
+
         for target_arm in arms_to_move:
             targets = pose.get(target_arm)
             if targets is None:
                 print(f"  ⚠️ 姿态 '{pose_name}' 未定义 {target_arm} 臂角度")
                 continue
-
+            targets_arr = np.array(targets, dtype=float)
             if target_arm == "left":
-                self.left_arm_angles = np.array(targets, dtype=float)
-                print(f"  🎯 左臂 → '{pose_name}': {self.left_arm_angles.round(1)}")
+                target_left = targets_arr
+                print(f"  🎯 左臂 → '{pose_name}': {targets_arr.round(1)}")
             else:
-                self.right_arm_angles = np.array(targets, dtype=float)
-                print(f"  🎯 右臂 → '{pose_name}': {self.right_arm_angles.round(1)}")
+                target_right = targets_arr
+                print(f"  🎯 右臂 → '{pose_name}': {targets_arr.round(1)}")
 
-        # 使能并发送一次指令让舵机开始运动
+        if target_left is None and target_right is None:
+            return {"success": False, "message": f"姿态 '{pose_name}' 无有效角度定义"}
+
         self.engage()
-        # 重置 last_send_time 绕过频率限制，确保姿态指令立刻发送到硬件
-        # （否则控制循环刚发完命令时 send_command 会因间隔检查跳过）
+
+        # 平滑插值过渡
+        steps = max(20, int(duration / 0.05))
+        step_s = duration / steps
+
+        for i in range(steps):
+            t = (i + 1) / steps
+            eased = t * t * (3.0 - 2.0 * t)  # smoothstep
+            if target_left is not None:
+                self.left_arm_angles = start_left + (target_left - start_left) * eased
+            if target_right is not None:
+                self.right_arm_angles = start_right + (target_right - start_right) * eased
+            self.last_send_time = 0
+            await self.send_command()
+            await asyncio.sleep(step_s)
+
+        # 最终帧：精确设为目标值
+        if target_left is not None:
+            self.left_arm_angles = target_left
+        if target_right is not None:
+            self.right_arm_angles = target_right
         self.last_send_time = 0
         await self.send_command()
+
         print(f"✅ 已发送 goto_pose 指令: arm={arm}, pose={pose_name}")
         return {"success": True, "message": f"已移动到 '{pose_name}' 姿态"}
 
+    async def return_to_initial_position(self, duration: float = 2.0):
+        """将双臂平滑移动到安全初始位置（线性插值 + smoothstep 缓动）。"""
+        print("⏪ 正在将机器人平滑返回到初始位置...")
+        try:
+            target_left = self.initial_left_arm.copy()
+            target_right = self.initial_right_arm.copy()
+            start_left = self.left_arm_angles.copy()
+            start_right = self.right_arm_angles.copy()
+
+            # 每个步长的最大移动量，避免 KD 过冲（约 5°/步 @ 2s/40步）
+            steps = max(20, int(duration / 0.05))
+            step_s = duration / steps
+
+            # 最后一帧直接设目标值，避免浮点累积误差
+            for i in range(steps):
+                t = (i + 1) / steps
+                eased = t * t * (3.0 - 2.0 * t)  # smoothstep
+                self.left_arm_angles = start_left + (target_left - start_left) * eased
+                self.right_arm_angles = start_right + (target_right - start_right) * eased
+
+                self.last_send_time = 0  # 绕过间隔限制
+                await self.send_command()
+                await asyncio.sleep(step_s)
+
+            # 最终帧：精确设为目标值
+            self.left_arm_angles = target_left
+            self.right_arm_angles = target_right
+            self.last_send_time = 0
+            await self.send_command()
+
+            print("✅ 机器人已返回到初始位置")
+        except Exception as e:
+            print(f"返回初始位置错误: {e}")
+
     async def disengage(self) -> bool:
-        """禁能机器人电机(停止发送指令)。"""
+        """回到初始工作位置，保持使能状态。"""
         if not self.is_connected:
             print("机器人已断开")
             return True
 
         try:
-            # 禁能力矩（不回初始位置 — 部分舵机在线时硬编码初始位可能导致危险姿势）
-            self.disable_torque()
-
-            self.is_engaged = False
-            print("🔌 机器人电机已禁能 - 指令停止")
+            await self.return_to_initial_position()
+            print("✅ 机器人已回到初始工作位置")
             return True
 
         except Exception as e:
-            print(f"禁能机器人错误: {e}")
+            print(f"返回初始位置错误: {e}")
             return False
 
     async def send_command(self) -> bool:
@@ -578,24 +638,6 @@ class RobotInterface:
 
         # 如果无法读取实际角度，回退到指令角度
         return self.get_arm_angles(arm)
-
-    async def return_to_initial_position(self):
-        """将两个机械臂返回到初始位置。"""
-        print("⏪ 正在将机器人返回到初始位置...")
-
-        try:
-            # 设置初始位置 - 无方向映射
-            self.left_arm_angles = self.initial_left_arm.copy()
-            self.right_arm_angles = self.initial_right_arm.copy()
-
-            # 发送几次指令以确保移动
-            for i in range(10):
-                await self.send_command()
-                await asyncio.sleep(0.1)
-
-            print("✅ 机器人已返回到初始位置")
-        except Exception as e:
-            print(f"返回初始位置错误: {e}")
 
     def disable_torque(self, arm: str = None):
         """禁能机器人关节力矩。
