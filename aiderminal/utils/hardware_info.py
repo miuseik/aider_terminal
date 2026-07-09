@@ -85,13 +85,22 @@ def _build_part_driver_map(ri) -> dict:
     if ri.base_robot and ri.base_connected:
         for part in ['base', 'lift_axis', 'neck']:
             part_driver[part] = ri.base_robot
+    # 腰: 独立 CAN 端口 (与手臂同 can0), 通过 servo_ports 发现
+    waist_port = getattr(ri, 'servo_ports', {}).get('waist')
+    if waist_port:
+        try:
+            wdriver = ri.motor_controller._get_or_create_driver(waist_port)
+            if wdriver:
+                part_driver['waist'] = wdriver
+        except Exception:
+            pass
     return part_driver
 
 
 def _collect_servos(ri, part_driver: dict) -> List[dict]:
     """遍历所有部件收集舵机详情."""
     all_servos = []
-    for part_name in ['left_arm', 'right_arm', 'base', 'lift_axis', 'neck']:
+    for part_name in ['left_arm', 'right_arm', 'base', 'lift_axis', 'neck', 'waist']:
         part_config = ri.servo_ids.get(part_name, {})
         if not isinstance(part_config, dict):
             continue

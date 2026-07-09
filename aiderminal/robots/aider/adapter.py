@@ -495,9 +495,22 @@ class AiderAdapter:
                 if isinstance(jinfo, dict) and jname in body_angles_deg:
                     position_targets[jinfo["id"]] = body_angles_deg[jname]
 
-            # waist_Link（腰）目前没有配置舵机 ID，如有则同上处理
+            # 脖子 head_Link / head_Link2 如上处理
             if position_targets:
                 actions["position_commands"].append({"port": neck_port, "targets": position_targets})
+
+        # --- 腰 (waist_Link, robstride_04, CAN 总线) — 独立端口下发 ---
+        # 腰与脖子不同总线: 脖子是 Feetech 串口(body_joints→neck), 腰是灵足 robstride_04 走 CAN。
+        # 故腰独立成顶层 waist 部分, 走 servo_ports["waist"](can0), 与手臂同一下发通道。
+        waist_port = servo_ports.get("waist")
+        if waist_port:
+            waist_config = servo_ids.get("waist", {})
+            waist_targets = {}
+            for jname, jinfo in waist_config.items():
+                if isinstance(jinfo, dict) and jname == "waist_Link":
+                    waist_targets[jinfo["id"]] = float(np.degrees(self.waist_angle))
+            if waist_targets:
+                actions["position_commands"].append({"port": waist_port, "targets": waist_targets})
 
         return actions
 

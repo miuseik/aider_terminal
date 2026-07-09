@@ -190,7 +190,7 @@ class RobotInterface:
             
             # ✅ 第二步：从扁平配置中收集所有舵机 ID
             all_ids = set()
-            part_names = ['left_arm', 'right_arm', 'base', 'lift_axis', 'neck']  # Server 会将 body_joints 重命名为 neck
+            part_names = ['left_arm', 'right_arm', 'base', 'lift_axis', 'neck', 'waist']  # Server 会将 body_joints 重命名为 neck
             for part_name in part_names:
                 part_config = servo_config.get(part_name, {})
                 if isinstance(part_config, dict):
@@ -332,6 +332,34 @@ class RobotInterface:
         # feetech: 步进值(0~4095) → 角度(-180~180)
         return (pos / 4095.0) * 360.0 - 180.0
 
+    def _read_joint_angle(self, part_label, joint_name, joint_info, fallback_driver):
+        """读取单个关节角度，按该舵机实际所在端口选驱动。
+
+        手臂是混合总线：肩/肘等大关节走 CAN(robstride)，手腕偏航/爪机走串口(feetech)。
+        不能用同一个手臂驱动去读所有关节——否则会在 CAN 总线上读飞特 ID，
+        触发 MECH_POS 重试失败刷屏。这里按 online_servos({id:port}) 路由到正确驱动。
+        未在线的舵机直接跳过读取（用默认角度），不去错误总线上重试。
+        """
+        servo_id = joint_info.get('id')
+        if not servo_id:
+            return 0.0
+        brand = joint_info.get('brand') or ''
+        # 该舵机发现时所在的物理端口（连接阶段 discover_ports_by_ids 的结果）
+        port = self.online_servos.get(servo_id) if isinstance(self.online_servos, dict) else None
+        if not port:
+            # 未在线（如未接入的飞特关节）：用默认角度，避免在错误总线上重试
+            return float(joint_info.get('default_angle', 0.0) or 0.0)
+        driver = self.motor_controller._get_or_create_driver(port)
+        if driver is None:
+            return float(joint_info.get('default_angle', 0.0) or 0.0)
+        if not brand:
+            brand = 'robstride' if 'can' in port.lower() else 'feetech'
+        angle = self._servo_angle(driver, servo_id, brand)
+        if angle is None:
+            print(f"  ⚠️ {part_label} {joint_name}(ID={servo_id}) 读取失败，暂设为 0.0")
+            return 0.0
+        return angle
+
     def _read_initial_state(self):
         """从机器人读取当前关节角度（按品牌换算）；读不到时填 0.0（不作为实际位置）。"""
         try:
@@ -341,18 +369,7 @@ class RobotInterface:
                 angles = []
 
                 for idx, (joint_name, joint_info) in enumerate(left_arm_config.items()):
-                    servo_id = joint_info.get('id')
-                    brand = joint_info.get('brand') or ''
-                    if not brand:
-                        brand = 'robstride' if 'robstride' in type(self.left_robot).__module__.lower() else 'feetech'
-                    if servo_id:
-                        angle = self._servo_angle(self.left_robot, servo_id, brand)
-                        if angle is None:
-                            angle = 0.0
-                            print(f"  ⚠️ 左臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 0.0")
-                        angles.append(angle)
-                    else:
-                        angles.append(0.0)
+                    angles.append(self._read_joint_angle('左臂', joint_name, joint_info, self.left_robot))
 
                 if len(angles) == NUM_JOINTS:
                     self.left_arm_angles = np.array(angles)
@@ -366,18 +383,7 @@ class RobotInterface:
                 angles = []
 
                 for idx, (joint_name, joint_info) in enumerate(right_arm_config.items()):
-                    servo_id = joint_info.get('id')
-                    brand = joint_info.get('brand') or ''
-                    if not brand:
-                        brand = 'robstride' if 'robstride' in type(self.right_robot).__module__.lower() else 'feetech'
-                    if servo_id:
-                        angle = self._servo_angle(self.right_robot, servo_id, brand)
-                        if angle is None:
-                            angle = 0.0
-                            print(f"  ⚠️ 右臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 0.0")
-                        angles.append(angle)
-                    else:
-                        angles.append(0.0)
+                    angles.append(self._read_joint_angle('右臂', joint_name, joint_info, self.right_robot))
 
                 if len(angles) == NUM_JOINTS:
                     self.right_arm_angles = np.array(angles)
