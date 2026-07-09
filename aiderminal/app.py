@@ -224,9 +224,6 @@ class TelegripSystem:
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.ws_client.connect()
 
-            # 将 transport 传给 control_loop，用于推送硬件状态
-            self.control_loop.set_transport(self.ws_client.transport)
-
             # WebRTC 视频推流
             if getattr(self.config, 'enable_webrtc', False):
                 print("📹 启动 WebRTC 视频推流...")
@@ -245,6 +242,10 @@ class TelegripSystem:
             # 启动控制循环
             control_task = asyncio.create_task(self.control_loop.start())
             self.tasks.append(control_task)
+
+            # 启动硬件状态周期推送（业务归属 WebSocket 客户端，由客户端自身维护）
+            status_pusher_task = asyncio.create_task(self.ws_client.run_status_pusher())
+            self.tasks.append(status_pusher_task)
 
             # 启动控制命令处理器
             command_processor_task = asyncio.create_task(self._run_command_processor())
@@ -282,9 +283,6 @@ class TelegripSystem:
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.ws_client.connect()
 
-            # 将 transport 传给 control_loop，用于推送硬件状态
-            self.control_loop.set_transport(self.ws_client.transport)
-
             # WebRTC 视频推流
             if getattr(self.config, 'enable_webrtc', False):
                 print("📹 启动 WebRTC 视频推流...")
@@ -303,6 +301,10 @@ class TelegripSystem:
             # 启动控制循环
             control_task = asyncio.create_task(self.control_loop.start())
             self.tasks.append(control_task)
+
+            # 启动硬件状态周期推送（业务归属 WebSocket 客户端，由客户端自身维护）
+            status_pusher_task = asyncio.create_task(self.ws_client.run_status_pusher())
+            self.tasks.append(status_pusher_task)
 
             # 启动控制命令处理器
             command_processor_task = asyncio.create_task(self._run_command_processor())
@@ -356,7 +358,7 @@ class TelegripSystem:
         while self.is_running:
             await self.process_control_commands()
             await asyncio.sleep(0.05)  # 每 50ms 检查一次命令
-    
+
     async def stop(self):
         """停止所有系统组件。"""
         print("正在关闭遥操作系统...")

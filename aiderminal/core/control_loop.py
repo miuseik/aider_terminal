@@ -109,27 +109,7 @@ class ControlLoop:
         self._process_debug_logged = False
         
         self.is_running = False
-        
-        # === WebSocket transport 引用（用于推送消息到 Server） ===
-        self._transport = None
     
-    def set_transport(self, transport):
-        """设置 WebSocket transport，用于推送硬件状态到 Server。"""
-        self._transport = transport
-    
-    async def _push_hardware_status(self):
-        """将当前硬件状态推送到 Server（供 /api/status 使用）。"""
-        if not self._transport or not self._transport.is_connected:
-            return
-        try:
-            from aiderminal.comm.websocket.protocol import encode_message
-            import json
-            status = self.status
-            status["type"] = "hardware_status"
-            await self._transport.send_raw(encode_message(status))
-        except Exception as e:
-            logger.debug(f"推送硬件状态失败: {e}")
-
     async def setup(self) -> bool:
         """设置机器人接口和可视化器。
         

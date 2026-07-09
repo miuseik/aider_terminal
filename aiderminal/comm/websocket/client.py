@@ -66,6 +66,22 @@ class VRWebSocketClient:
         """发送命令到服务器。"""
         command = {"action": action, **kwargs}
         return await self.transport.send_raw(encode_message(command))
+
+    async def run_status_pusher(self, interval: float = 1.0):
+        """周期推送硬件状态到 Server（供 /api/status 使用）。业务归属：WebSocket 客户端。
+
+        作为独立后台任务运行（由主入口 create_task 启动），不侵入控制循环。
+        """
+        while True:
+            await asyncio.sleep(interval)
+            if not self.transport.is_connected or not self.control_loop:
+                continue
+            try:
+                status = self.control_loop.status
+                status["type"] = "hardware_status"
+                await self.transport.send_raw(encode_message(status))
+            except Exception:
+                pass
     
     async def handle_api_command(self, data: dict):
         """处理来自服务器的 API 命令。"""
@@ -122,8 +138,16 @@ class VRWebSocketClient:
                     success = await loop.run_in_executor(executor, ri.connect, True)
                 else:
                     success = ri.connect(force_scan=True)
+                # 不论成功与否都推送硬件信息，让前端拿到明确的连接状态（避免静默卡死）
+                from aiderminal.utils.hardware_info import push_robot_hardware_info
+                asyncio.create_task(push_robot_hardware_info(self.transport, ri))
                 if not success:
                     print("❌ 机器人连接失败")
+                    await self.transport.send_raw(encode_message({
+                        "type": "robot_connect_response",
+                        "success": False,
+                        "message": "硬件扫描未找到足够在线舵机，连接失败",
+                    }))
                     return
                 print(f"🟢 扫描完成，在线舵机: {sorted(ri.online_servos.keys())}")
                 # 连接成功后绑定 ServoConfigManager
@@ -133,11 +157,19 @@ class VRWebSocketClient:
                     )
                 # 不自动使能——用户从前端动作列表选择姿态后才使能
                 print("🔌 机器人已连接，等待选择姿态…")
-                # 推送舵机硬件信息给前端（后台执行）
-                from aiderminal.utils.hardware_info import push_robot_hardware_info
-                asyncio.create_task(push_robot_hardware_info(self.transport, cl.robot_interface))
+                # 明确告诉前端连接成功（前端用于提示 + 驱动按钮状态）
+                await self.transport.send_raw(encode_message({
+                    "type": "robot_connect_response",
+                    "success": True,
+                    "message": "机器人连接成功",
+                }))
             else:
                 print("❌ 无机器人接口")
+                await self.transport.send_raw(encode_message({
+                    "type": "robot_connect_response",
+                    "success": False,
+                    "message": "无机器人接口",
+                }))
         elif action == 'goto_pose':
             if cl and cl.robot_interface:
                 arm = command.get('arm', 'both')
@@ -160,7 +192,6 @@ class VRWebSocketClient:
                 result = await cl.robot_interface.goto_pose(arm, pose_name)
                 print(f"goto_pose result: {result}")
                 # 推送结果给前端
-                from aiderminal.comm.websocket.protocol import encode_message
                 await self.transport.send_raw(encode_message({
                     "type": "goto_pose_response",
                     "success": result.get("success", False),
@@ -172,7 +203,6 @@ class VRWebSocketClient:
             if cl and cl.robot_interface:
                 poses = cl.robot_interface.list_poses()
                 print(f"📋 可用姿态: {list(poses.keys())}")
-                from aiderminal.comm.websocket.protocol import encode_message
                 await self.transport.send_raw(encode_message({
                     "type": "list_poses_response",
                     "poses": poses,
@@ -181,9 +211,11 @@ class VRWebSocketClient:
                 print("❌ list_poses: 无机器人接口")
         elif action == 'robot_disconnect':
             if cl and cl.robot_interface:
-                success = await cl.robot_interface.disengage()
+                ri = cl.robot_interface
+                success = await ri.disengage()
                 if success:
-                    print("🔌 机器人已禁能")
+                    ri.is_connected = False  # 标记已断开，推送的 hardware_info 会反映此状态
+                    print("🔌 机器人已断开")
                     cl.left_arm.reset()
                     cl.right_arm.reset()
                     if cl.visualizer:
@@ -194,7 +226,7 @@ class VRWebSocketClient:
                             cl.visualizer.hide_frame(f"{arm}_target_frame")
                     # 通知前端机器人已断开连接（后台执行，不阻塞）
                     from aiderminal.utils.hardware_info import push_robot_hardware_info
-                    asyncio.create_task(push_robot_hardware_info(self.transport, cl.robot_interface))
+                    asyncio.create_task(push_robot_hardware_info(self.transport, ri))
                 else:
                     print("❌ 禁能失败")
             else:

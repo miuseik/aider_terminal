@@ -24,6 +24,9 @@ docker compose restart
 ```bash
 docker compose logs -f
 ```
+```bash
+docker compose down
+```
 ---
 
 ## 环境变量

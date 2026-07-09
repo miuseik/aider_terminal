@@ -326,11 +326,7 @@ class RobotInterface:
         return (pos / 4095.0) * 360.0 - 180.0
 
     def _read_initial_state(self):
-        """从机器人读取当前关节角度（按品牌换算）；读不到时填 NaN，不自动回退到安全位。
-        
-        设计意图: 连接后不做任何自动移动。前端用户选择姿态后才发送位置指令。
-        """
-        nan = float('nan')
+        """从机器人读取当前关节角度（按品牌换算）；读不到时填 0.0（不作为实际位置）。"""
         try:
             # 左臂
             if self.left_robot and self.left_arm_connected:
@@ -345,15 +341,15 @@ class RobotInterface:
                     if servo_id:
                         angle = self._servo_angle(self.left_robot, servo_id, brand)
                         if angle is None:
-                            angle = nan
-                            print(f"  ⚠️ 左臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 NaN")
+                            angle = 0.0
+                            print(f"  ⚠️ 左臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 0.0")
                         angles.append(angle)
                     else:
-                        angles.append(nan)
+                        angles.append(0.0)
 
                 if len(angles) == NUM_JOINTS:
                     self.left_arm_angles = np.array(angles)
-                    print(f"📡 左臂当前角度: {self.left_arm_angles.round(1)} (NaN=未读取)")
+                    print(f"📡 左臂当前角度: {self.left_arm_angles.round(1)}")
                 else:
                     print(f"⚠️ 左臂舵机数量不匹配: {len(angles)} != {NUM_JOINTS}")
 
@@ -370,15 +366,15 @@ class RobotInterface:
                     if servo_id:
                         angle = self._servo_angle(self.right_robot, servo_id, brand)
                         if angle is None:
-                            angle = nan
-                            print(f"  ⚠️ 右臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 NaN")
+                            angle = 0.0
+                            print(f"  ⚠️ 右臂 {joint_name}(ID={servo_id}) 读取失败，暂设为 0.0")
                         angles.append(angle)
                     else:
-                        angles.append(nan)
+                        angles.append(0.0)
 
                 if len(angles) == NUM_JOINTS:
                     self.right_arm_angles = np.array(angles)
-                    print(f"📡 右臂当前角度: {self.right_arm_angles.round(1)} (NaN=未读取)")
+                    print(f"📡 右臂当前角度: {self.right_arm_angles.round(1)}")
                 else:
                     print(f"⚠️ 右臂舵机数量不匹配: {len(angles)} != {NUM_JOINTS}")
 
