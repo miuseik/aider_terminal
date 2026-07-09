@@ -42,7 +42,7 @@ class ServoConfigManager:
         for part_name, part_config in config.items():
             if not isinstance(part_config, dict):
                 continue
-            for joint_key, joint_info in part_config.items():
+            for arm_index, (joint_key, joint_info) in enumerate(part_config.items()):
                 if not isinstance(joint_info, dict):
                     continue
                 sid = joint_info.get("id")
@@ -52,6 +52,9 @@ class ServoConfigManager:
                     "brand": joint_info.get("brand", ""),
                     "joint_name": joint_info.get("joint_name", str(joint_key)),
                     "part": part_name,
+                    # 该关节在对应臂角度数组(self.left/right_arm_angles)中的下标，
+                    # 与 _read_initial_state 遍历 servo_ids[part] 的顺序一致，是唯一的下标来源。
+                    "arm_index": arm_index,
                     "default_angle": joint_info.get("default_angle", 0),
                     "max_angle": joint_info.get("max_angle"),
                     "min_angle": joint_info.get("min_angle"),

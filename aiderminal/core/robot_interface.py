@@ -462,18 +462,13 @@ class RobotInterface:
             if best is not None:
                 # 把解绕后的真实角度写回当前角度数组，使软件认知与实际物理位置一致。
                 # 否则后续发令会从“偏差 360°×N 的读数”插值，电机会整圈狂转（灵足典型乱动）。
-                arr = None
-                if part == "left_arm":
-                    arr = self.left_arm_angles
-                elif part == "right_arm":
-                    arr = self.right_arm_angles
-                if arr is not None:
-                    try:
-                        jidx = int(joint_name.split("arm")[-1]) - 1
-                        if 0 <= jidx < len(arr):
-                            arr[jidx] = best
-                    except (ValueError, IndexError):
-                        pass
+                # 下标 arm_index 由 servo_config_manager 在构建 _id_map 时按 part 内遍历顺序记录，
+                # 与 _read_initial_state 遍历 servo_ids[part] 的顺序一致，是唯一下标来源。
+                arr = self.left_arm_angles if part == "left_arm" else (
+                    self.right_arm_angles if part == "right_arm" else None)
+                jidx = info.get("arm_index")
+                if arr is not None and isinstance(jidx, int) and 0 <= jidx < len(arr):
+                    arr[jidx] = best
                 lost.append({
                     "id": sid,
                     "joint_name": info.get("joint_name", str(sid)),
