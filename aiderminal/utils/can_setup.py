@@ -100,23 +100,28 @@ def setup_can(
 
     def _config_sequence() -> tuple:
         """
-        执行 CAN 配置序列: down → bitrate → txqueuelen → up。
+        执行 CAN 配置序列: down → bitrate(+restart-ms) → txqueuelen → up。
+
+        ⚠️ 关键：type can 必须带 restart-ms 100。CAN 控制器累计错误进入 BUS-OFF
+        后，内核会在该毫秒数后自动重启控制器——否则 BUS-OFF 会永久卡死
+        （表现为反复 "Network is down"、电机全掉线、使能逻辑再怎么重试都救不回）。
+        这是机器人 CAN 总线可靠性的根因修复，不是软件层能绕过的。
         Returns:
             (ok: bool, timed_out: bool)
         """
         for cmd_args in (
             ("ip", "link", "set", can_if, "down"),
-            ("ip", "link", "set", can_if, "type", "can", "bitrate", bitrate),
+            ("ip", "link", "set", can_if, "type", "can", "bitrate", bitrate, "restart-ms", "100"),
             ("ip", "link", "set", can_if, "txqueuelen", txqlen),
             ("ip", "link", "set", can_if, "up"),
         ):
-            r = _sudo(*cmd_args)
-            if r.returncode != 0:
+            res = _sudo(*cmd_args)
+            if res.returncode != 0:
                 logger.warning(
                     "CAN setup failed: sudo %s — %s",
-                    " ".join(cmd_args), r.stderr.strip(),
+                    " ".join(cmd_args), res.stderr.strip(),
                 )
-                return False, r.returncode == -1
+                return False, res.returncode == -1
         return True, False
 
     # 1) 加载内核模块
@@ -138,7 +143,9 @@ def setup_can(
         logger.info("%s not present — skip CAN setup (no hardware)", can_if)
         return False
 
-    # 3) 已是 UP 且 txqueuelen 足够 → 跳过
+    # 3) 已是 UP、队列足够、总线健康且已启用 BUS-OFF 自动恢复 → 才跳过。
+    #    否则（BUS-OFF / ERROR-PASSIVE / STOPPED / 未设 restart-ms）必须强制
+    #    重启接口，否则 BUS-OFF 会永久卡死（这正是 "Network is down" 反复出现的根因）。
     state_r = subprocess.run(
         ["ip", "-br", "link", "show", can_if],
         capture_output=True, text=True, timeout=2,
@@ -146,14 +153,37 @@ def setup_can(
     if state_r.returncode == 0:
         parts = state_r.stdout.strip().split()
         if len(parts) >= 3 and parts[2] == "UP":
+            # 读总线状态与健康/重启参数
+            try:
+                with open(f"/sys/class/net/{can_if}/can_state") as f:
+                    can_state = f.read().strip().upper()
+            except OSError:
+                can_state = "UNKNOWN"
             try:
                 with open(f"/sys/class/net/{can_if}/tx_queue_len") as f:
                     qlen = int(f.read().strip())
-                if qlen >= 500:
-                    logger.debug("%s already UP with txqueuelen=%d — skip", can_if, qlen)
-                    return True
-            except Exception:
-                pass
+            except OSError:
+                qlen = 0
+            try:
+                with open(f"/sys/class/net/{can_if}/restart_ms") as f:
+                    restart_ms = int(f.read().strip())
+            except (OSError, ValueError):
+                restart_ms = 0
+
+            bus_healthy = can_state in ("ERROR-ACTIVE", "UNKNOWN", "DOWN")
+            if bus_healthy and qlen >= 500 and restart_ms > 0:
+                logger.debug("%s already UP, healthy, restart-ms=%d — skip", can_if, restart_ms)
+                return True
+            # 不自跳：总线故障态或缺少自动恢复 → 强制 down→up 清 BUS-OFF
+            if can_state in ("BUS-OFF", "ERROR-PASSIVE", "STOPPED"):
+                logger.warning(
+                    "CAN %s 总线异常(%s)，强制重启接口清除 BUS-OFF/ERROR-PASSIVE",
+                    can_if, can_state,
+                )
+            elif restart_ms == 0:
+                logger.info(
+                    "CAN %s 启用 BUS-OFF 自动恢复(restart-ms=100)", can_if,
+                )
 
     # 4) 配置: down → bitrate → txqueuelen → up
     ok, timed_out = _config_sequence()
