@@ -13,6 +13,7 @@ import asyncio
 import numpy as np
 import logging
 import time
+from aiderminal.core.kinematic.base_ramp import BaseVelocityRamp
 import queue  # Add import for thread-safe queue
 from typing import Dict, Optional
 
@@ -96,6 +97,10 @@ class ControlLoop:
         
         # === 底盘状态 ===
         self.base_velocity_target = {"x": 0.0, "y": 0.0, "theta": 0.0}
+
+        # === 底盘速度斜坡 (消除顿挫) ===
+        # 斜坡业务逻辑已封装到 aiderminal.core.kinematic.base_ramp.BaseVelocityRamp
+        self.base_ramp = BaseVelocityRamp()
         
         # === 身体关节状态 (腰 + 头) ===
         self.body_joint_deltas = {}  # {joint_name: accumulated_delta_rad_per_tick}  键盘增量
@@ -555,6 +560,10 @@ class ControlLoop:
             if right_trigger is not None:
                 self.robot_interface.adapter.apply_gripper_from_trigger("right", right_trigger)
 
+
+        # === 底盘速度斜坡: 将方波目标平滑为线性过渡, 消除顿挫 ===
+        dt = self.config.send_interval if (hasattr(self, "config") and self.config) else 0.02
+        self.base_velocity_target = self.base_ramp.step(self.base_velocity_target, dt)
 
         # === 同步状态到 robot_interface (用于 send_command 内部使用) ===
         if self.robot_interface:
