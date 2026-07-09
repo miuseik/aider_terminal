@@ -570,6 +570,21 @@ class RobstrideCanDriver:
         state = self.check_bus_health()
         return state in ("ERROR-ACTIVE", "UNKNOWN")
 
+    @property
+    def is_interface_up(self) -> bool:
+        """CAN 接口在 OS 层是否处于 UP（读 /sys/class/net/{can}/operstate）。
+
+        接口 DOWN 时（'Network is down'/Errno 100、或从未成功 up），
+        idle_seconds 返回 -1，健康检查的 idle>5 判定永远不成立 → 重连永不触发，
+        电机永久掉线。这个属性让 actuator_controller 能直接发现'接口下线'并触发
+        setup_can 把接口重新 up 起来。接口不存在/读不到则视为 DOWN。
+        """
+        try:
+            with open(f"/sys/class/net/{self.can_name}/operstate") as f:
+                return f.read().strip() == "up"
+        except (FileNotFoundError, PermissionError, OSError):
+            return False
+
     def set_feedback_callback(self, callback: Optional[Callable[[MotorFeedback], None]]):
         """注册反馈帧回调"""
         self._feedback_callback = callback

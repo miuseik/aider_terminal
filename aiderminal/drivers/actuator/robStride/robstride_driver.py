@@ -81,7 +81,6 @@ class RobStrideOfficialDriver:
         self._vel_initialized: set = set()  # 已使能+切速度模式的电机ID
         self._csp_speed_limit: float = 1.0  # CSP 最大速度 (rad/s)，openArmX 默认 1 rad/s ≈ 57°/s
         self._last_stale_warn: Dict[int, float] = {}  # motor_id → 上次 stale 日志时间戳（防刷屏）
-        self._last_reenable: Dict[int, float] = {}    # motor_id → 上次强制重使能时间戳（限流，防总线风暴）
 
         # 关节方向/偏移校正：处理电机反向安装和机械零点不重合
         # direction = +1.0 表示正方向一致，-1.0 表示反向安装
@@ -144,103 +143,17 @@ class RobStrideOfficialDriver:
 
     # ── 位置控制 ──
 
-    # 总线空闲超过该秒数（或 can_state 非 ERROR-ACTIVE/UNKNOWN）→ 判定总线掉线，
-    # 跳过重使能，避免往死总线狂发帧 / 误 disable 刚恢复的电机。
-    _BUS_DOWN_IDLE = 2.0
-    # 单电机 stale 后重使能的最小间隔（秒），避免每个控制周期都重发 → 总线风暴。
-    _REENABLE_THROTTLE = 1.0
-
-    def _bus_allows_enable(self) -> bool:
-        """总线当前是否处于可以安全发送使能帧的状态。
-
-        RobStride 控制帧只发不确认、总线无重传。若整条总线已掉线
-        (can_state=STOPPED/BUS-OFF，或长时间无反馈帧)，此时对某电机重使能毫无意义，
-        只会往死总线灌帧，还可能因为 _enable_sequence 里的 disable 把刚恢复的电机
-        再次失能 → 表现为"抽风"。因此总线掉线时一律跳过重使能，交给
-        actuator_controller 的 CAN 健康检查重连去恢复。
-
-        判定：can_state 健康(ERROR-ACTIVE/UNKNOWN) 且 最近收到帧的空闲时间 < _BUS_DOWN_IDLE。
-        从未收到帧(idle=-1)时退化为仅看 can_state —— 重连后首帧到达前的窗口允许尝试使能。
-        """
-        can = self._can
-        if not getattr(can, 'is_bus_healthy', True):
-            return False
-        idle = can.idle_seconds
-        if idle < 0:
-            return True  # 从未收帧，靠上面 can_state 判断；重连后首帧前允许尝试
-        return idle <= self._BUS_DOWN_IDLE
-
     def _ensure_ready(self, device_id: int) -> bool:
         """确保电机已使能并处于 MIT 运控模式，同时禁用 CAN 超时看门狗.
 
-        ⚠️ 关键修复（14 号松/无力矩根因）：RobStride 的使能/切模式/失能帧都是
-        **只发不确认**（_send_frame 返回的是 TX 是否成功，不等电机 ACK，且总线
-        无重传）。一旦某帧被丢掉（can2 总线偶发卡顿 / 该关节线头接触不良），
-        电机会停在失能态 → 松、无力矩，但上层仍照常发 MIT 位置帧（未使能电机
-        忽略 MIT 帧），表现就是"命令在发、电机不动"。
-
-        原实现把"帧发出去"误当"使能成功"，且一旦标记 _initialized 就再也不重发
-        使能 → 丢帧的电机永久松着。本实现：
-          1) 发完使能序列后**读回 RUN_MODE 确认**确实进入 MIT 模式（set_run_mode
-             帧也可能丢），未确认则整段重试（每次重试都会重发 enable，提高命中率）；
-          2) 运行中若某电机**反馈变 stale（大概率已掉使能：CAN 超时/故障/供电）**，
-             用"轻量重使能"(不复先 disable，避免抖动) 恢复，并**仅在总线健康时**才尝试
-             —— 总线整体掉线(Network is down)时所有电机都会 stale，此时若逐台重使能会
-             制造总线风暴/电机反复失能("抽风")，应直接跳过，交给 actuator_controller 重连。
+        电机使能/切模式帧只发不确认（无 ACK、总线无重传），故发完使能序列后
+        **读回 RUN_MODE 确认**确实进入 MIT 模式；未确认则整段重试提高命中率。
+        使能成功后标记 _initialized，之后直接复用，不再重发使能帧。
         """
-        # 已初始化：反馈新鲜说明仍在线且处于 MIT 跟踪态，直接复用，不再重发使能
         if device_id in self._initialized:
-            fb = self._can.get_feedback(device_id)
-            now = time.time()
-            if fb and fb.is_valid and (now - fb.timestamp) < 0.5:
-                return True
-            # ── 反馈陈旧 ──
-            # 总线整体掉线：所有电机都会 stale，此时重使能无意义且有害 → 跳过。
-            if not self._bus_allows_enable():
-                return True
-            # 总线健康、唯独本电机无反馈 → 大概率本电机掉使能，轻量重使能(不复先 disable)。
-            last = self._last_reenable.get(device_id, 0)
-            if now - last < self._REENABLE_THROTTLE:
-                return True  # 节流期内维持当前指令，不重发使能帧
-            self._last_reenable[device_id] = now
-            logger.warning("[%s] motor %d feedback stale (bus healthy) → light re-enable",
-                           self._can_name, device_id)
-            if self._light_enable(device_id):
-                return True
-            # 轻量重使能失败 → 降级为完整序列(含 clear_fault)，仍失败则报松。
-            return self._full_enable(device_id)
-
-        # 尚未初始化 → 完整使能序列（含 disable+clear_fault）
-        return self._full_enable(device_id)
-
-    def _light_enable(self, device_id: int) -> bool:
-        """运行中轻量重使能：仅重发 MIT 模式 + enable + CAN_TIMEOUT=0，**不先 disable**。
-
-        用于运行中偶发掉使能的恢复。不复先 disable 是为了避免 disable→enable 抖动
-        （这正是"抽风"的根因：每个控制周期 stale 就 disable 一个还在跟踪的电机）。
-        仅做读回确认 + 重试；真正的故障恢复交给 _full_enable 的 clear_fault。
-        """
+            return True
         for attempt in range(3):
-            if self._enable_sequence(device_id, clear_fault=False) and self._is_mit_mode(device_id):
-                if device_id in self._motors:
-                    self._motors[device_id].enabled = True
-                logger.info("[%s] motor %d re-enabled (MIT mode, light)", self._can_name, device_id)
-                return True
-            time.sleep(0.05)
-        return False
-
-    def _full_enable(self, device_id: int) -> bool:
-        """完整使能：disable+clear_fault → MIT 模式 → enable → CAN_TIMEOUT=0，带读回确认与重试。
-
-        ⚠️ 注意：首次使能是"让电机上线"的动作，不能用 idle_seconds 判定总线健康
-        （使能前电机本就不发反馈帧，idle 天然很高）——否则 engage 时反而使能不到电机。
-        这里只判断 CAN 硬件接口是否真的 down(STOPPED/BUS-OFF)：若硬件掉线，发使能帧
-        毫无意义且会灌死接口，直接跳过，交给 actuator_controller 重连恢复。
-        """
-        if not getattr(self._can, 'is_bus_healthy', True):
-            return True  # 硬件掉线：本次先不使能，交重连恢复
-        for attempt in range(3):
-            if self._enable_sequence(device_id, clear_fault=True) and self._is_mit_mode(device_id):
+            if self._enable_sequence(device_id) and self._is_mit_mode(device_id):
                 self._initialized.add(device_id)
                 if device_id in self._motors:
                     self._motors[device_id].enabled = True
@@ -255,23 +168,15 @@ class RobStrideOfficialDriver:
                      self._can_name, device_id)
         return False
 
-    def _enable_sequence(self, device_id: int, clear_fault: bool = True) -> bool:
-        """发送使能序列（MIT 模式 → enable → CAN_TIMEOUT=0），可选先 disable+clear_fault。
-
-        clear_fault=True（首次/完整使能）：先 disable 并清除电机内部故障锁存，
-            保证干净初始状态。仅 enable_motor 无法退出硬件故障态，必须带故障清除。
-        clear_fault=False（运行中轻量重使能）：不再先 disable —— 避免运行中偶发
-            stale 就对电机做 disable→enable 抖动（这正是"抽风"的根因之一）。
+    def _enable_sequence(self, device_id: int) -> bool:
+        """发送使能序列：disable+clear_fault → MIT 模式 → enable → CAN_TIMEOUT=0。
 
         返回该序列所有帧是否都成功 TX（注意：只是 TX 成功，不等 ACK；
         是否真正使能由 _is_mit_mode 读回确认）。
         """
-        # 1.（可选）清除故障 + 失能（保证干净初始状态）
-        if clear_fault:
-            # clear_fault=True 发送 Type 4 帧 data[0]=1，清除电机内部故障锁存。
-            # 这是 key：仅 enable_motor 无法退出硬件故障态，必须带故障清除的 disable。
-            self._can.disable_motor(device_id, clear_fault=True)
-            time.sleep(0.01)
+        # 1. 清除故障 + 失能（保证干净初始状态，退出硬件故障锁存）
+        self._can.disable_motor(device_id, clear_fault=True)
+        time.sleep(0.01)
 
         # 清理之前的模式跟踪
         self._vel_initialized.discard(device_id)

@@ -94,12 +94,17 @@ class ActuatorController:
                 logger.warning("Failed to reconnect driver for %s", port)
                 return None
             # CAN 健康检查：电机断电再上电后，is_connected 仍为 True（socket 还在），
-            # 但 _last_frame_time 会停滞。检测到超过 5 秒无反馈帧时自动重连。
+            # 但 _last_frame_time 会停滞 → idle>5 触发重连。更隐蔽的是接口本身在 OS 层
+            # DOWN（'Network is down'/Errno 100）：此时 idle_seconds=-1，idle>5 永不成立，
+            # 重连永不触发、电机永久掉线。故同时检测 is_interface_up，接口下线也立即重连。
             if "can" in port.lower() and hasattr(driver, "_can"):
                 can = driver._can
                 idle = can.idle_seconds
-                if idle > 5.0:
+                if idle > 5.0 or not can.is_interface_up:
                     cooldown_left = self._can_reconnect_cooldown(port)
+                    reason = (f"已 {idle:.1f}s 无反馈帧"
+                              if idle > 5.0
+                              else "接口已 DOWN (Network is down)")
                     if cooldown_left > 0:
                         # 冷却期内，跳过重连（避免硬件故障时无限重连 spam）
                         cnt = self._reconnect_skip_count.get(port, 0) + 1
@@ -107,13 +112,13 @@ class ActuatorController:
                         # 每 30 次跳过才打一次 WARNING，避免刷屏
                         if cnt % 30 == 1:
                             logger.warning(
-                                "CAN %s: 已 %.1fs 无反馈帧（已跳过 %d 次重连，冷却剩余 %.0fs）",
-                                port, idle, cnt, cooldown_left,
+                                "CAN %s: %s（已跳过 %d 次重连，冷却剩余 %.0fs）",
+                                port, reason, cnt, cooldown_left,
                             )
                     else:
                         logger.warning(
-                            "CAN %s: 已 %.1fs 未收到反馈帧，触发重连...",
-                            port, idle,
+                            "CAN %s: %s，触发重连...",
+                            port, reason,
                         )
                         try:
                             driver.disconnect()
