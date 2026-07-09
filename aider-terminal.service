@@ -7,7 +7,7 @@ After=network-online.target docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/www/aider/aider_terminal
-ExecStartPre=/usr/bin/git -C /www/aider/aider_terminal pull
+ExecStartPre=/usr/bin/git -c safe.directory=/www/aider/aider_terminal -C /www/aider/aider_terminal pull
 ExecStart=/www/aider/aider_terminal/start-pro.sh
 ExecStop=/usr/bin/docker compose -f /www/aider/aider_terminal/docker-compose.yml down
 
