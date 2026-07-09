@@ -69,7 +69,7 @@ sudo usermod -aG docker $USER          # docker 权限不够（执行后重新�
 ## 便捷操作（勿删）
 
 ```bash
-git add ./;git commit -m "麦克纳姆轮逆运动学更新";git push
+git add ./;git commit -m "hotfix";git push
 ```
 
 ```bash

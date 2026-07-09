@@ -424,7 +424,10 @@ class AiderAdapter:
             except (ValueError, IndexError):
                 continue
             if idx < len(angles):
-                targets[jinfo["id"]] = float(angles[idx])
+                ang = angles[idx]
+                # 读不到的关节(角度为 nan)不命令，保持原地，避免从错误读数猛拉（乱动）
+                if not np.isnan(ang):
+                    targets[jinfo["id"]] = float(ang)
         return targets
 
     def build_hardware_actions(self, servo_ids: dict, servo_ports: dict = None) -> dict:

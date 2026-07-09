@@ -292,7 +292,7 @@ class AlohaAdapter:
         if left_port:
             targets = {}
             for i, (_jname, jinfo) in enumerate(left_bus.get("left_arm", {}).items()):
-                if i < len(self.left_angles):
+                if i < len(self.left_angles) and not np.isnan(self.left_angles[i]):
                     targets[jinfo["id"]] = float(self.left_angles[i])
             if targets:
                 actions["position_commands"].append({"port": left_port, "targets": targets})
@@ -303,7 +303,7 @@ class AlohaAdapter:
         if right_port:
             targets = {}
             for i, (_jname, jinfo) in enumerate(right_bus.get("right_arm", {}).items()):
-                if i < len(self.right_angles):
+                if i < len(self.right_angles) and not np.isnan(self.right_angles[i]):
                     targets[jinfo["id"]] = float(self.right_angles[i])
             if targets:
                 actions["position_commands"].append({"port": right_port, "targets": targets})

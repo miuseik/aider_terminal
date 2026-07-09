@@ -338,26 +338,31 @@ class RobotInterface:
         手臂是混合总线：肩/肘等大关节走 CAN(robstride)，手腕偏航/爪机走串口(feetech)。
         不能用同一个手臂驱动去读所有关节——否则会在 CAN 总线上读飞特 ID，
         触发 MECH_POS 重试失败刷屏。这里按 online_servos({id:port}) 路由到正确驱动。
-        未在线的舵机直接跳过读取（用默认角度），不去错误总线上重试。
+
+        返回值约定：
+        - 正常读到 → 浮点角度(°)
+        - 读不到 / 未在线 / 无驱动 → 返回 np.nan（表示“未知”）。调用方必须把 nan 当成
+          “不要对该电机发令”的信号：电机保持原地，绝不能当成 0.0 去命令，否则电机会从
+          真实位置猛地砸向 0°（乱动）。
         """
         servo_id = joint_info.get('id')
         if not servo_id:
-            return 0.0
+            return np.nan
         brand = joint_info.get('brand') or ''
         # 该舵机发现时所在的物理端口（连接阶段 discover_ports_by_ids 的结果）
         port = self.online_servos.get(servo_id) if isinstance(self.online_servos, dict) else None
         if not port:
-            # 未在线（如未接入的飞特关节）：用默认角度，避免在错误总线上重试
-            return float(joint_info.get('default_angle', 0.0) or 0.0)
+            # 未在线（如未接入的飞特关节）：未知，保持不动，不去错误总线上重试
+            return np.nan
         driver = self.motor_controller._get_or_create_driver(port)
         if driver is None:
-            return float(joint_info.get('default_angle', 0.0) or 0.0)
+            return np.nan
         if not brand:
             brand = 'robstride' if 'can' in port.lower() else 'feetech'
         angle = self._servo_angle(driver, servo_id, brand)
         if angle is None:
-            print(f"  ⚠️ {part_label} {joint_name}(ID={servo_id}) 读取失败，暂设为 0.0")
-            return 0.0
+            print(f"  ⚠️ {part_label} {joint_name}(ID={servo_id}) 读取失败，保持不动(不命令)")
+            return np.nan
         return angle
 
     def _read_initial_state(self):
@@ -455,6 +460,20 @@ class RobotInterface:
                         best_dist = dist
 
             if best is not None:
+                # 把解绕后的真实角度写回当前角度数组，使软件认知与实际物理位置一致。
+                # 否则后续发令会从“偏差 360°×N 的读数”插值，电机会整圈狂转（灵足典型乱动）。
+                arr = None
+                if part == "left_arm":
+                    arr = self.left_arm_angles
+                elif part == "right_arm":
+                    arr = self.right_arm_angles
+                if arr is not None:
+                    try:
+                        jidx = int(joint_name.split("arm")[-1]) - 1
+                        if 0 <= jidx < len(arr):
+                            arr[jidx] = best
+                    except (ValueError, IndexError):
+                        pass
                 lost.append({
                     "id": sid,
                     "joint_name": info.get("joint_name", str(sid)),
@@ -463,7 +482,7 @@ class RobotInterface:
                     "corrected_angle": round(best, 2),
                 })
                 print(f"  ⚠️ 掉圈电机 ID={sid} {info.get('joint_name', '')}: "
-                      f"读数={angle:.1f}° → 实际≈{best:.1f}°")
+                      f"读数={angle:.1f}° → 实际≈{best:.1f}°（已修正当前角度）")
 
         self.lost_multiturn_motors = lost
         if lost:
