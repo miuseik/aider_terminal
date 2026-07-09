@@ -14,7 +14,7 @@ from typing import Dict
 
 
 class BaseVelocityRamp:
-    def __init__(self, lin_accel: float = 0.06, ang_accel: float = 0.06):
+    def __init__(self, lin_accel: float = 0.01, ang_accel: float = 0.01):
         """
         Args:
             lin_accel: 线加速度上限 (m/s^2)
