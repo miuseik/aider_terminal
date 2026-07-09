@@ -151,7 +151,6 @@ class ActuatorController:
             logger.info("Created and cached driver for %s", port)
             return driver
 
-        logger.warning("Failed to create driver for %s", port)
         return None
 
     @staticmethod

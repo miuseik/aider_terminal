@@ -105,8 +105,7 @@ class RobstrideCanDriver:
                                     struct.pack("i", 0))
             self._socket.settimeout(0.1)
             logger.info("CAN 接口 %s 已连接", self.can_name)
-        except Exception as e:
-            logger.error("CAN 接口 %s 连接失败: %s", self.can_name, e)
+        except Exception:
             self._socket = None
             return False
 
@@ -322,7 +321,10 @@ class RobstrideCanDriver:
                     if e.errno in (105, 11, 110):  # ENOBUFS / EAGAIN / ETIMEDOUT
                         _busy_wait_us(200 << attempt)
                         continue
-                    logger.error("发送 CAN 帧失败 [%s]: %s", self.can_name, e)
+                    if e.errno in (6, 19):  # ENXIO/ENODEV: CAN 设备不存在，无需日志
+                        pass
+                    else:
+                        logger.error("发送 CAN 帧失败 [%s]: %s", self.can_name, e)
                     self._tx_fail_count += 1
                     self._tx_fail_window_count += 1
                     self._maybe_warn_tx_fail()

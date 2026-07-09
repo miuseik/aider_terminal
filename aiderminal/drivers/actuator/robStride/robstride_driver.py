@@ -168,10 +168,9 @@ class RobStrideOfficialDriver:
 
         # ── 2. 切换到 MIT 运控模式 ──
         if not self._can.set_run_mode(device_id, RunMode.MOTION_CONTROL):
-            logger.warning("Motor %d: failed to set MIT mode", device_id)
             return False
         time.sleep(0.02)
-
+        
         # ── 3. 使能电机 ──
         if not self._can.enable_motor(device_id):
             logger.warning("Motor %d: failed to enable", device_id)
@@ -389,12 +388,10 @@ class RobStrideOfficialDriver:
         time.sleep(0.01)
 
         if not self._can.set_run_mode(device_id, RunMode.MOTION_CONTROL):
-            logger.warning("Motor %d: failed to set MIT mode", device_id)
             return False
         time.sleep(0.02)
 
         if not self._can.enable_motor(device_id):
-            logger.warning("Motor %d: failed to enable in MIT mode", device_id)
             return False
 
         self._vel_initialized.discard(device_id)
@@ -669,7 +666,7 @@ class RobStrideOfficialDriver:
                 fail_reasons.append(f"id={mid}")
             _busy_wait_us(150)  # CAN 帧间间隔，防止总线缓冲区溢出丢帧
 
-        if fail_reasons:
+        if fail_reasons and ok > 0:  # 全失败=can 没接，无需日志
             logger.warning("[Motor] sync_write: ok=%d/%d fail=%s",
                           ok, len(targets), ",".join(fail_reasons))
         return ok > 0
