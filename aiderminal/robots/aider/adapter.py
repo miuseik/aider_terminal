@@ -364,11 +364,13 @@ class AiderAdapter:
 
         # 四轮速度 (线速度 m/s)，顺序与 WHEEL_NAMES 一致:
         #   whel_Link1 = RL, whel_Link2 = RR, whel_Link3 = FR, whel_Link4 = FL
+        # 左侧轮子 (whel_Link1, whel_Link4; URDF x>0 为左) 电机物理装反:
+        #   下发正转指令时轮子实际反转, 故对左轮取反补偿。
         v_linear = np.array([
-            x + y - k * theta_scaled,   # whel_Link1 (RL)
-            x - y + k * theta_scaled,   # whel_Link2 (RR)
-            x + y + k * theta_scaled,   # whel_Link3 (FR)
-            x - y - k * theta_scaled,   # whel_Link4 (FL)
+            -(x + y - k * theta_scaled),   # whel_Link1 (RL, 左轮装反→取反)
+            (x - y + k * theta_scaled),    # whel_Link2 (RR, 右)
+            (x + y + k * theta_scaled),    # whel_Link3 (FR, 右)
+            -(x - y - k * theta_scaled),   # whel_Link4 (FL, 左轮装反→取反)
         ])
 
         w_rad = v_linear / WHEEL_RADIUS
