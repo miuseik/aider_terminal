@@ -780,7 +780,8 @@ class RobotInterface:
             # 先同步状态到 adapter（确保 keyboard 设置的 base_velocity_target 生效）
             self._sync_to_adapter()
             
-            actions = self.adapter.build_hardware_actions(self.servo_ids, self.servo_ports)
+            actions = self.adapter.build_hardware_actions(
+                self.servo_ids, self.servo_ports, self.online_servos)
 
             pos_cmds = actions.get("position_commands", [])
             spd_cmds = actions.get("speed_commands", [])

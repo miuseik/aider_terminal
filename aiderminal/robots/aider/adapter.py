@@ -430,7 +430,8 @@ class AiderAdapter:
                     targets[jinfo["id"]] = float(ang)
         return targets
 
-    def build_hardware_actions(self, servo_ids: dict, servo_ports: dict = None) -> dict:
+    def build_hardware_actions(self, servo_ids: dict, servo_ports: dict = None,
+                                online_servos: dict = None) -> dict:
         """根据当前状态和舵机配置，构建结构化的硬件命令。
 
         本方法完全封装 Aider 特有的底盘/轮子/升降轴映射逻辑，
@@ -438,7 +439,11 @@ class AiderAdapter:
 
         Args:
             servo_ids: 扁平舵机配置 {left_arm: {joint: {id,...}}, right_arm: ..., base: ..., ...}
-            servo_ports: 运行时端口发现结果 {part_name: port}
+            servo_ports: 兼容保留参数（原 part→port 静态映射），本实现不再用它分组——
+                分组改由 online_servos 动态决定，避免混合总线（如手臂大关节走 CAN、
+                腕/爪走串口）被错分到同一端口。
+            online_servos: 连接时动态扫描所得 {servo_id: port}，每个舵机的真实物理端口。
+                分组严格按此映射，未在线(不在其中)的舵机不发令。
 
         Returns:
             {
@@ -446,76 +451,68 @@ class AiderAdapter:
                 "speed_commands":    [{"port": str, "targets": {servo_id: speed}}, ...],
             }
         """
-        if servo_ports is None:
-            servo_ports = {}
+        if online_servos is None:
+            online_servos = {}
         actions = {"position_commands": [], "speed_commands": []}
 
-        # --- 左臂（位置控制） ---
-        left_port = servo_ports.get("left_arm")
-        if left_port:
-            targets = self._build_arm_targets(servo_ids, "left_arm", self.left_angles)
+        # --- 收集所有位置目标 {motor_id: angle}（双臂 + 头 + 腰） ---
+        all_pos = {}
+        all_pos.update(self._build_arm_targets(servo_ids, "left_arm", self.left_angles))
+        all_pos.update(self._build_arm_targets(servo_ids, "right_arm", self.right_angles))
+
+        # 头/头俯仰 (neck)
+        neck_config = servo_ids.get("neck", {})
+        body_angles_deg = {
+            "head_Link":  float(np.degrees(self.head_yaw)),
+            "head_Link2": float(np.degrees(self.head_pitch)),
+        }
+        for jname, jinfo in neck_config.items():
+            if isinstance(jinfo, dict) and jname in body_angles_deg:
+                all_pos[jinfo["id"]] = body_angles_deg[jname]
+
+        # 腰 (waist_Link, robstride_04, CAN 总线)
+        waist_config = servo_ids.get("waist", {})
+        for jname, jinfo in waist_config.items():
+            if isinstance(jinfo, dict) and jname == "waist_Link":
+                all_pos[jinfo["id"]] = float(np.degrees(self.waist_angle))
+
+        # 按真实端口分组下发（每个端口一条命令，含该总线上全部在线舵机）
+        for port, targets in self._group_by_port(all_pos, online_servos).items():
             if targets:
-                actions["position_commands"].append({"port": left_port, "targets": targets})
+                actions["position_commands"].append({"port": port, "targets": targets})
 
-        # --- 右臂（位置控制） ---
-        right_port = servo_ports.get("right_arm")
-        if right_port:
-            targets = self._build_arm_targets(servo_ids, "right_arm", self.right_angles)
+        # --- 速度目标（底盘四轮 + 升降轴），同样按真实端口分组 ---
+        all_speed = {}
+        wheel_speeds = self.compute_wheel_speeds()
+        base_config = servo_ids.get("base", {})
+        for wheel_name, wheel_info in base_config.items():
+            if isinstance(wheel_info, dict) and wheel_name in wheel_speeds:
+                all_speed[wheel_info["id"]] = int(wheel_speeds[wheel_name])
+        lift_config = servo_ids.get("lift_axis", {})
+        for _axis_name, axis_info in lift_config.items():
+            if isinstance(axis_info, dict):
+                all_speed[axis_info["id"]] = int(self.lift_velocity)
+        for port, targets in self._group_by_port(all_speed, online_servos).items():
             if targets:
-                actions["position_commands"].append({"port": right_port, "targets": targets})
-
-        # --- 底盘 + 升降轴（速度控制） ---
-        base_port = servo_ports.get("base") or servo_ports.get("lift_axis")
-        if base_port:
-            speed_targets = {}
-
-            # Aider 四轮: whel_Link1~4 → 对应 servo_ids.base 中的键
-            wheel_speeds = self.compute_wheel_speeds()
-            base_config = servo_ids.get("base", {})
-            for wheel_name, wheel_info in base_config.items():
-                if isinstance(wheel_info, dict) and wheel_name in wheel_speeds:
-                    speed_targets[wheel_info["id"]] = int(wheel_speeds[wheel_name])
-
-            # 升降轴
-            lift_config = servo_ids.get("lift_axis", {})
-            for _axis_name, axis_info in lift_config.items():
-                if isinstance(axis_info, dict):
-                    speed_targets[axis_info["id"]] = int(self.lift_velocity)
-
-            if speed_targets:
-                actions["speed_commands"].append({"port": base_port, "targets": speed_targets})
-
-        # --- 身体关节 (腰/头/头俯仰) — 位置控制，使用 neck 自己的端口 ---
-        neck_port = servo_ports.get("neck")  # Server 将 body_joints 重命名为 neck
-        if neck_port:
-            body_joint_config = servo_ids.get("neck", {})
-            position_targets = {}
-            body_angles_deg = {
-                "head_Link":  float(np.degrees(self.head_yaw)),
-                "head_Link2": float(np.degrees(self.head_pitch)),
-            }
-            for jname, jinfo in body_joint_config.items():
-                if isinstance(jinfo, dict) and jname in body_angles_deg:
-                    position_targets[jinfo["id"]] = body_angles_deg[jname]
-
-            # 脖子 head_Link / head_Link2 如上处理
-            if position_targets:
-                actions["position_commands"].append({"port": neck_port, "targets": position_targets})
-
-        # --- 腰 (waist_Link, robstride_04, CAN 总线) — 独立端口下发 ---
-        # 腰与脖子不同总线: 脖子是 Feetech 串口(body_joints→neck), 腰是灵足 robstride_04 走 CAN。
-        # 故腰独立成顶层 waist 部分, 走 servo_ports["waist"](can0), 与手臂同一下发通道。
-        waist_port = servo_ports.get("waist")
-        if waist_port:
-            waist_config = servo_ids.get("waist", {})
-            waist_targets = {}
-            for jname, jinfo in waist_config.items():
-                if isinstance(jinfo, dict) and jname == "waist_Link":
-                    waist_targets[jinfo["id"]] = float(np.degrees(self.waist_angle))
-            if waist_targets:
-                actions["position_commands"].append({"port": waist_port, "targets": waist_targets})
+                actions["speed_commands"].append({"port": port, "targets": targets})
 
         return actions
+
+    @staticmethod
+    def _group_by_port(targets: dict, online_servos: dict) -> dict:
+        """按每个舵机动态发现的真实端口分组。
+
+        online_servos: {servo_id: port}（连接时扫描所得，唯一可信的端口来源）。
+        不在 online_servos 中的舵机（离线）= 跳过，本就不该发令。
+        返回 {port: {servo_id: value}}，每个物理端口一条命令。
+        """
+        grouped = {}
+        for sid, val in targets.items():
+            port = online_servos.get(sid)
+            if not port:
+                continue
+            grouped.setdefault(port, {})[sid] = val
+        return grouped
 
     def build_action(self, vr_raw_data: dict,
                      base_vel: dict = None,
