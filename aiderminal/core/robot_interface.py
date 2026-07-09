@@ -588,21 +588,53 @@ class RobotInterface:
     def engage(self) -> bool:
         """使能机器人电机(开始发送指令)。
 
-        每次使能时强制清空 RobStride 驱动的初始化标记，确保因过流/看门狗
-        等原因物理失能的电机能够在下一次 set_position 时自动重新使能。
+        - 清空 RobStride 驱动的初始化标记，确保因过流/看门狗等原因物理失能的电机能重新使能。
+        - 显式逐电机使能所有在线舵机（按连接时动态发现的真实端口，带重试），
+          而非依赖逐帧懒使能：懒使能下某电机首次 enable 没拿到 ACK 会一直保持未初始化、
+          每帧被跳过而"松"着，且无任何提示。
         """
         print("🔌 使能机器人电机(开始发送指令)")
         if not self.is_connected:
             print("无法使能机器人: 未连接")
             return False
 
-        # 清空初始化标记 → 下次 set_position 会触发 _ensure_ready 重新使能
+        # 清空初始化标记 → 下方显式使能会重新初始化每个电机
         if self.motor_controller and hasattr(self.motor_controller, "force_reinitialize_all_robstride"):
             self.motor_controller.force_reinitialize_all_robstride()
+
+        # 显式使能所有在线电机（按真实端口，带重试），并打印成败
+        self._enable_all_online()
 
         self.is_engaged = True
         print("🔌 机器人电机已使能 - 将发送指令")
         return True
+
+    def _enable_all_online(self) -> None:
+        """按连接时动态发现的真实端口，显式使能所有在线舵机（RobStride 需要）。
+
+        - 飞特(串口)上电即保持力矩，无需显式使能，其驱动无 _ensure_ready，跳过。
+        - 使能带 3 次重试（CAN 偶发卡顿可恢复）。
+        - 仍失败的电机明确打印，便于定位"松/无力矩"的电机（多为该电机 CAN 无反馈或硬件故障）。
+        """
+        if not self.online_servos or not self.motor_controller:
+            return
+        failed = []
+        for sid, port in self.online_servos.items():
+            driver = self.motor_controller._get_or_create_driver(port)
+            if not driver or not hasattr(driver, "_ensure_ready"):
+                continue  # 无需显式使能的驱动（如飞特）跳过
+            ok = False
+            for _ in range(3):
+                if driver._ensure_ready(sid):
+                    ok = True
+                    break
+                time.sleep(0.05)
+            if not ok:
+                failed.append(sid)
+        if failed:
+            print(f"⚠️ 以下电机使能失败（将无力矩/松，可能 CAN 无反馈或硬件故障）: {sorted(failed)}")
+        else:
+            print(f"✅ 全部 {len(self.online_servos)} 个在线电机使能成功")
 
     def list_poses(self) -> Dict:
         """返回可用的姿态预设列表，供前端动作列表使用。"""
