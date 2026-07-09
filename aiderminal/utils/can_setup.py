@@ -100,28 +100,48 @@ def setup_can(
 
     def _config_sequence() -> tuple:
         """
-        执行 CAN 配置序列: down → bitrate(+restart-ms) → txqueuelen → up。
+        执行 CAN 配置序列: down → bitrate → (restart-ms) → txqueuelen → up。
 
-        ⚠️ 关键：type can 必须带 restart-ms 100。CAN 控制器累计错误进入 BUS-OFF
-        后，内核会在该毫秒数后自动重启控制器——否则 BUS-OFF 会永久卡死
-        （表现为反复 "Network is down"、电机全掉线、使能逻辑再怎么重试都救不回）。
-        这是机器人 CAN 总线可靠性的根因修复，不是软件层能绕过的。
+        restart-ms 让控制器进 BUS-OFF 后内核自动重启；但**部分 CAN 控制器
+        （某些 USB-CAN / SPI CAN）不支持该参数**，命令会报
+        "Device doesn't support restart from Bus Off"。此时必须**忽略该错误继续
+        up**，否则整条配置失败、接口永远 DOWN（表现为反复 "Network is down"、
+        电机全掉线）。硬件不支持自动恢复时，BUS-OFF 改由 actuator_controller 的
+        软件重连触发本函数的 down→up 来清除。
         Returns:
             (ok: bool, timed_out: bool)
         """
-        for cmd_args in (
-            ("ip", "link", "set", can_if, "down"),
-            ("ip", "link", "set", can_if, "type", "can", "bitrate", bitrate, "restart-ms", "100"),
-            ("ip", "link", "set", can_if, "txqueuelen", txqlen),
-            ("ip", "link", "set", can_if, "up"),
-        ):
-            res = _sudo(*cmd_args)
-            if res.returncode != 0:
-                logger.warning(
-                    "CAN setup failed: sudo %s — %s",
-                    " ".join(cmd_args), res.stderr.strip(),
-                )
-                return False, res.returncode == -1
+        # 1) down
+        res = _sudo("ip", "link", "set", can_if, "down")
+        if res.returncode != 0:
+            logger.warning("CAN setup failed: sudo ip link set %s down — %s",
+                           can_if, res.stderr.strip())
+            return False, res.returncode == -1
+        # 2) 设 bitrate（不带 restart-ms，避免不支持的硬件整条失败）
+        res = _sudo("ip", "link", "set", can_if, "type", "can", "bitrate", bitrate)
+        if res.returncode != 0:
+            logger.warning("CAN setup failed: sudo ip link set %s type can bitrate — %s",
+                           can_if, res.stderr.strip())
+            return False, res.returncode == -1
+        # 3) 尝试启用 BUS-OFF 自动恢复（硬件不支持则仅告警，不阻断 up）
+        res = _sudo("ip", "link", "set", can_if, "type", "can", "restart-ms", "100")
+        if res.returncode != 0:
+            logger.warning(
+                "CAN %s 不支持 BUS-OFF 自动恢复(restart-ms)，将依赖软件重连 down→up 清除 BUS-OFF — %s",
+                can_if, res.stderr.strip(),
+            )
+        # 4) txqueuelen
+        res = _sudo("ip", "link", "set", can_if, "txqueuelen", txqlen)
+        if res.returncode != 0:
+            logger.warning("CAN setup failed: sudo ip link set %s txqueuelen — %s",
+                           can_if, res.stderr.strip())
+            return False, res.returncode == -1
+        # 5) up（必须执行，接口 UP 后电机才能通信）
+        res = _sudo("ip", "link", "set", can_if, "up")
+        if res.returncode != 0:
+            logger.warning("CAN setup failed: sudo ip link set %s up — %s",
+                           can_if, res.stderr.strip())
+            return False, res.returncode == -1
         return True, False
 
     # 1) 加载内核模块
@@ -143,9 +163,12 @@ def setup_can(
         logger.info("%s not present — skip CAN setup (no hardware)", can_if)
         return False
 
-    # 3) 已是 UP、队列足够、总线健康且已启用 BUS-OFF 自动恢复 → 才跳过。
-    #    否则（BUS-OFF / ERROR-PASSIVE / STOPPED / 未设 restart-ms）必须强制
-    #    重启接口，否则 BUS-OFF 会永久卡死（这正是 "Network is down" 反复出现的根因）。
+    # 3) 已是 UP、队列足够、总线健康 → 才跳过（不打断通信）。
+    #    BUS-OFF / ERROR-PASSIVE / STOPPED 等故障态必须强制 down→up 清除，
+    #    否则 BUS-OFF 会永久卡死（反复 "Network is down"）。
+    #    注意：部分 CAN 控制器不支持 restart-ms（报 "Device doesn't support
+    #    restart from Bus Off"），无法靠内核自动退出 BUS-OFF；此时 BUS-OFF
+    #    由 actuator_controller 软件重连触发本函数的 down→up 清除，不强制要求 restart_ms>0。
     state_r = subprocess.run(
         ["ip", "-br", "link", "show", can_if],
         capture_output=True, text=True, timeout=2,
@@ -171,18 +194,18 @@ def setup_can(
                 restart_ms = 0
 
             bus_healthy = can_state in ("ERROR-ACTIVE", "UNKNOWN", "DOWN")
-            if bus_healthy and qlen >= 500 and restart_ms > 0:
-                logger.debug("%s already UP, healthy, restart-ms=%d — skip", can_if, restart_ms)
+            if bus_healthy and qlen >= 500:
+                # 已 UP 且健康：硬件支持自动恢复则静默跳过；不支持则提示依赖软件重连。
+                if restart_ms == 0:
+                    logger.debug("%s already UP & healthy (硬件不支持 BUS-OFF 自动恢复，依赖软件重连)", can_if)
+                else:
+                    logger.debug("%s already UP, healthy, restart-ms=%d — skip", can_if, restart_ms)
                 return True
-            # 不自跳：总线故障态或缺少自动恢复 → 强制 down→up 清 BUS-OFF
+            # 不自跳：总线故障态 → 强制 down→up 清 BUS-OFF
             if can_state in ("BUS-OFF", "ERROR-PASSIVE", "STOPPED"):
                 logger.warning(
                     "CAN %s 总线异常(%s)，强制重启接口清除 BUS-OFF/ERROR-PASSIVE",
                     can_if, can_state,
-                )
-            elif restart_ms == 0:
-                logger.info(
-                    "CAN %s 启用 BUS-OFF 自动恢复(restart-ms=100)", can_if,
                 )
 
     # 4) 配置: down → bitrate → txqueuelen → up

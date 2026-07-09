@@ -100,11 +100,15 @@ class ActuatorController:
             if "can" in port.lower() and hasattr(driver, "_can"):
                 can = driver._can
                 idle = can.idle_seconds
-                if idle > 5.0 or not can.is_interface_up:
+                bus_stuck = can.check_bus_health() in ("BUS-OFF", "STOPPED")
+                if idle > 5.0 or not can.is_interface_up or bus_stuck:
                     cooldown_left = self._can_reconnect_cooldown(port)
-                    reason = (f"已 {idle:.1f}s 无反馈帧"
-                              if idle > 5.0
-                              else "接口已 DOWN (Network is down)")
+                    if idle > 5.0:
+                        reason = f"已 {idle:.1f}s 无反馈帧"
+                    elif not can.is_interface_up:
+                        reason = "接口已 DOWN (Network is down)"
+                    else:
+                        reason = f"总线异常 ({can.check_bus_health()})"
                     if cooldown_left > 0:
                         # 冷却期内，跳过重连（避免硬件故障时无限重连 spam）
                         cnt = self._reconnect_skip_count.get(port, 0) + 1
