@@ -47,7 +47,7 @@ HALF_WHEELBASE: float = 0.24   # 半轴距 (y方向)
 MECANUM_K: float = HALF_TRACK + HALF_WHEELBASE  # 旋转耦合系数
 
 MAX_RAW_SPEED: int = 3000
-ROTATION_GAIN: float = 100.0
+ROTATION_GAIN: float = 1.0  # theta 即 rad/s, 不再放大(原 100 导致旋转远快于平移)
 MAX_LIFT_SPEED_MPS: float = 0.1
 MAX_LIFT_SPEED_RAW: int = 1500
 
