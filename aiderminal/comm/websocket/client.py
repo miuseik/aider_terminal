@@ -170,6 +170,55 @@ class VRWebSocketClient:
                     "success": False,
                     "message": "无机器人接口",
                 }))
+        elif action == 'recalibrate_multiturn':
+            # 对掉圈数电机自动移到零位 + 标零
+            if cl and cl.robot_interface:
+                ri = cl.robot_interface
+                if not ri.lost_multiturn_motors:
+                    await self.transport.send_raw(encode_message({
+                        "type": "recalibrate_response",
+                        "success": True,
+                        "message": "无需标零：所有电机圈数正常",
+                        "results": {"success": [], "failed": []},
+                    }))
+                else:
+                    # 构建 port_drivers 映射
+                    port_drivers = {}
+                    if ri.left_robot and ri.left_arm_connected:
+                        port_drivers[ri.servo_ports.get('left_arm', '')] = ri.left_robot
+                    if ri.right_robot and ri.right_arm_connected:
+                        port_drivers[ri.servo_ports.get('right_arm', '')] = ri.right_robot
+                    if ri.base_robot and ri.base_connected:
+                        for part in ['base', 'lift_axis', 'neck']:
+                            p = ri.servo_ports.get(part)
+                            if p:
+                                port_drivers[p] = ri.base_robot
+
+                    loop = asyncio.get_event_loop()
+                    executor = cl.motor_controller._executor if cl.motor_controller else None
+                    if executor:
+                        results = await loop.run_in_executor(executor, ri.recalibrate_lost_motors, port_drivers)
+                    else:
+                        results = ri.recalibrate_lost_motors(port_drivers)
+
+                    # 推送更新后的硬件信息给前端
+                    from aiderminal.utils.hardware_info import push_robot_hardware_info
+                    asyncio.create_task(push_robot_hardware_info(self.transport, ri))
+
+                    all_ok = len(results.get("failed", [])) == 0
+                    await self.transport.send_raw(encode_message({
+                        "type": "recalibrate_response",
+                        "success": all_ok,
+                        "message": ("标零完成！请重新连接机器人" if all_ok
+                                    else f"部分电机标零失败: {results.get('failed')}"),
+                        "results": results,
+                    }))
+            else:
+                await self.transport.send_raw(encode_message({
+                    "type": "recalibrate_response",
+                    "success": False,
+                    "message": "无机器人接口",
+                }))
         elif action == 'goto_pose':
             if cl and cl.robot_interface:
                 arm = command.get('arm', 'both')
@@ -243,6 +292,22 @@ class VRWebSocketClient:
                     print("❌ 禁能失败")
             else:
                 print("❌ 无机器人接口")
+        elif action == 'can_retry':
+            print("🔄 收到 CAN 恢复命令，尝试重置 USB CAN 适配器...")
+            from aiderminal.utils.can_setup import setup_can
+            result = {"can0": False, "can1": False}
+            for iface in ("can0", "can1"):
+                try:
+                    ok = setup_can(iface)
+                    result[iface] = ok
+                    status = "✅ 成功" if ok else "❌ 失败"
+                    print(f"  CAN 恢复 {iface}: {status}")
+                except Exception as e:
+                    print(f"  CAN 恢复 {iface} 异常: {e}")
+            await self.transport.send_raw(encode_message({
+                "type": "can_retry_response",
+                "result": result,
+            }))
         elif action == 'restart':
             print("🔄 收到重启命令")
             if cl and hasattr(cl, 'main_app'):

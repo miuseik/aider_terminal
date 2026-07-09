@@ -53,6 +53,7 @@ def collect_hardware_info(ri) -> dict:
         'left_arm_angles': ri.left_arm_angles.tolist() if hasattr(ri, 'left_arm_angles') and ri.left_arm_angles is not None else [],
         'right_arm_angles': ri.right_arm_angles.tolist() if hasattr(ri, 'right_arm_angles') and ri.right_arm_angles is not None else [],
         'lift_height_mm': ri.lift_height_mm,
+        'lost_multiturn': getattr(ri, 'lost_multiturn_motors', []),
     }
 
     _log_summary(all_servos, ri)

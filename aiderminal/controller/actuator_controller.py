@@ -32,13 +32,17 @@ class ActuatorController:
     驱动方法为同步调用（串口/CAN I/O 在 asyncio 线程内直接执行）。
     """
 
-    def __init__(self, motor_type_overrides: Optional[Dict[int, int]] = None) -> None:
+    def __init__(self, motor_type_overrides: Optional[Dict[int, int]] = None,
+                 direction_map: Optional[Dict[int, float]] = None,
+                 offset_map: Optional[Dict[int, float]] = None) -> None:
         self._joint_drivers: Dict[str, object] = {}   # port → driver
         self._registry: Dict[Tuple[str, int], ActuatorInfo] = {}
         self._joint_map: Dict[str, Tuple[str, int]] = {}
         self._last_targets: Dict[Tuple[str, int], Tuple[float, int]] = {}
         self._running = False
         self._motor_type_overrides: Dict[int, int] = motor_type_overrides or {}
+        self._direction_map: Dict[int, float] = direction_map or {}
+        self._offset_map: Dict[int, float] = offset_map or {}
         self._pipeline = None  # MotionPipeline (扫描后自动同步)
         # 共享线程池：避免每次同步包装都创建/销毁 ThreadPoolExecutor
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="actuator")
@@ -133,13 +137,10 @@ class ActuatorController:
             # CAN 热插拔：先尝试 setup_can，再连接
             self._can_retry_setup(port)
             from aiderminal.drivers.actuator.robStride import RobStrideOfficialDriver
-            from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import (
-                DEFAULT_JOINT_DIRECTIONS, DEFAULT_JOINT_OFFSETS,
-            )
             driver = RobStrideOfficialDriver(
                 can_interface=port,
-                directions=DEFAULT_JOINT_DIRECTIONS,
-                offsets_rad=DEFAULT_JOINT_OFFSETS,
+                directions=self._direction_map,
+                offsets_rad=self._offset_map,
             )
         else:
             from aiderminal.drivers.actuator.feetech.feetech_driver import ST3215Driver
@@ -489,29 +490,65 @@ class ActuatorController:
     async def scan_available_ports(self) -> List[str]:
         """扫描系统中可用的串口和 CAN 接口。
 
+        自动加载 CAN 内核驱动 (gs_usb)，确保刚插入的 USB-CAN 适配器能被发现。
+        无需用户手动执行任何命令。
+
         Returns:
-            List[str]: 端口列表，CAN 接口 (can0) 排在第一位
+            List[str]: 端口列表，CAN 接口排在前面
         """
         ports: List[str] = []
+
+        # ── 0) 自动加载 CAN 内核模块（幂等操作，已加载则跳过）──
+        try:
+            import subprocess
+            import os
+            for mod in ("can", "can_raw", "gs_usb"):
+                try:
+                    cmd = ["sudo", "-n", "modprobe", mod] if os.geteuid() != 0 else ["modprobe", mod]
+                    subprocess.run(cmd, capture_output=True, timeout=3)
+                except Exception:
+                    pass  # 模块已加载或不可用，静默跳过
+        except Exception:
+            pass
+
+        # ── 1) 扫描 CAN 接口 ──
+        try:
+            import glob as glob_mod
+            can_ifaces = sorted(glob_mod.glob("/sys/class/net/can*"))
+            can_matches = [os.path.basename(p) for p in can_ifaces]
+            if can_matches:
+                logger.info("Found CAN interfaces: %s", can_matches)
+            # CAN 接口排在列表最前面
+            ports = can_matches + ports
+        except Exception:
+            # 回退：用 ip link show 解析
+            try:
+                import subprocess
+                import re
+                result = subprocess.run(
+                    ["ip", "-o", "link", "show"],
+                    capture_output=True, text=True, timeout=2,
+                )
+                can_matches: List[str] = []
+                for line in result.stdout.split("\n"):
+                    m = re.search(r"\bcan\d+\b", line)
+                    if m:
+                        name = m.group(0)
+                        if name not in can_matches:
+                            can_matches.append(name)
+                ports = can_matches + ports
+            except Exception:
+                pass
+
+        # ── 2) 扫描 USB 串口 ──
         try:
             import serial.tools.list_ports
             for p in serial.tools.list_ports.comports():
-                if any(x in p.device for x in ('USB', 'ACM', 'ttyUSB')):
+                if any(x in p.device for x in ("USB", "ACM", "ttyUSB")):
                     ports.append(p.device)
         except ImportError:
             logger.debug("pyserial not available, skip USB scan")
-        try:
-            import subprocess
-            result = subprocess.run(
-                ['ip', '-o', 'link', 'show'],
-                capture_output=True, text=True, timeout=2,
-            )
-            for line in result.stdout.split('\n'):
-                if 'can0' in line and 'can0' not in ports:
-                    ports.insert(0, 'can0')
-                    break
-        except Exception:
-            pass
+
         logger.info("Found %d ports: %s", len(ports), ports)
         return ports
 
@@ -602,17 +639,8 @@ class ActuatorController:
                     except Exception:
                         continue
 
-            # 自动分配关节名（从 DEFAULT_JOINT_ACTUATOR_MAP）
-            found_ids_set = {info.device_id for info in found}
-            from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import DEFAULT_JOINT_ACTUATOR_MAP
-            for jname, (jport, jid, _dir, _off) in DEFAULT_JOINT_ACTUATOR_MAP.items():
-                if jport == port and jid in found_ids_set:
-                    key = (port, jid)
-                    info = self._registry.get(key)
-                    if info:
-                        info.joint_name = jname
-                        self._joint_map[jname] = key
-                        logger.info("Mapped %s → %s ID=%d", jname, port, jid)
+            # 关节名由 actuator_router 根据 servo_ids.yaml 统一分配，
+            # 不再使用协议层硬编码的 DEFAULT_JOINT_ACTUATOR_MAP。
 
             logger.info("Scan %s complete: %d actuators, driver kept in pool", port, len(found))
         except Exception as e:
@@ -954,6 +982,17 @@ class ActuatorController:
         if loop.is_running():
             return self._executor.submit(asyncio.run, self.disable_port(port)).result(timeout=5)
         return loop.run_until_complete(self.disable_port(port))
+
+    def force_reinitialize_all_robstride(self) -> None:
+        """强制清空所有 RobStride 驱动的初始化标记。
+
+        下次 set_position 时电机会自动重新使能，用于恢复因过流/看门狗
+        等物理失能的电机，无需断电重启。
+        """
+        for port, driver in list(self._joint_drivers.items()):
+            if hasattr(driver, "force_reinitialize"):
+                driver.force_reinitialize()
+                logger.info("Reinit marker cleared for driver on %s", port)
 
     async def cleanup(self) -> None:
         for port, driver in list(self._joint_drivers.items()):

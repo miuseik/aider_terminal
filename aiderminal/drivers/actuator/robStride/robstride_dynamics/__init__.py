@@ -27,8 +27,6 @@ from .protocol import (
     MotorParams,
     MOTOR_PARAMS,
     DEFAULT_MOTOR_TYPE_MAP,
-    DEFAULT_JOINT_DIRECTIONS,
-    DEFAULT_JOINT_OFFSETS,
     DEFAULT_JOINT_LIMITS,
 )
 from .utils import (

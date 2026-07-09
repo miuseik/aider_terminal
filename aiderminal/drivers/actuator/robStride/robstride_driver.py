@@ -120,6 +120,16 @@ class RobStrideOfficialDriver:
         self._csp_initialized.clear()
         self._vel_initialized.clear()
 
+    def force_reinitialize(self) -> None:
+        """强制清空所有电机的初始化标记，使下次 set_position/set_velocity 时自动重新使能。
+
+        用例：电机因过流/看门狗等物理失能后，选择姿态时自动恢复，无需断电重启。
+        """
+        self._initialized.clear()
+        self._csp_initialized.clear()
+        self._vel_initialized.clear()
+        logger.info("RobStride %s: all motor init flags cleared — will re‑engage on next command", self._can_name)
+
     @property
     def is_connected(self) -> bool:
         return self._can.is_connected
@@ -139,33 +149,36 @@ class RobStrideOfficialDriver:
         关键：设置 CAN_TIMEOUT=0 禁用超时，否则电机在最后一次收到 MIT
         控制帧后会在超时窗口内自动退出跟踪，导致 set_position 单帧指令
         无法让电机到达目标位置。
+
+        重新初始化时先发送故障清除指令（disable + clear_fault=True），
+        恢复因过流/看门狗等进入硬件故障态的电机，无需断电重启。
         """
         if device_id in self._initialized:
             return True
 
-        # 如果之前在速度模式或 CSP 模式，先失能再切换
-        if device_id in self._vel_initialized:
-            self._can.disable_motor(device_id)
-            time.sleep(0.01)
-            self._vel_initialized.discard(device_id)
-        if device_id in self._csp_initialized:
-            self._can.disable_motor(device_id)
-            time.sleep(0.01)
-            self._csp_initialized.discard(device_id)
+        # ── 1. 清除故障 + 失能（保证干净初始状态） ──
+        # clear_fault=True 发送 Type 4 帧 data[0]=1，清除电机内部故障锁存。
+        # 这是 key：仅 enable_motor 无法退出硬件故障态，必须带故障清除的 disable。
+        self._can.disable_motor(device_id, clear_fault=True)
+        time.sleep(0.01)
 
-        # 切换到 MIT 模式
+        # 清理之前的模式跟踪
+        self._vel_initialized.discard(device_id)
+        self._csp_initialized.discard(device_id)
+
+        # ── 2. 切换到 MIT 运控模式 ──
         if not self._can.set_run_mode(device_id, RunMode.MOTION_CONTROL):
             logger.warning("Motor %d: failed to set MIT mode", device_id)
             return False
         time.sleep(0.02)
 
-        # 使能电机
+        # ── 3. 使能电机 ──
         if not self._can.enable_motor(device_id):
             logger.warning("Motor %d: failed to enable", device_id)
             return False
         time.sleep(0.01)
 
-        # 禁用 CAN 超时看门狗 (0x7028 = 0 表示永不超时)
+        # ── 4. 禁用 CAN 超时看门狗 ──
         # 默认值可能很小（如 20~100ms），导致 set_position 发一帧后电机
         # 在超时窗口内停止追踪，永远到不了目标角度
         if not self._can.write_parameter_int(device_id, ParamIndex.CAN_TIMEOUT, 0):
@@ -182,15 +195,13 @@ class RobStrideOfficialDriver:
         if device_id in self._csp_initialized:
             return True
 
-        # 如果之前在其他模式，先失能再切换
-        if device_id in self._vel_initialized:
-            self._can.disable_motor(device_id)
-            time.sleep(0.01)
-            self._vel_initialized.discard(device_id)
-        if device_id in self._initialized:
-            self._can.disable_motor(device_id)
-            time.sleep(0.01)
-            self._initialized.discard(device_id)
+        # ── 强制失能 + 清除故障 ──
+        self._can.disable_motor(device_id, clear_fault=True)
+        time.sleep(0.01)
+
+        # 清理之前的模式跟踪
+        self._vel_initialized.discard(device_id)
+        self._initialized.discard(device_id)
 
         # 1) 切 CSP 模式 (run_mode = 5)
         if not self._can.set_run_mode(device_id, RunMode.POSITION_CSP):
@@ -334,8 +345,8 @@ class RobStrideOfficialDriver:
         if device_id in self._vel_initialized:
             return True
 
-        # 先停止当前 MIT 控制，再切速度模式
-        self._can.disable_motor(device_id)
+        # 强制失能 + 清除故障，再切速度模式
+        self._can.disable_motor(device_id, clear_fault=True)
         time.sleep(0.01)
 
         if not self._can.set_run_mode(device_id, RunMode.VELOCITY):
@@ -374,7 +385,7 @@ class RobStrideOfficialDriver:
 
         与速度模式/CSP 模式互斥，会从 _vel_initialized / _csp_initialized 移除该电机。
         """
-        self._can.disable_motor(device_id)
+        self._can.disable_motor(device_id, clear_fault=True)
         time.sleep(0.01)
 
         if not self._can.set_run_mode(device_id, RunMode.MOTION_CONTROL):

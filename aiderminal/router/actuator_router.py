@@ -152,8 +152,12 @@ class ActuatorRouter:
 
         # 创建 ActuatorController（连接时才创建，每次重新连覆盖旧的）
         motor_type_overrides = servo_cfg.build_motor_type_overrides()
+        direction_map = servo_cfg.build_direction_map()
+        offset_map = servo_cfg.build_offset_map()
         self._actuator_ctrl = ActuatorController(
             motor_type_overrides=motor_type_overrides,
+            direction_map=direction_map,
+            offset_map=offset_map,
         )
         self._actuator_ctrl.set_pipeline(pipeline)
         logger.info("Pipeline ↔ ActuatorController linked")

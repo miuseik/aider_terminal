@@ -192,7 +192,10 @@ class TelegripSystem:
             self.control_commands_queue = queue.Queue(maxsize=10)
 
             # 确保 CAN 接口已正确配置
-            setup_can()
+            try:
+                setup_can()
+            except Exception as e:
+                logger.warning("CAN setup failed (non-fatal): %s", e)
 
             # 创建新组件
             self.vr_handler = VRHandler(self.command_queue, self.config)
@@ -272,7 +275,10 @@ class TelegripSystem:
             self.main_loop = asyncio.get_event_loop()
             
             # 启动时确保 CAN 接口配置正确
-            setup_can()
+            try:
+                setup_can()
+            except Exception as e:
+                logger.warning("CAN setup failed (non-fatal): %s", e)
             
             # HTTPS 服务器已禁用 - UI 已迁移到外部 Vue 项目
             # await self.https_server.start()

@@ -56,6 +56,8 @@ class ServoConfigManager:
                     "max_angle": joint_info.get("max_angle"),
                     "min_angle": joint_info.get("min_angle"),
                     "zero_offset": joint_info.get("zero_offset", 0),
+                    "direction": joint_info.get("direction", 1.0),
+                    "skip_check": joint_info.get("skip_check", False),
                 }
 
         logger.info(
@@ -110,7 +112,35 @@ class ServoConfigManager:
         logger.info("Built motor_type_overrides: %s", overrides)
         return overrides
 
-    # ── 分组查询 ──────────────────────────────────────────────
+    def build_direction_map(self) -> Dict[int, float]:
+        """构建 {motor_id: direction} 映射（仅配置了 direction 字段的电机）。
+
+        direction = +1.0 表示正转（默认），-1.0 表示反转（电机反装）。
+
+        Returns:
+            Dict[int, float]: {motor_id: direction}, e.g. {10: -1.0, 13: -1.0}
+        """
+        direction_map: Dict[int, float] = {}
+        for sid, info in self._id_map.items():
+            d = info.get("direction", 1.0)
+            if d != 1.0:
+                direction_map[sid] = float(d)
+        logger.info("Built direction_map: %s", direction_map)
+        return direction_map
+
+    def build_offset_map(self) -> Dict[int, float]:
+        """构建 {motor_id: offset_rad} 映射（仅配置了 non‑zero offset 的电机）。
+
+        Returns:
+            Dict[int, float]: {motor_id: offset_rad}, e.g. {10: 0.087, 13: -0.052}
+        """
+        offset_map: Dict[int, float] = {}
+        for sid, info in self._id_map.items():
+            off = info.get("zero_offset", 0.0)
+            if off != 0.0:
+                offset_map[sid] = float(off)
+        logger.info("Built offset_map: %s", offset_map)
+        return offset_map
 
     def get_ids_by_brand_prefix(self, prefix: str) -> List[int]:
         """按品牌前缀筛选 ID 列表。"""

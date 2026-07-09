@@ -76,6 +76,9 @@ class RobotInterface:
         self.right_arm_errors = 0
         self.general_errors = 0
         self.max_arm_errors = 3
+
+        # 多圈丢失检测：连接后检测到的掉圈数电机列表
+        self.lost_multiturn_motors = []  # [{id, joint_name, part, raw_angle, corrected_angle}]
         self.max_general_errors = 8
 
         # 安全关机初始位置 (由适配器类型决定)
@@ -180,6 +183,10 @@ class RobotInterface:
             # 构建 ServoConfigManager（供 ActuatorRouter 连接时使用 brand/motor_type）
             from aiderminal.config.servo_config_manager import ServoConfigManager
             self.servo_config_manager = ServoConfigManager(servo_config)
+            
+            # 注入 direction_map 和 offset_map 到 motor_controller（否则用空 map 创建的驱动永远取不到 direction 配置）
+            self.motor_controller._direction_map = self.servo_config_manager.build_direction_map()
+            self.motor_controller._offset_map = self.servo_config_manager.build_offset_map()
             
             # ✅ 第二步：从扁平配置中收集所有舵机 ID
             all_ids = set()
@@ -292,10 +299,10 @@ class RobotInterface:
                 print(f"✅ 底层驱动已初始化: {list(port_drivers.keys())}")
 
                 # ✅ 第八步：读取电机当前实际位置作为 IK 起点
-                #     电机标零后断电上电位置即正确。
-                #     未标零的电机读取值可能不准确（单圈编码器 0-360° 循环），
-                #     建议先通过前端标零按钮完成硬件零位校准。
                 self._read_initial_state()
+
+                # ✅ 第九步：检测多圈丢失（断电可能丢圈数）
+                self.detect_multiturn_loss(port_drivers)
 
                 print(f"🤖 机器人接口已连接: 左臂={self.left_arm_connected}, 右臂={self.right_arm_connected}, 底盘={self.base_connected}")
             else:
@@ -383,6 +390,156 @@ class RobotInterface:
             import traceback
             traceback.print_exc()
 
+    # ── 多圈丢失检测 & 自动标零 ──────────────────────────────────
+
+    def detect_multiturn_loss(self, port_drivers: dict) -> list:
+        """检测断电后多圈编码器丢失的电机。
+
+        仅 RobStride 电机有此问题（Feetech 不用多圈编码器）。
+        读取每个电机的逻辑角度，对比配置的 min_angle / max_angle。
+        超出限位的尝试 ±360°×N 解绕，找到有效值的电机标记为掉圈。
+
+        Args:
+            port_drivers: {port_name: driver_instance} 端口→驱动映射
+
+        Returns:
+            list: [{id, joint_name, part, raw_angle, corrected_angle}]
+        """
+        lost = []
+        if not self.servo_config_manager:
+            return lost
+
+        for sid, info in self.servo_config_manager._id_map.items():
+            # 按电机自身配置决定是否跳过多圈检测（底盘/升降/身体等非关节电机标 skip_check）
+            if info.get("skip_check"):
+                continue
+            min_a = info.get("min_angle")
+            max_a = info.get("max_angle")
+            if min_a is None or max_a is None:
+                continue
+            brand = (info.get("brand", "") or "").lower()
+            if "feetech" in brand:
+                continue  # Feetech 无多圈编码器
+
+            # 找到该电机的驱动
+            part = info.get("part", "")
+            port = self.servo_ports.get(part)
+            driver = port_drivers.get(port) if port else None
+            if not driver:
+                continue
+
+            angle = self._servo_angle(driver, sid, brand)
+            if angle is None:
+                continue
+
+            # 角度在限位内 → 未掉圈
+            if min_a <= angle <= max_a:
+                continue
+
+            # 自动解绕：±5圈内找落入限位区间的最近候选值
+            best = None
+            best_dist = float("inf")
+            mid = (min_a + max_a) / 2.0
+            for n in range(-5, 6):
+                candidate = angle + n * 360.0
+                if min_a <= candidate <= max_a:
+                    dist = abs(candidate - mid)
+                    if dist < best_dist:
+                        best = candidate
+                        best_dist = dist
+
+            if best is not None:
+                lost.append({
+                    "id": sid,
+                    "joint_name": info.get("joint_name", str(sid)),
+                    "part": part,
+                    "raw_angle": round(angle, 2),
+                    "corrected_angle": round(best, 2),
+                })
+                print(f"  ⚠️ 掉圈电机 ID={sid} {info.get('joint_name', '')}: "
+                      f"读数={angle:.1f}° → 实际≈{best:.1f}°")
+
+        self.lost_multiturn_motors = lost
+        if lost:
+            print(f"🔔 检测到 {len(lost)} 个电机多圈丢失，需重新标零")
+        else:
+            print("✅ 所有电机多圈编码器正常")
+        return lost
+
+    def recalibrate_lost_motors(self, port_drivers: dict) -> dict:
+        """对掉圈电机自动移到最近零位并标零。
+
+        流程:
+        1. 使用 CSP 将电机移到最近基点 (0° 或 360°)
+        2. 调用 set_zero_position 标零 + 保存 Flash
+        3. 重新检测确认
+
+        Returns:
+            dict: {success: [id,...], failed: [{id, reason},...]}
+        """
+        import math
+        results = {"success": [], "failed": []}
+
+        if not self.lost_multiturn_motors:
+            return results
+
+        print(f"🔧 开始重新标零 {len(self.lost_multiturn_motors)} 个电机...")
+
+        for motor in self.lost_multiturn_motors:
+            sid = motor["id"]
+            part = motor["part"]
+            joint_name = motor["joint_name"]
+
+            port = self.servo_ports.get(part)
+            driver = port_drivers.get(port) if port else None
+            if not driver:
+                results["failed"].append({"id": sid, "reason": "no driver"})
+                continue
+
+            brand = self.servo_config_manager.get_brand(sid)
+            raw = self._servo_angle(driver, sid, brand)
+            if raw is None:
+                results["failed"].append({"id": sid, "reason": "read failed"})
+                continue
+
+            # 计算到最近基点 (0° 或 360°) 的目标角度
+            norm = raw % 360.0
+            target_deg = 0.0 if norm <= 180.0 else 360.0
+            print(f"  📍 ID={sid} {joint_name}: 当前{raw:.1f}° → 目标{target_deg:.0f}°")
+
+            # CSP 移动到目标
+            try:
+                if hasattr(driver, "move_one_joint_csp"):
+                    target_rad = math.radians(target_deg)
+                    ok = driver.move_one_joint_csp(sid, target_rad)
+                    if ok:
+                        time.sleep(0.5)  # 等待运动完成
+                    else:
+                        print(f"  ⚠️ ID={sid} CSP 运动失败，仍尝试标零")
+                elif hasattr(driver, "move_joint_csp"):
+                    driver.move_joint_csp(sid, target_deg)
+                    time.sleep(0.5)
+            except Exception as e:
+                print(f"  ⚠️ ID={sid} 移动到零位异常 (仍尝试标零): {e}")
+
+            # 标零 + 保存 Flash
+            if hasattr(driver, "set_zero_position"):
+                ok = driver.set_zero_position(sid)
+            else:
+                ok = False
+
+            if ok:
+                results["success"].append(sid)
+                print(f"  ✅ ID={sid} 标零成功")
+            else:
+                results["failed"].append({"id": sid, "reason": "set_zero failed"})
+                print(f"  ❌ ID={sid} 标零失败")
+
+        # 重新检测确认
+        self.detect_multiturn_loss(port_drivers)
+        print(f"🔧 标零完成: 成功={results['success']}, 失败={results['failed']}")
+        return results
+
     async def setup_kinematics(self, physics_client, robot_ids: Dict, joint_indices: Dict,
                          end_effector_link_indices: Dict, joint_limits_min_deg: np.ndarray,
                          joint_limits_max_deg: np.ndarray):
@@ -409,11 +566,19 @@ class RobotInterface:
         self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper, wrist_yaw)
 
     def engage(self) -> bool:
-        """使能机器人电机(开始发送指令)。"""
+        """使能机器人电机(开始发送指令)。
+
+        每次使能时强制清空 RobStride 驱动的初始化标记，确保因过流/看门狗
+        等原因物理失能的电机能够在下一次 set_position 时自动重新使能。
+        """
         print("🔌 使能机器人电机(开始发送指令)")
         if not self.is_connected:
             print("无法使能机器人: 未连接")
             return False
+
+        # 清空初始化标记 → 下次 set_position 会触发 _ensure_ready 重新使能
+        if self.motor_controller and hasattr(self.motor_controller, "force_reinitialize_all_robstride"):
+            self.motor_controller.force_reinitialize_all_robstride()
 
         self.is_engaged = True
         print("🔌 机器人电机已使能 - 将发送指令")

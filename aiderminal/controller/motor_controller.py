@@ -56,13 +56,14 @@ class MotorController:
     - 统一管理：提供一致的控制接口
     """
     
-    def __init__(self, config=None, robot_interface=None):
+    def __init__(self, config=None, robot_interface=None, direction_map=None):
         """
         初始化电机控制器
         
         Args:
             config: 配置信息(可选，兼容旧代码)
             robot_interface: 机器人接口实例(兼容旧代码)
+            direction_map: 电机方向映射 {motor_id: direction}（可选）
         """
         # 驱动实例池: {port: driver_instance}
         self.drivers = {}
@@ -76,6 +77,7 @@ class MotorController:
         # 兼容旧代码的参数
         self.config = config
         self.robot_interface = robot_interface
+        self.direction_map = direction_map or {}
         
         # 电机名称到索引的映射（兼容旧代码）
         self.motor_index_map = {
@@ -565,14 +567,11 @@ class MotorController:
                 if brand.lower() == 'robstride':
                     try:
                         from aiderminal.drivers.actuator.robStride import RobStrideOfficialDriver
-                        from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import (
-                            DEFAULT_JOINT_DIRECTIONS, DEFAULT_JOINT_OFFSETS,
-                        )
-                        # Robstride 使用 CAN 接口，不是串口
+                        # 方向/偏移均从 servo_ids.yaml 传入，不依赖协议层硬编码。
                         driver = RobStrideOfficialDriver(
                             can_interface='can0',
-                            directions=DEFAULT_JOINT_DIRECTIONS,
-                            offsets_rad=DEFAULT_JOINT_OFFSETS,
+                            directions=self.direction_map or {},
+                            offsets_rad={},
                         )
                         if driver.connect():
                             self.drivers[port] = driver

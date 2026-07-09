@@ -194,37 +194,9 @@ DEFAULT_MOTOR_TYPE_MAP = {
     127: MotorType.RS06,
 }
 
-# 默认关节方向（与 xacro 配置一致）
-DEFAULT_JOINT_DIRECTIONS = {
-    11: -1.0,  # L1
-    2:  1.0,  # L2
-    3: -1.0,  # L3
-    4:  1.0,  # L4
-    5: -1.0,  # L5
-    6:  1.0,  # L6
-    7:  1.0,  # L7 (Gripper)
-}
-
-# 默认关节偏移（rad）
-DEFAULT_JOINT_OFFSETS = {
-    11: 0.0, 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0, 6: 0.0, 7: 0.0,
-}
-
-# URDF 关节名 → (port, actuator_id, direction, offset_rad)
-# 按你实际接线修改
-DEFAULT_JOINT_ACTUATOR_MAP = {
-    # RobStride (can0)
-    "left_arm1":   ("can0", 11, -1.0, 0.0),
-    "left_arm2":   ("can0", 2,  1.0, 0.0),
-    "left_arm3":   ("can0", 3, -1.0, 0.0),
-    "left_arm4":   ("can0", 4,  1.0, 0.0),
-    "left_arm5":   ("can0", 5, -1.0, 0.0),
-    "left_arm6":   ("can0", 6,  1.0, 0.0),
-    "left_arm7":   ("can0", 7,  1.0, 0.0),
-    # Feetech (/dev/ttyACM0)
-    # "right_arm1":  ("/dev/ttyACM0", 1, 1.0, 0.0),
-    # ...
-}
+# 注意：关节方向 (direction)、零位偏移 (zero_offset)、关节名映射
+# 统一由 server 端 servo_ids.yaml 管理，通过 ServoConfigManager 下发，
+# 不再需要在协议层硬编码。以下常量已废弃，仅保留注释供参考。
 
 # 默认关节限位（rad）
 DEFAULT_JOINT_LIMITS = {
