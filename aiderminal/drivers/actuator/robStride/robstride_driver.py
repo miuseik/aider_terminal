@@ -236,7 +236,14 @@ class RobStrideOfficialDriver:
             use_csp: True=CSP 平滑模式（实验）, False=MIT PD 模式（推荐）
         """
         # 逻辑角度 → 电机角度 → 弧度
+        # 根据电机当前内部位置，把目标就近到 360° 的等价值，避免走远路
         motor_deg = self._logical_deg_to_motor_deg(device_id, position)
+        fb = self._can.get_feedback(device_id)
+        if fb and fb.is_valid:
+            cur_motor_deg = rad_to_deg(fb.position)
+            diff = motor_deg - cur_motor_deg
+            turns = round(diff / 360.0)
+            motor_deg = motor_deg - turns * 360.0
         pos_rad = deg_to_rad(motor_deg)
 
         ok = False
@@ -685,6 +692,13 @@ class RobStrideOfficialDriver:
                 fail_reasons.append(f"id={mid}")
                 continue
             motor_deg = self._logical_deg_to_motor_deg(mid, logical_deg)
+            # 根据电机当前内部位置，把目标就近到 360° 的等价值，避免走远路
+            fb = self._can.get_feedback(mid)
+            if fb and fb.is_valid:
+                cur_motor_deg = rad_to_deg(fb.position)
+                diff = motor_deg - cur_motor_deg
+                turns = round(diff / 360.0)
+                motor_deg = motor_deg - turns * 360.0
             pos_rad = deg_to_rad(motor_deg)
             sent = self._can.send_motion_control(
                 motor_id=mid, position=pos_rad, velocity=0.0,
