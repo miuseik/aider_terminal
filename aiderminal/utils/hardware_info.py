@@ -38,8 +38,7 @@ def collect_hardware_info(ri) -> dict:
     if not ri.servo_ids:
         _fetch_servo_config_from_server(ri)
 
-    part_driver = _build_part_driver_map(ri)
-    all_servos = _collect_servos(ri, part_driver)
+    all_servos = _collect_servos(ri)
 
     msg = {
         'type': 'robot_hardware_info',
@@ -75,44 +74,32 @@ def _fetch_servo_config_from_server(ri) -> None:
         print(f"⚠️ 从 Server 拉取舵机配置失败: {e}")
 
 
-def _build_part_driver_map(ri) -> dict:
-    """构建 部位名 → 驱动器 的映射."""
-    part_driver = {}
-    if ri.left_robot and ri.left_arm_connected:
-        part_driver['left_arm'] = ri.left_robot
-    if ri.right_robot and ri.right_arm_connected:
-        part_driver['right_arm'] = ri.right_robot
-    if ri.base_robot and ri.base_connected:
-        for part in ['base', 'lift_axis', 'neck']:
-            part_driver[part] = ri.base_robot
-    # 腰: 独立 CAN 端口 (与手臂同 can0), 通过 servo_ports 发现
-    waist_port = getattr(ri, 'servo_ports', {}).get('waist')
-    if waist_port:
-        try:
-            wdriver = ri.motor_controller._get_or_create_driver(waist_port)
-            if wdriver:
-                part_driver['waist'] = wdriver
-        except Exception:
-            pass
-    return part_driver
+def _collect_servos(ri) -> List[dict]:
+    """遍历所有部件收集舵机详情。
 
-
-def _collect_servos(ri, part_driver: dict) -> List[dict]:
-    """遍历所有部件收集舵机详情."""
+    每个舵机按其连接时动态发现的真实端口(online_servos)选驱动，
+    而非按 part 选——同一部位可能是混合总线(如 neck/base 里的飞特舵机在串口，
+    waist 里的飞特舵机也在串口，而大关节走 CAN)。按 part 选驱动会把飞特错发到
+    CAN 上读，触发 MECH_POS 重试失败刷屏。路由方式与 robot_interface._read_joint_angle 一致。
+    """
     all_servos = []
+    online = ri.online_servos if isinstance(ri.online_servos, dict) else {}
+    mc = ri.motor_controller
     for part_name in ['left_arm', 'right_arm', 'base', 'lift_axis', 'neck', 'waist']:
         part_config = ri.servo_ids.get(part_name, {})
         if not isinstance(part_config, dict):
             continue
-        driver = part_driver.get(part_name)
         for joint_name, joint_info in part_config.items():
             if not isinstance(joint_info, dict):
                 continue
             servo_id = joint_info.get('id')
             if not servo_id:
                 continue
-            online = servo_id in ri.online_servos
-            angle = _read_angle(driver, servo_id, joint_info) if online else 0.0
+            is_online = servo_id in online
+            # 按该舵机真实所在端口选驱动（飞特→串口，RobStride→CAN）
+            port = online.get(servo_id)
+            driver = mc._get_or_create_driver(port) if (is_online and port and mc) else None
+            angle = _read_angle(driver, servo_id, joint_info) if (is_online and driver) else 0.0
             all_servos.append({
                 'id': servo_id,
                 'joint_name': joint_name,
@@ -120,7 +107,7 @@ def _collect_servos(ri, part_driver: dict) -> List[dict]:
                 'brand': joint_info.get('brand', ''),
                 'motor_type': joint_info.get('motor_type', ''),
                 'angle': angle,
-                'online': online,
+                'online': is_online,
             })
     return all_servos
 

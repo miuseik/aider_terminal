@@ -81,6 +81,7 @@ class RobStrideOfficialDriver:
         self._vel_initialized: set = set()  # 已使能+切速度模式的电机ID
         self._csp_speed_limit: float = 1.0  # CSP 最大速度 (rad/s)，openArmX 默认 1 rad/s ≈ 57°/s
         self._last_stale_warn: Dict[int, float] = {}  # motor_id → 上次 stale 日志时间戳（防刷屏）
+        self._last_reenable: Dict[int, float] = {}    # motor_id → 上次强制重使能时间戳（限流，防总线风暴）
 
         # 关节方向/偏移校正：处理电机反向安装和机械零点不重合
         # direction = +1.0 表示正方向一致，-1.0 表示反向安装
@@ -146,17 +147,60 @@ class RobStrideOfficialDriver:
     def _ensure_ready(self, device_id: int) -> bool:
         """确保电机已使能并处于 MIT 运控模式，同时禁用 CAN 超时看门狗.
 
-        关键：设置 CAN_TIMEOUT=0 禁用超时，否则电机在最后一次收到 MIT
-        控制帧后会在超时窗口内自动退出跟踪，导致 set_position 单帧指令
-        无法让电机到达目标位置。
+        ⚠️ 关键修复（14 号松/无力矩根因）：RobStride 的使能/切模式/失能帧都是
+        **只发不确认**（_send_frame 返回的是 TX 是否成功，不等电机 ACK，且总线
+        无重传）。一旦某帧被丢掉（can2 总线偶发卡顿 / 该关节线头接触不良），
+        电机会停在失能态 → 松、无力矩，但上层仍照常发 MIT 位置帧（未使能电机
+        忽略 MIT 帧），表现就是"命令在发、电机不动"。
 
-        重新初始化时先发送故障清除指令（disable + clear_fault=True），
-        恢复因过流/看门狗等进入硬件故障态的电机，无需断电重启。
+        原实现把"帧发出去"误当"使能成功"，且一旦标记 _initialized 就再也不重发
+        使能 → 丢帧的电机永久松着。本实现：
+          1) 发完使能序列后**读回 RUN_MODE 确认**确实进入 MIT 模式（set_run_mode
+             帧也可能丢），未确认则整段重试（每次重试都会重发 enable，提高命中率）；
+          2) 运行中若某电机**反馈变 stale（大概率已掉使能：CAN 超时/故障/供电）**，
+             强制清除 _initialized 并重发完整使能序列（限流，避免总线风暴）→ 自愈。
         """
+        # 已初始化：反馈新鲜说明仍在线且处于 MIT 跟踪态，直接复用，不再重发使能
         if device_id in self._initialized:
-            return True
+            fb = self._can.get_feedback(device_id)
+            now = time.time()
+            if fb and fb.is_valid and (now - fb.timestamp) < 0.5:
+                return True
+            # 反馈陈旧 → 电机可能掉使能，强制重使能（限流避免每秒刷几十次）
+            last = self._last_reenable.get(device_id, 0)
+            if now - last < 0.3:
+                return True  # 限流期内维持当前指令，不发使能帧（避免总线风暴）
+            self._last_reenable[device_id] = now
+            self._initialized.discard(device_id)
+            self._vel_initialized.discard(device_id)
+            self._csp_initialized.discard(device_id)
+            logger.warning("[%s] motor %d feedback stale → re-enable", self._can_name, device_id)
 
-        # ── 1. 清除故障 + 失能（保证干净初始状态） ──
+        # 完整使能序列，带重试（控制帧只发不确认，丢帧会致电机停在失能态 → 松；
+        # 重试 + 读回确认可把偶发丢帧的影响降到最低）
+        for attempt in range(3):
+            if self._enable_sequence(device_id) and self._is_mit_mode(device_id):
+                self._initialized.add(device_id)
+                if device_id in self._motors:
+                    self._motors[device_id].enabled = True
+                logger.info("[%s] motor %d enabled (MIT mode + CAN_TIMEOUT=0)",
+                            self._can_name, device_id)
+                return True
+            logger.warning("[%s] motor %d enable attempt %d/3 not confirmed",
+                           self._can_name, device_id, attempt + 1)
+            time.sleep(0.05)
+        logger.error("[%s] motor %d ENABLE FAILED after 3 retries — will be LOOSE (no torque). "
+                     "Check CAN wiring/connector/power for this motor.",
+                     self._can_name, device_id)
+        return False
+
+    def _enable_sequence(self, device_id: int) -> bool:
+        """发送完整使能序列（disable+clear_fault → MIT 模式 → enable → CAN_TIMEOUT=0）。
+
+        返回该序列所有帧是否都成功 TX（注意：只是 TX 成功，不等 ACK；
+        是否真正使能由 _is_mit_mode 读回确认）。
+        """
+        # 1. 清除故障 + 失能（保证干净初始状态）
         # clear_fault=True 发送 Type 4 帧 data[0]=1，清除电机内部故障锁存。
         # 这是 key：仅 enable_motor 无法退出硬件故障态，必须带故障清除的 disable。
         self._can.disable_motor(device_id, clear_fault=True)
@@ -166,28 +210,35 @@ class RobStrideOfficialDriver:
         self._vel_initialized.discard(device_id)
         self._csp_initialized.discard(device_id)
 
-        # ── 2. 切换到 MIT 运控模式 ──
+        # 2. 切换到 MIT 运控模式
         if not self._can.set_run_mode(device_id, RunMode.MOTION_CONTROL):
             return False
         time.sleep(0.02)
-        
-        # ── 3. 使能电机 ──
+
+        # 3. 使能电机
         if not self._can.enable_motor(device_id):
-            logger.warning("Motor %d: failed to enable", device_id)
+            logger.warning("[%s] motor %d: enable frame failed to TX", self._can_name, device_id)
             return False
         time.sleep(0.01)
 
-        # ── 4. 禁用 CAN 超时看门狗 ──
+        # 4. 禁用 CAN 超时看门狗
         # 默认值可能很小（如 20~100ms），导致 set_position 发一帧后电机
         # 在超时窗口内停止追踪，永远到不了目标角度
         if not self._can.write_parameter_int(device_id, ParamIndex.CAN_TIMEOUT, 0):
-            logger.warning("Motor %d: failed to disable CAN timeout watchdog", device_id)
-
-        self._initialized.add(device_id)
-        if device_id in self._motors:
-            self._motors[device_id].enabled = True
-        logger.info("Motor %d initialized (MIT mode + enabled + CAN_TIMEOUT=0)", device_id)
+            logger.warning("[%s] motor %d: CAN_TIMEOUT=0 frame failed to TX",
+                           self._can_name, device_id)
         return True
+
+    def _is_mit_mode(self, device_id: int) -> bool:
+        """读回 RUN_MODE 确认电机已进入 MIT 运控模式（控制帧只发不确认，用读确认）。
+
+        RunMode.MOTION_CONTROL == 0。读回失败/非 MIT 说明 set_run_mode 帧被丢，
+        调用方应重试整段使能序列。
+        """
+        res = self._can.read_parameter(device_id, ParamIndex.RUN_MODE, timeout=0.3)
+        if res and res.success:
+            return int(round(res.value)) == int(RunMode.MOTION_CONTROL)
+        return False
 
     def _ensure_csp_ready(self, device_id: int) -> bool:
         """确保电机已使能并处于 CSP 连续位置模式（电机自己做速度规划，平滑运动）"""
