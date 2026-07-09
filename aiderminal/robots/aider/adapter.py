@@ -51,7 +51,8 @@ ROTATION_GAIN: float = 100.0
 MAX_LIFT_SPEED_MPS: float = 0.1
 MAX_LIFT_SPEED_RAW: int = 1500
 
-# 四轮命名: FL=前左, FR=前右, RL=后左, RR=后右
+# 四轮物理位置 (由 URDF 关节 origin 确定: URDF Y=前, +X=左):
+#   whel_Link1 = RL (后左), whel_Link2 = RR (后右), whel_Link3 = FR (前右), whel_Link4 = FL (前左)
 WHEEL_NAMES = ["whel_Link1", "whel_Link2", "whel_Link3", "whel_Link4"]
 
 
@@ -324,11 +325,12 @@ class AiderAdapter:
         """计算四轮当前角速度（rad/s），用于仿真轮子旋转。"""
         theta_scaled = self.base_vtheta * ROTATION_GAIN
         k = MECANUM_K
+        # 顺序与 WHEEL_NAMES 一致: whel_Link1=RL, Link2=RR, Link3=FR, Link4=FL
         v_linear = np.array([
-            self.base_vx - self.base_vy - k * theta_scaled,
-            self.base_vx + self.base_vy + k * theta_scaled,
-            self.base_vx + self.base_vy - k * theta_scaled,
-            self.base_vx - self.base_vy + k * theta_scaled,
+            self.base_vx + self.base_vy - k * theta_scaled,   # whel_Link1 (RL)
+            self.base_vx - self.base_vy + k * theta_scaled,   # whel_Link2 (RR)
+            self.base_vx + self.base_vy + k * theta_scaled,   # whel_Link3 (FR)
+            self.base_vx - self.base_vy - k * theta_scaled,   # whel_Link4 (FL)
         ])
         return v_linear / WHEEL_RADIUS
 
@@ -336,13 +338,16 @@ class AiderAdapter:
                              vtheta: float = None) -> Dict[str, int]:
         """底盘速度 → 四轮原始速度指令 (Feetech 寄存器值)。
 
-        四轮麦克纳姆轮逆运动学:
-          v1 = (1/R) * (vx - vy - k*wz)   # FL
-          v2 = (1/R) * (vx + vy + k*wz)   # FR
-          v3 = (1/R) * (vx + vy - k*wz)   # RL
-          v4 = (1/R) * (vx - vy + k*wz)   # RR
+        四轮麦克纳姆轮逆运动学 (车身坐标系: x=前, y=左, ω=左转正):
+          FL: (1/R) * (vx - vy - k*wz)
+          FR: (1/R) * (vx + vy + k*wz)
+          RL: (1/R) * (vx + vy - k*wz)
+          RR: (1/R) * (vx - vy + k*wz)
 
-        其中 k = HALF_TRACK + HALF_WHEELBASE
+        其中 k = HALF_TRACK + HALF_WHEELBASE。
+
+        轮子与物理位置对应 (由 URDF 确定):
+          whel_Link1 = RL, whel_Link2 = RR, whel_Link3 = FR, whel_Link4 = FL
 
         Returns:
             {"whel_Link1": raw, "whel_Link2": raw, ...}
@@ -357,12 +362,13 @@ class AiderAdapter:
         theta_scaled = t * ROTATION_GAIN
         k = MECANUM_K
 
-        # 四轮速度 (线速度 m/s)
+        # 四轮速度 (线速度 m/s)，顺序与 WHEEL_NAMES 一致:
+        #   whel_Link1 = RL, whel_Link2 = RR, whel_Link3 = FR, whel_Link4 = FL
         v_linear = np.array([
-            x - y - k * theta_scaled,   # whel_Link1 (FR in URDF coords)
-            x + y + k * theta_scaled,   # whel_Link2 (FL)
-            x + y - k * theta_scaled,   # whel_Link3 (RL)
-            x - y + k * theta_scaled,   # whel_Link4 (RR)
+            x + y - k * theta_scaled,   # whel_Link1 (RL)
+            x - y + k * theta_scaled,   # whel_Link2 (RR)
+            x + y + k * theta_scaled,   # whel_Link3 (FR)
+            x - y - k * theta_scaled,   # whel_Link4 (FL)
         ])
 
         w_rad = v_linear / WHEEL_RADIUS
