@@ -189,7 +189,8 @@ class VRWebSocketClient:
                 for g in kept:
                     cl.command_queue.put_nowait(g)
 
-                result = await cl.robot_interface.goto_pose(arm, pose_name)
+                from aiderminal.controller.pose_controller import goto_pose
+                result = await goto_pose(cl.robot_interface, arm, pose_name)
                 print(f"goto_pose result: {result}")
                 # 推送结果给前端
                 await self.transport.send_raw(encode_message({

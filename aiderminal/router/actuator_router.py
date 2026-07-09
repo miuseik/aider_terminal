@@ -669,7 +669,8 @@ class ActuatorRouter:
         pose_name = cmd.get("pose_name", "safe")
         cl = self._control_loop
         if cl and cl.robot_interface:
-            return await cl.robot_interface.goto_pose(arm, pose_name)
+            from aiderminal.controller.pose_controller import goto_pose
+            return await goto_pose(cl.robot_interface, arm, pose_name)
         return {"success": False, "message": "Robot interface not available"}
 
     async def _route_list_poses(self, ctrl, cmd: Dict) -> Dict:

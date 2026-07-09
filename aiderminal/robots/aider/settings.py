@@ -90,25 +90,31 @@ JOINT_LIMIT_OVERRIDES = {
     "head_Link2":  (-30, 45),   # 负值=低头, 正值=抬头
 }
 
-# ---- 姿态预设（度） ----
+# ---- 姿态预设（角度为度，lift 为 mm） ----
 # 用户可在前端动作列表中选择姿态，机器人按预设角度移动到目标位置。
-# 键 = 姿态名称（前端会显示），值 = {left: [...], right: [...]}
+# 键 = 姿态名称（前端会显示），值 = {left: [...], right: [...], body: {waist, head_yaw, head_pitch, lift}}
+# body 关节: waist (腰旋转, °), head_yaw (头偏航, °), head_pitch (头俯仰, °), lift (升降高度, mm)
+_BODY_ZERO = {"waist": 0, "head_yaw": 0, "head_pitch": 0, "lift": 0}
 POSES = {
     "safe": {
         "left":  INITIAL_LEFT_ARM,
         "right": INITIAL_RIGHT_ARM,
+        "body":  _BODY_ZERO,
     },
     "default": {
         "left":  [10, 30, 50, 50, 0, 0, 0, 0],
         "right": [-10, -30, -50, -50, 0, 0, 0, 0],
+        "body":  _BODY_ZERO,
     },
     "zero": {
         "left":  [0, 0, 0, 0, 0, 0, 0, 0],
         "right": [0, 0, 0, 0, 0, 0, 0, 0],
+        "body":  _BODY_ZERO,
     },
     "test": {
         "left":  [30, 30, 30, 30, 30, 30, 30, 30],
         "right": [-30, -30, -30, -30, -30, -30, -30, -30],
+        "body":  _BODY_ZERO,
     },
 }
 

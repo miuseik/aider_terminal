@@ -428,113 +428,9 @@ class RobotInterface:
             result[name] = {
                 "left": data.get("left", []),
                 "right": data.get("right", []),
+                "body": data.get("body", {}),
             }
         return result
-
-    async def goto_pose(self, arm: str, pose_name: str, duration: float = 5.0) -> Dict:
-        """将指定机械臂平滑移动到命名姿态（smoothstep 缓动）。
-
-        Args:
-            arm: 'left', 'right', 或 'both'
-            pose_name: 姿态名称，需在 POSES 字典中存在
-            duration: 过渡时长（秒），默认 2.0
-
-        Returns:
-            {"success": bool, "message": str}
-        """
-        if not self.is_connected:
-            return {"success": False, "message": "机器人未连接"}
-
-        poses = self.list_poses()
-        if pose_name not in poses:
-            return {"success": False, "message": f"未知姿态 '{pose_name}'，可选: {list(poses.keys())}"}
-
-        pose = poses[pose_name]
-        arms_to_move = ["left", "right"] if arm == "both" else [arm]
-
-        # 记录起始位置和目标位置
-        start_left = self.left_arm_angles.copy()
-        start_right = self.right_arm_angles.copy()
-        target_left = None
-        target_right = None
-
-        for target_arm in arms_to_move:
-            targets = pose.get(target_arm)
-            if targets is None:
-                print(f"  ⚠️ 姿态 '{pose_name}' 未定义 {target_arm} 臂角度")
-                continue
-            targets_arr = np.array(targets, dtype=float)
-            if target_arm == "left":
-                target_left = targets_arr
-                print(f"  🎯 左臂 → '{pose_name}': {targets_arr.round(1)}")
-            else:
-                target_right = targets_arr
-                print(f"  🎯 右臂 → '{pose_name}': {targets_arr.round(1)}")
-
-        if target_left is None and target_right is None:
-            return {"success": False, "message": f"姿态 '{pose_name}' 无有效角度定义"}
-
-        self.engage()
-
-        # 平滑插值过渡
-        steps = max(20, int(duration / 0.05))
-        step_s = duration / steps
-
-        for i in range(steps):
-            t = (i + 1) / steps
-            eased = t * t * (3.0 - 2.0 * t)  # smoothstep
-            if target_left is not None:
-                self.left_arm_angles = start_left + (target_left - start_left) * eased
-            if target_right is not None:
-                self.right_arm_angles = start_right + (target_right - start_right) * eased
-            self.last_send_time = 0
-            await self.send_command()
-            await asyncio.sleep(step_s)
-
-        # 最终帧：精确设为目标值
-        if target_left is not None:
-            self.left_arm_angles = target_left
-        if target_right is not None:
-            self.right_arm_angles = target_right
-        self.last_send_time = 0
-        await self.send_command()
-
-        print(f"✅ 已发送 goto_pose 指令: arm={arm}, pose={pose_name}")
-        return {"success": True, "message": f"已移动到 '{pose_name}' 姿态"}
-
-    async def return_to_initial_position(self, duration: float = 5.0):
-        """将双臂平滑移动到安全初始位置（线性插值 + smoothstep 缓动）。"""
-        print("⏪ 正在将机器人平滑返回到初始位置...")
-        try:
-            target_left = self.initial_left_arm.copy()
-            target_right = self.initial_right_arm.copy()
-            start_left = self.left_arm_angles.copy()
-            start_right = self.right_arm_angles.copy()
-
-            # 每个步长的最大移动量，避免 KD 过冲（约 5°/步 @ 2s/40步）
-            steps = max(20, int(duration / 0.05))
-            step_s = duration / steps
-
-            # 最后一帧直接设目标值，避免浮点累积误差
-            for i in range(steps):
-                t = (i + 1) / steps
-                eased = t * t * (3.0 - 2.0 * t)  # smoothstep
-                self.left_arm_angles = start_left + (target_left - start_left) * eased
-                self.right_arm_angles = start_right + (target_right - start_right) * eased
-
-                self.last_send_time = 0  # 绕过间隔限制
-                await self.send_command()
-                await asyncio.sleep(step_s)
-
-            # 最终帧：精确设为目标值
-            self.left_arm_angles = target_left
-            self.right_arm_angles = target_right
-            self.last_send_time = 0
-            await self.send_command()
-
-            print("✅ 机器人已返回到初始位置")
-        except Exception as e:
-            print(f"返回初始位置错误: {e}")
 
     async def disengage(self) -> bool:
         """回到初始安全位置后禁能电机力矩。"""
@@ -543,7 +439,8 @@ class RobotInterface:
             return True
 
         try:
-            await self.return_to_initial_position()
+            from aiderminal.controller.pose_controller import return_to_initial_position
+            await return_to_initial_position(ri=self)
             self.disable_torque()
             self.is_engaged = False
             print("✅ 机器人已回到安全位置并禁能")
