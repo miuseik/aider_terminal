@@ -902,6 +902,33 @@ class RobotInterface:
                     except Exception as e:
                         print(f"[HW] speed port={port} 异常: {e}")
 
+            # 升降轴：rad/s 直接下发，绕过 Feetech 0~1023 映射
+            lift_rads = actions.get("lift_velocity_rads", {})
+            if lift_rads:
+                for lid, rads in lift_rads.items():
+                    port = self.online_servos.get(lid)
+                    if not port:
+                        continue
+                    driver = self.motor_controller._get_or_create_driver(port)
+                    if driver and hasattr(driver, '_send_velocity_rad'):
+                        try:
+                            await asyncio.wait_for(
+                                self._ensure_speed_mode_async(port, lid),
+                                timeout=_HW_TIMEOUT,
+                            )
+                            await asyncio.wait_for(
+                                loop.run_in_executor(
+                                    executor,
+                                    driver._send_velocity_rad,
+                                    lid, rads
+                                ),
+                                timeout=_HW_TIMEOUT,
+                            )
+                        except asyncio.TimeoutError:
+                            pass
+                        except Exception:
+                            pass
+
     def _ensure_speed_mode(self, port, servo_id):
         """确保指定舵机处于速度模式（同一 port+servo 只切换一次，同步版）。"""
         key = f"_speed_mode_{port}_{servo_id}"

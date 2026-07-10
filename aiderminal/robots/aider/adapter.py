@@ -48,8 +48,7 @@ MECANUM_K: float = HALF_TRACK + HALF_WHEELBASE  # 旋转耦合系数
 
 MAX_RAW_SPEED: int = 3000
 ROTATION_GAIN: float = 1.0  # theta 即 rad/s, 不再放大(原 100 导致旋转远快于平移)
-MAX_LIFT_SPEED_MPS: float = 0.1
-MAX_LIFT_SPEED_RAW: int = 5000
+MAX_LIFT_SPEED_RAW: int = 10000
 
 # 四轮物理位置 (由 URDF 关节 origin 确定: URDF Y=前, +X=左):
 #   whel_Link1 = RL (后左), whel_Link2 = RR (后右), whel_Link3 = FR (前右), whel_Link4 = FL (前左)
@@ -399,7 +398,7 @@ class AiderAdapter:
         self.lift_velocity = velocity
 
     def step_lift_height(self, dt: float) -> float:
-        speed_mps = (self.lift_velocity / 1000.0) * MAX_LIFT_SPEED_MPS
+        speed_mps = self.lift_velocity / 10000.0  # raw 值直接映射，电机能跑多快跑多快
         delta_m = speed_mps * dt
         old_m = self.lift_height_mm / 1000.0
         new_m = old_m + delta_m
@@ -490,13 +489,19 @@ class AiderAdapter:
         for wheel_name, wheel_info in base_config.items():
             if isinstance(wheel_info, dict) and wheel_name in wheel_speeds:
                 all_speed[wheel_info["id"]] = int(wheel_speeds[wheel_name])
+        # 升降轴：rad/s 直接透传，不换算、不限幅，电机能跑多快跑多快
+        lift_velocity_rads = {}
         lift_config = servo_ids.get("lift_axis", {})
         for _axis_name, axis_info in lift_config.items():
             if isinstance(axis_info, dict):
-                all_speed[axis_info["id"]] = int(self.lift_velocity)
+                lid = axis_info["id"]
+                if lid in online_servos:
+                    lift_velocity_rads[lid] = float(self.lift_velocity)
         for port, targets in self._group_by_port(all_speed, online_servos).items():
             if targets:
                 actions["speed_commands"].append({"port": port, "targets": targets})
+        if lift_velocity_rads:
+            actions["lift_velocity_rads"] = lift_velocity_rads
 
         return actions
 
