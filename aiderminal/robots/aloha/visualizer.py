@@ -249,8 +249,11 @@ class AlohaVisualizer:
         joint_angles_rad = np.deg2rad(joint_angles_deg)
         for i in range(min(NUM_JOINTS, len(joint_angles_rad))):
             if self.joint_indices[arm][i] is not None:
+                angle_rad = joint_angles_rad[i]
+                if np.isnan(angle_rad):
+                    continue
                 p.resetJointState(robot_id, self.joint_indices[arm][i],
-                                  joint_angles_rad[i], physicsClientId=self.physics_client)
+                                  angle_rad, physicsClientId=self.physics_client)
 
     # ==================== 标记点更新 ====================
 

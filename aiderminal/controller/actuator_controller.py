@@ -146,8 +146,18 @@ class ActuatorController:
             # CAN 热插拔：先尝试 setup_can，再连接
             self._can_retry_setup(port)
             from aiderminal.drivers.actuator.robStride import RobStrideOfficialDriver
+            from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import MotorType
+            # per-motor 型号 override（来自 servo_ids.yaml brand）转 MotorType 枚举传入驱动，
+            # 保证 MOTOR_PARAMS 按真实型号取 Kp/Kd/力矩/速度上限——型号错位是猛冲/超限掉线的根因。
+            motor_type_map = {}
+            for _mid, _t in self._motor_type_overrides.items():
+                try:
+                    motor_type_map[_mid] = MotorType(_t)
+                except ValueError:
+                    logger.warning("Motor ID=%d invalid override type: %s", _mid, _t)
             driver = RobStrideOfficialDriver(
                 can_interface=port,
+                motor_type_map=motor_type_map or None,
                 directions=self._direction_map,
                 offsets_rad=self._offset_map,
             )
@@ -696,9 +706,17 @@ class ActuatorController:
         if not found:
             logger.warning("_scan_and_register_motors: no motors found on %s", port)
             return None
-        from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import DEFAULT_MOTOR_TYPE_MAP
+        from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import MotorType
         for mid in found:
-            driver.add_motor(mid, DEFAULT_MOTOR_TYPE_MAP.get(mid))
+            # 型号统一来自 servo_ids.yaml override，不再用写死的 DEFAULT_MOTOR_TYPE_MAP
+            # （后者 ID 2/3/4 写 RS06，与 yaml 的 robstride_04 冲突，导致参数错位）。
+            motor_type = None
+            if mid in self._motor_type_overrides:
+                try:
+                    motor_type = MotorType(self._motor_type_overrides[mid])
+                except ValueError:
+                    logger.warning("Motor ID=%d invalid override type: %s", mid, self._motor_type_overrides[mid])
+            driver.add_motor(mid, motor_type)
         return driver
 
     def enable_all_motors(self, port: str = "can0") -> bool:

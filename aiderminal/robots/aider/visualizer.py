@@ -301,8 +301,11 @@ class AiderVisualizer:
         joint_angles_rad = np.deg2rad(joint_angles_deg)
         for i in range(min(NUM_JOINTS, len(joint_angles_rad))):
             if self.joint_indices[arm][i] is not None:
+                angle_rad = joint_angles_rad[i]
+                if np.isnan(angle_rad):
+                    continue
                 p.resetJointState(self.aider_id, self.joint_indices[arm][i],
-                                  joint_angles_rad[i], physicsClientId=self.physics_client)
+                                  angle_rad, physicsClientId=self.physics_client)
 
     def update_body_joint(self, joint_name: str, angle_rad: float) -> None:
         """更新 Aider 身体关节（腰/头）。"""

@@ -79,6 +79,13 @@ class RobStrideOfficialDriver:
         self._initialized: set = set()  # 已使能+切MIT位置模式的电机ID
         self._csp_initialized: set = set()  # 已使能+切CSP模式的电机ID
         self._vel_initialized: set = set()  # 已使能+切速度模式的电机ID
+        # 每个电机最终使能成功的控制模式（'mit' / 'csp' / 'vel'）。
+        # 用于 set_position / sync_write_positions 按实际模式发指令：
+        # Edu Lite 05 (RS05) 不支持 MIT/PD，但支持位置模式(CSP)与速度模式(VELOCITY)，
+        # MIT 使能失败会依次回退 CSP → VELOCITY 并记入此处，避免后续发错控制帧。
+        self._motor_mode: Dict[int, str] = {}
+        # 速度模式(VELOCITY)下的目标位置（电机坐标系弧度），供位置闭环每帧计算速度指令。
+        self._vel_target_rad: Dict[int, float] = {}
         self._csp_speed_limit: float = 1.0  # CSP 最大速度 (rad/s)，openArmX 默认 1 rad/s ≈ 57°/s
         self._last_stale_warn: Dict[int, float] = {}  # motor_id → 上次 stale 日志时间戳（防刷屏）
 
@@ -119,6 +126,8 @@ class RobStrideOfficialDriver:
         self._initialized.clear()
         self._csp_initialized.clear()
         self._vel_initialized.clear()
+        self._motor_mode.clear()
+        self._vel_target_rad.clear()
 
     def force_reinitialize(self) -> None:
         """强制清空所有电机的初始化标记，使下次 set_position/set_velocity 时自动重新使能。
@@ -128,6 +137,8 @@ class RobStrideOfficialDriver:
         self._initialized.clear()
         self._csp_initialized.clear()
         self._vel_initialized.clear()
+        self._motor_mode.clear()
+        self._vel_target_rad.clear()
         logger.info("RobStride %s: all motor init flags cleared — will re‑engage on next command", self._can_name)
 
     @property
@@ -150,20 +161,43 @@ class RobStrideOfficialDriver:
         **读回 RUN_MODE 确认**确实进入 MIT 模式；未确认则整段重试提高命中率。
         使能成功后标记 _initialized，之后直接复用，不再重发使能帧。
         """
-        if device_id in self._initialized:
+        if device_id in self._initialized or device_id in self._csp_initialized \
+                or device_id in self._vel_initialized:
             return True
+        # 1) 先试 MIT (PD) 模式（Pro 系列 RS0x 支持）
         for attempt in range(3):
             if self._enable_sequence(device_id) and self._is_mit_mode(device_id):
                 self._initialized.add(device_id)
+                self._motor_mode[device_id] = "mit"
                 if device_id in self._motors:
                     self._motors[device_id].enabled = True
                 logger.info("[%s] motor %d enabled (MIT mode + CAN_TIMEOUT=0)",
                             self._can_name, device_id)
                 return True
-            logger.warning("[%s] motor %d enable attempt %d/3 not confirmed",
+            logger.warning("[%s] motor %d MIT enable attempt %d/3 not confirmed",
                            self._can_name, device_id, attempt + 1)
             time.sleep(0.05)
-        logger.error("[%s] motor %d ENABLE FAILED after 3 retries — will be LOOSE (no torque). "
+        # 2) MIT 失败 → 回退 CSP 位置模式（RS05 等可能支持位置模式的型号）
+        logger.warning(
+            "[%s] motor %d MIT enable failed after 3 retries, falling back to CSP position mode",
+            self._can_name, device_id,
+        )
+        if self._ensure_csp_ready(device_id):
+            self._motor_mode[device_id] = "csp"
+            return True
+        # 3) CSP 也失败 → 回退 VELOCITY 速度模式（Edu Lite 05 等只支持速度模式的型号）
+        logger.warning(
+            "[%s] motor %d CSP enable failed, falling back to VELOCITY mode",
+            self._can_name, device_id,
+        )
+        if self._ensure_velocity_mode(device_id):
+            self._motor_mode[device_id] = "vel"
+            if device_id in self._motors:
+                self._motors[device_id].enabled = True
+            logger.info("[%s] motor %d enabled (VELOCITY mode + pos-closed-loop)",
+                        self._can_name, device_id)
+            return True
+        logger.error("[%s] motor %d ENABLE FAILED (MIT+CSP+VEL) — will be LOOSE (no torque). "
                      "Check CAN wiring/connector/power for this motor.",
                      self._can_name, device_id)
         return False
@@ -209,7 +243,16 @@ class RobStrideOfficialDriver:
         """
         res = self._can.read_parameter(device_id, ParamIndex.RUN_MODE, timeout=0.3)
         if res and res.success:
-            return int(round(res.value)) == int(RunMode.MOTION_CONTROL)
+            actual = int(round(res.value))
+            if actual != int(RunMode.MOTION_CONTROL):
+                # 读回非 MIT（如位置模式 5）：该型号可能不支持 MIT/PD，将触发 CSP 回退
+                logger.debug(
+                    "[%s] motor %d RUN_MODE readback=%d (expected MIT=0) — "
+                    "若持续非0则该型号可能不支持 MIT 模式，将回退 CSP",
+                    self._can_name, device_id, actual,
+                )
+            return actual == int(RunMode.MOTION_CONTROL)
+        logger.debug("[%s] motor %d RUN_MODE readback failed/timeout", self._can_name, device_id)
         return False
 
     def _ensure_csp_ready(self, device_id: int) -> bool:
@@ -271,13 +314,30 @@ class RobStrideOfficialDriver:
         motor_deg = self._logical_deg_to_motor_deg(device_id, position)
         pos_rad = deg_to_rad(motor_deg)
 
+        # 确定目标控制模式：显式 use_csp 优先；否则服从使能阶段确定的模式
+        # （Edu Lite 等型号 MIT 使能失败已回退 CSP 并记入 _motor_mode）；
+        # 未使能过时默认 MIT（_ensure_ready 内部会按需回退 CSP 并记 mode）。
         if use_csp:
+            mode = "csp"
+        else:
+            mode = self._motor_mode.get(device_id, "mit")
+        if mode == "csp":
             if not self._ensure_csp_ready(device_id):
                 return False
             return self._can.set_position_csp(device_id, pos_rad)
+        elif mode == "vel":
+            # 速度模式：记录目标位置，交给位置闭环每帧驱动
+            self._vel_target_rad[device_id] = pos_rad
+            return self._drive_vel_to_target(device_id)
         else:
             if not self._ensure_ready(device_id):
                 return False
+            # _ensure_ready 可能已将本电机回退为 CSP/VELOCITY（MIT 不支持）
+            if self._motor_mode.get(device_id) == "csp":
+                return self._can.set_position_csp(device_id, pos_rad)
+            if self._motor_mode.get(device_id) == "vel":
+                self._vel_target_rad[device_id] = pos_rad
+                return self._drive_vel_to_target(device_id)
             return self._can.send_motion_control(
                 motor_id=device_id,
                 position=pos_rad,
@@ -455,6 +515,43 @@ class RobStrideOfficialDriver:
         speed_rads = (raw / 1023.0) * max_speed
 
         return self._can.write_parameter(device_id, ParamIndex.SPD_REF, speed_rads)
+
+    def _send_velocity_rad(self, device_id: int, vel_rad: float) -> bool:
+        """以 rad/s 直接下发速度模式指令 (SPD_REF)，不走 Feetech 原始值映射。"""
+        if not self._ensure_velocity_mode(device_id):
+            return False
+        return self._can.write_parameter(device_id, ParamIndex.SPD_REF, float(vel_rad))
+
+    def _drive_vel_to_target(self, device_id: int) -> bool:
+        """速度模式下的位置闭环：按目标位置与当前位置误差生成速度指令发往 SPD_REF。
+
+        速度模式电机本身无位置环，需上层每帧（控制循环 sync_write_positions /
+        单关节 set_position）调用本方法逼近目标角度；到位后速度指令归零使电机停住。
+        """
+        target = self._vel_target_rad.get(device_id)
+        if target is None:
+            return False
+        # 当前电机坐标系位置 (rad)
+        now = time.time()
+        fb = self._can.get_feedback(device_id)
+        if fb and fb.is_valid and (now - fb.timestamp) < 1.0:
+            current = fb.position
+        else:
+            cur_logical = self.get_position(device_id)  # 逻辑角度(°)
+            if cur_logical is None:
+                # 无反馈也无读数 → 视为已到位，发 0 速度，避免乱动
+                current = target
+            else:
+                current = self._logical_rad_to_motor_rad(device_id, deg_to_rad(cur_logical))
+        err = target - current  # rad
+        vel_limit = self._csp_speed_limit  # 复用 CSP 速度上限作闭环限速
+        deadband = deg_to_rad(0.5)  # 0.5° 死区，避免到位抖动
+        kp_pos = 2.0  # 位置闭环增益 (1/s)
+        if abs(err) < deadband:
+            vel_cmd = 0.0
+        else:
+            vel_cmd = max(-vel_limit, min(vel_limit, kp_pos * err))
+        return self._send_velocity_rad(device_id, vel_cmd)
 
     # ── 力矩 / 使能 ──
 
@@ -650,9 +747,16 @@ class RobStrideOfficialDriver:
         return found
 
     def add_motor(self, motor_id: int, motor_type: Optional[MotorType] = None) -> None:
-        """注册电机到驱动管理"""
+        """注册电机到驱动管理。
+
+        motor_type 缺省时优先用驱动已注入的 override 映射（创建时由 servo_ids.yaml 传入），
+        其次回退写死的 DEFAULT_MOTOR_TYPE_MAP，最后 RS00。确保型号参数始终按真实型号取。
+        """
         if motor_type is None:
-            motor_type = DEFAULT_MOTOR_TYPE_MAP.get(motor_id, MotorType.RS00)
+            motor_type = (
+                self._can.motor_type_map.get(motor_id)
+                or DEFAULT_MOTOR_TYPE_MAP.get(motor_id, MotorType.RS00)
+            )
         self._motors[motor_id] = RobStrideMotor(
             motor_id=motor_id,
             motor_type=motor_type,
@@ -679,10 +783,19 @@ class RobStrideOfficialDriver:
                 continue
             motor_deg = self._logical_deg_to_motor_deg(mid, logical_deg)
             pos_rad = deg_to_rad(motor_deg)
-            sent = self._can.send_motion_control(
-                motor_id=mid, position=pos_rad, velocity=0.0,
-                kp=self._kp, kd=self._kd, torque=0.0,
-            )
+            # 按使能阶段确定的模式发指令：CSP 走位置模式、VELOCITY(vel) 走速度模式
+            # 位置闭环、其余走 MIT (PD)。模式在 _ensure_ready 内 MIT 失败回退时已记入 _motor_mode。
+            mode = self._motor_mode.get(mid)
+            if mode == "csp":
+                sent = self._can.set_position_csp(motor_id=mid, position=pos_rad)
+            elif mode == "vel":
+                self._vel_target_rad[mid] = pos_rad
+                sent = self._drive_vel_to_target(mid)
+            else:
+                sent = self._can.send_motion_control(
+                    motor_id=mid, position=pos_rad, velocity=0.0,
+                    kp=self._kp, kd=self._kd, torque=0.0,
+                )
             if sent:
                 ok += 1
             else:

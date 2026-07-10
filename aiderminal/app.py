@@ -79,6 +79,7 @@ class TelegripSystem:
 
         # 设置交叉引用
         self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
+        self.vr_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(VR 接管必需)
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
         self.control_loop.main_app = self  # ← 添加 main_app 引用
 
@@ -212,6 +213,7 @@ class TelegripSystem:
 
             # 设置交叉引用
             self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
+            self.vr_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(VR 接管必需)
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
             self.control_loop.main_app = self  # ← 添加 main_app 引用
 

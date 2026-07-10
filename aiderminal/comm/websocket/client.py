@@ -150,11 +150,17 @@ class VRWebSocketClient:
                     }))
                     return
                 print(f"🟢 扫描完成，在线舵机: {sorted(ri.online_servos.keys())}")
-                # 连接成功后绑定 ServoConfigManager
-                if self.actuator_router and hasattr(ri, 'servo_config_manager'):
-                    self.actuator_router.bind_servo_config(
-                        ri.servo_config_manager
-                    )
+                # 连接成功后绑定 ServoConfigManager 和 MotorController，
+                # 使后续扫描/管理操作复用连接时已打开的驱动实例（避免重复打开串口失败）
+                if self.actuator_router:
+                    if hasattr(ri, 'servo_config_manager'):
+                        self.actuator_router.bind_servo_config(
+                            ri.servo_config_manager
+                        )
+                    if hasattr(ri, 'motor_controller'):
+                        self.actuator_router.bind_actuator_controller(
+                            ri.motor_controller
+                        )
                 # 不自动使能——用户从前端动作列表选择姿态后才使能
                 print("🔌 机器人已连接，等待选择姿态…")
                 # 明确告诉前端连接成功（前端用于提示 + 驱动按钮状态）

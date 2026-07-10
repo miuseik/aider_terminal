@@ -184,9 +184,16 @@ class RobotInterface:
             from aiderminal.config.servo_config_manager import ServoConfigManager
             self.servo_config_manager = ServoConfigManager(servo_config)
             
-            # 注入 direction_map 和 offset_map 到 motor_controller（否则用空 map 创建的驱动永远取不到 direction 配置）
+            # 注入 direction_map、offset_map、motor_type_overrides 到 motor_controller。
+            # ⚠️ 关键：motor_controller 是用无参 ActuatorController() 创建的，_motor_type_overrides
+            # 默认为空 {}。若不在此注入，连接真机时 _get_or_create_driver 建 RobStride 驱动
+            # 拿不到 brand 型号 → 全部回退写死的 DEFAULT_MOTOR_TYPE_MAP（id2/3=RS06...），
+            # 与 servo_ids.yaml 的 robstride_04 等真实型号冲突 → MOTOR_PARAMS 错位（Kp/Kd/
+            # 力矩/速度上限全错）→ 猛冲/超限掉使能 → 总线错误 → BUS-OFF → Network is down。
+            # 这正是"电机型号不同参数不同"导致掉线的根因，必须在此把 brand 解析出的 override 灌进去。
             self.motor_controller._direction_map = self.servo_config_manager.build_direction_map()
             self.motor_controller._offset_map = self.servo_config_manager.build_offset_map()
+            self.motor_controller._motor_type_overrides = self.servo_config_manager.build_motor_type_overrides()
             
             # ✅ 第二步：从扁平配置中收集所有舵机 ID
             all_ids = set()
@@ -366,7 +373,11 @@ class RobotInterface:
         return angle
 
     def _read_initial_state(self):
-        """从机器人读取当前关节角度（按品牌换算）；读不到时填 0.0（不作为实际位置）。"""
+        """从机器人读取当前关节角度（按品牌换算）；读不到时保留原有值避免 NaN 破坏仿真。
+        
+        安全保证：离线舵机不在 online_servos 中，硬件发令时 _group_by_port 会过滤掉，
+        此处保留的 0.0 不会变成电机命令目标。
+        """
         try:
             # 左臂
             if self.left_robot and self.left_arm_connected:
@@ -377,7 +388,12 @@ class RobotInterface:
                     angles.append(self._read_joint_angle('左臂', joint_name, joint_info, self.left_robot))
 
                 if len(angles) == NUM_JOINTS:
-                    self.left_arm_angles = np.array(angles)
+                    angles_arr = np.array(angles)
+                    nan_mask = np.isnan(angles_arr)
+                    if nan_mask.any():
+                        existing = self.left_arm_angles.copy()
+                        angles_arr[nan_mask] = existing[nan_mask]
+                    self.left_arm_angles = angles_arr
                     print(f"📡 左臂当前角度: {self.left_arm_angles.round(1)}")
                 else:
                     print(f"⚠️ 左臂舵机数量不匹配: {len(angles)} != {NUM_JOINTS}")
@@ -391,7 +407,12 @@ class RobotInterface:
                     angles.append(self._read_joint_angle('右臂', joint_name, joint_info, self.right_robot))
 
                 if len(angles) == NUM_JOINTS:
-                    self.right_arm_angles = np.array(angles)
+                    angles_arr = np.array(angles)
+                    nan_mask = np.isnan(angles_arr)
+                    if nan_mask.any():
+                        existing = self.right_arm_angles.copy()
+                        angles_arr[nan_mask] = existing[nan_mask]
+                    self.right_arm_angles = angles_arr
                     print(f"📡 右臂当前角度: {self.right_arm_angles.round(1)}")
                 else:
                     print(f"⚠️ 右臂舵机数量不匹配: {len(angles)} != {NUM_JOINTS}")

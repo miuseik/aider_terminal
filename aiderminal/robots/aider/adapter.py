@@ -308,10 +308,12 @@ class AiderAdapter:
                 current_rot = R.from_quat(current)
                 relative_rot = current_rot * origin_rot.inv()
                 rotvec = relative_rot.as_rotvec()
-                yaw_rad = float(rotvec[1])
-                pitch_rad = float(rotvec[0])
+                # 实测头显坐标系: 左右看(yaw)改变 rotvec[0], 抬头(pitch)改变 rotvec[1]
+                # 与直觉的 Y=yaw/X=pitch 相反, 故此处交换取轴
+                yaw_rad = float(rotvec[0])
+                pitch_rad = float(rotvec[1])
                 self.set_body_joint_absolute("head_Link",  -yaw_rad   * self.HEAD_YAW_TO_NECK)
-                self.set_body_joint_absolute("head_Link2", -pitch_rad * self.HEAD_PITCH_TO_NECK)
+                self.set_body_joint_absolute("head_Link2", pitch_rad * self.HEAD_PITCH_TO_NECK)
 
     # ======================== 4 轮底盘运动学 ========================
 
@@ -598,9 +600,11 @@ class AiderAdapter:
                 try:
                     joint_num = int(joint_name[len(prefix):]) - 1  # 0-indexed
                     if 0 <= joint_num < len(joint_angles_rad):
-                        p.resetJointState(visualizer.aider_id, i,
-                                          joint_angles_rad[joint_num],
-                                          physicsClientId=cid)
+                        angle_rad = joint_angles_rad[joint_num]
+                        if not np.isnan(angle_rad):
+                            p.resetJointState(visualizer.aider_id, i,
+                                              angle_rad,
+                                              physicsClientId=cid)
                 except ValueError:
                     pass
 
