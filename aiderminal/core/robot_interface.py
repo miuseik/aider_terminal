@@ -543,25 +543,47 @@ class RobotInterface:
                 results["failed"].append({"id": sid, "reason": "read failed"})
                 continue
 
-            # 计算到最近基点 (0° 或 360°) 的目标角度
+            # 计算到最近零位基点：在电机「连续多圈坐标」里取最近的 360 整数倍，
+            # 而非归一化 0/360 窗口。否则掉圈电机读数 -340.63° 时发 goto 0° 会正转 +340°
+            # 狂转一圈（终点虽对，路径错）。改为 raw - norm（norm<=180 向下取整到
+            # 最近倍，norm>180 向上），保证走最短弧。
             norm = raw % 360.0
-            target_deg = 0.0 if norm <= 180.0 else 360.0
+            target_deg = raw - norm if norm <= 180.0 else raw - norm + 360.0
             print(f"  📍 ID={sid} {joint_name}: 当前{raw:.1f}° → 目标{target_deg:.0f}°")
 
-            # CSP 移动到目标
-            try:
-                if hasattr(driver, "move_one_joint_csp"):
-                    target_rad = math.radians(target_deg)
-                    ok = driver.move_one_joint_csp(sid, target_rad)
-                    if ok:
-                        time.sleep(0.5)  # 等待运动完成
-                    else:
-                        print(f"  ⚠️ ID={sid} CSP 运动失败，仍尝试标零")
-                elif hasattr(driver, "move_joint_csp"):
-                    driver.move_joint_csp(sid, target_deg)
-                    time.sleep(0.5)
-            except Exception as e:
-                print(f"  ⚠️ ID={sid} 移动到零位异常 (仍尝试标零): {e}")
+            # 移动到目标零位，并轮询确认电机「真的到达」目标后再标零，
+            # 避免仅 sleep(0.5) 就设零导致电机未到位、零位偏差。
+            move_fn = None
+            if hasattr(driver, "move_one_joint_csp"):
+                move_fn = lambda: driver.move_one_joint_csp(sid, math.radians(target_deg))
+            elif hasattr(driver, "move_joint_csp"):
+                move_fn = lambda: driver.move_joint_csp(sid, target_deg)
+
+            reached = False
+            cur = None
+            deadline = time.time() + 12.0  # 最多等 12s
+            while time.time() < deadline:
+                # 重复下发目标（CSP 单次帧可能丢失），电机内部位置环持续跟踪 LOC_REF
+                if move_fn:
+                    try:
+                        move_fn()
+                    except Exception as e:
+                        print(f"  ⚠️ ID={sid} 运动指令重发异常: {e}")
+                cur = self._servo_angle(driver, sid, brand)
+                if cur is not None and abs(cur - target_deg) <= 1.5:
+                    reached = True
+                    break
+                time.sleep(0.1)
+
+            if not reached:
+                results["failed"].append({"id": sid, "reason": "timeout not reached target"})
+                print(f"  ❌ ID={sid} {joint_name}: 超时未到达目标 {target_deg:.1f}°"
+                      f"（当前 {cur if cur is not None else 'N/A'}°），跳过标零以免零位错误")
+                continue
+
+            print(f"  ✅ ID={sid} {joint_name}: 已到达目标 {target_deg:.1f}°"
+                  f"（当前 {cur:.1f}°），准备标零")
+            time.sleep(0.2)  # 到位后稍作稳定
 
             # 标零 + 保存 Flash
             if hasattr(driver, "set_zero_position"):
