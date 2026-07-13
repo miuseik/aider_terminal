@@ -311,8 +311,9 @@ class AiderAdapter:
                 # 与直觉的 Y=yaw/X=pitch 相反, 故此处交换取轴
                 yaw_rad = float(rotvec[0])
                 pitch_rad = float(rotvec[1])
+                # yaw/pitch 均取反以匹配脖子关节正向约定（head_Link2: 正值=抬头, 负值=低头）
                 self.set_body_joint_absolute("head_Link",  -yaw_rad   * self.HEAD_YAW_TO_NECK)
-                self.set_body_joint_absolute("head_Link2", pitch_rad * self.HEAD_PITCH_TO_NECK)
+                self.set_body_joint_absolute("head_Link2", -pitch_rad * self.HEAD_PITCH_TO_NECK)
 
     # ======================== 4 轮底盘运动学 ========================
 
