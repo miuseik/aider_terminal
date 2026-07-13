@@ -272,17 +272,17 @@ class AiderAdapter:
             self.head_pitch = val
 
     # ======================== 头显 → 身体关节映射 ========================
-    # 腰 (waist_Link):  绕X轴, 负值=鞠躬, 正值=下腰  1 DOF  -90°~0° (坐标→弯腰)
-    # 脖 (head_Link):   绕Z轴, 转头/偏航  1 DOF  ±60°
-    # 脖 (head_Link2):  绕X轴, 负值=低头, 正值=抬头  1 DOF  -30°~45° (俯仰→低头)
-    HEAD_YAW_TO_NECK   = 1.0   # 头显 yaw  → 脖子转头 (100%)
-    HEAD_PITCH_TO_NECK = 1.0   # 头显 pitch → 脖子低头 (100%)
+    # 腰 (waist_Link):     绕X轴, 负值=鞠躬, 正值=下腰  1 DOF  -90°~0° (坐标→弯腰)
+    # 脖 (head_Link,  id7): 绕Z轴, 转头/偏航  1 DOF  ±60°
+    # 脖 (head_Link2, id6): 绕X轴, 负值=低头, 正值=抬头  1 DOF  -30°~45°  (俯仰→抬头)
+    HEAD_YAW_TO_NECK   = 1.0   # 头显 yaw  → 脖子转头 (head_Link, id7)
+    HEAD_PITCH_TO_NECK = 1.0   # 头显 pitch → 脖子抬头 (head_Link2, id6)
     HEAD_POS_TO_WAIST  = 3.0   # 头显坐标 → 弯腰 (增益)
 
     def feed_headset_raw(self, headset: dict):
         """头显原始数据 → 身体关节映射。
         
-        坐标 → 腰 (waist_Link), 俯仰 → 脖子低头 (head_Link2), 偏航 → 脖子转头 (head_Link)
+        坐标 → 腰 (waist_Link), 俯仰 → 脖子抬头 (head_Link2, id6), 偏航 → 脖子转头 (head_Link, id7)
         WebXR: +X=右, +Y=上, +Z=后
         """
         pos = headset.get('position') or {}
@@ -307,13 +307,12 @@ class AiderAdapter:
                 current_rot = R.from_quat(current)
                 relative_rot = current_rot * origin_rot.inv()
                 rotvec = relative_rot.as_rotvec()
-                # 实测头显坐标系: 左右看(yaw)改变 rotvec[0], 抬头(pitch)改变 rotvec[1]
-                # 与直觉的 Y=yaw/X=pitch 相反, 故此处交换取轴
-                yaw_rad = float(rotvec[0])
-                pitch_rad = float(rotvec[1])
-                # yaw/pitch 均取反以匹配脖子关节正向约定（head_Link2: 正值=抬头, 负值=低头）
-                self.set_body_joint_absolute("head_Link",  -yaw_rad   * self.HEAD_YAW_TO_NECK)
-                self.set_body_joint_absolute("head_Link2", -pitch_rad * self.HEAD_PITCH_TO_NECK)
+                # 实测头显坐标系 (WebXR): 抬头=绕X轴正向(rotvec[0]+), 右转=绕Y轴负向(rotvec[1]-)
+                pitch_rad = float(rotvec[0])  # X 轴: 抬头为正
+                yaw_rad = float(rotvec[1])    # Y 轴: 右转为负
+                # 脖子关节正向约定: head_Link2/id6 正值=抬头, head_Link/id7 正值=右转头
+                self.set_body_joint_absolute("head_Link2",  pitch_rad * self.HEAD_PITCH_TO_NECK)
+                self.set_body_joint_absolute("head_Link",  -yaw_rad  * self.HEAD_YAW_TO_NECK)
 
     # ======================== 4 轮底盘运动学 ========================
 

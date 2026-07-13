@@ -163,7 +163,11 @@ class ActuatorController:
             )
         else:
             from aiderminal.drivers.actuator.feetech.feetech_driver import ST3215Driver
-            driver = ST3215Driver(port)
+            driver = ST3215Driver(
+                port,
+                direction_map=self._direction_map,
+                offset_map=self._offset_map,
+            )
 
         if driver.connect():
             self._joint_drivers[port] = driver
@@ -702,20 +706,21 @@ class ActuatorController:
         if driver is None:
             logger.warning("_scan_and_register_motors: driver for %s not available", port)
             return None
-        found = driver.scan_motors(1, 16)
+        # 扩大扫描范围到 1-32，覆盖高 ID 电机（如右臂 20-25），避免漏扫
+        found = driver.scan_motors(1, 32)
         if not found:
-            logger.warning("_scan_and_register_motors: no motors found on %s", port)
-            return None
+            logger.warning("_scan_and_register_motors: no motors found via scan on %s", port)
         from aiderminal.drivers.actuator.robStride.robstride_dynamics.protocol import MotorType
-        for mid in found:
-            # 型号统一来自 servo_ids.yaml override，不再用写死的 DEFAULT_MOTOR_TYPE_MAP
-            # （后者 ID 2/3/4 写 RS06，与 yaml 的 robstride_04 冲突，导致参数错位）。
+        # 兜底：把 servo_ids.yaml 中声明的 RobStride 电机 ID 全部注册，
+        # 即使扫描漏掉（范围不足/总线离线/时序抖动）也能保证配置里的电机被操作。
+        # 注：当前系统 RobStride 均挂在单一 CAN 端口（can0）；若未来多 CAN 端口，
+        # 需按 port 过滤 _motor_type_overrides，避免把其他端口电机注册到本 driver。
+        for mid, mtype in self._motor_type_overrides.items():
             motor_type = None
-            if mid in self._motor_type_overrides:
-                try:
-                    motor_type = MotorType(self._motor_type_overrides[mid])
-                except ValueError:
-                    logger.warning("Motor ID=%d invalid override type: %s", mid, self._motor_type_overrides[mid])
+            try:
+                motor_type = MotorType(mtype)
+            except (ValueError, TypeError):
+                logger.warning("Motor ID=%d invalid override type: %s", mid, mtype)
             driver.add_motor(mid, motor_type)
         return driver
 
@@ -737,19 +742,13 @@ class ActuatorController:
 
     def gohome_all_motors(self, port: str = "can0", kp: float = 10.0, kd: float = 1.0) -> bool:
         """所有电机回到零位（MIT PD 模式）."""
+        logger.info("gohome_all_motors: scanning & registering motors on %s ...", port)
         driver = self._scan_and_register_motors(port)
         if driver is None:
+            logger.error("gohome_all_motors: no driver available for %s, abort", port)
             return False
         driver.enable_all()
         return driver.move_all_to_zero(kp=kp, kd=kd)
-
-    def set_zero_all_motors(self, port: str = "can0") -> bool:
-        """将所有电机当前位置设为零位并写入 Flash（永久操作）."""
-        driver = self._scan_and_register_motors(port)
-        if driver is None:
-            return False
-        driver.disable_all()
-        return driver.set_zero_all()
 
     # ── 全局急停 ───────────────────────────────────────
 

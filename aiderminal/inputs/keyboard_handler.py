@@ -78,7 +78,7 @@ class WebKeyboardHandler(BaseInputProvider):
         }
 
         # 身体关节控制状态 (腰/脖子)
-        # 键位: 1/2=腰, 3/4=脖子yaw, 5/6=脖子pitch
+        # 键位: 1/2=腰, 3/4=脖子yaw(head_Link/舵机7), 5/6=脖子pitch(head_Link2/舵机6)
         self.body_state: Dict[str, float] = {
             "waist_Link": 0.0,
             "head_Link": 0.0,
@@ -286,19 +286,20 @@ class WebKeyboardHandler(BaseInputProvider):
                 print(f"右夹爪: {'闭合' if self.right_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("right")
 
-            # 身体关节(腰/脖子) — 同 demo 版键位
+            # 身体关节(腰/脖子) — 键位: 1/2=腰, 3/4=脖子yaw(head_Link/舵机7摇头), 5/6=脖子pitch(head_Link2/舵机6点头)
+            # 真机安装: 舵机6(head_Link2) 正转=抬头, 舵机7(head_Link) 正转=右转；direction 默认 1.0 与之匹配。
             elif key == '1':
                 self.body_state["waist_Link"] = self.body_step   # 腰左转
             elif key == '2':
                 self.body_state["waist_Link"] = -self.body_step  # 腰右转
             elif key == '3':
-                self.body_state["head_Link"] = self.body_step    # 头左转
+                self.body_state["head_Link"] = -self.body_step   # 头左转 (舵机7, yaw)
             elif key == '4':
-                self.body_state["head_Link"] = -self.body_step   # 头右转
+                self.body_state["head_Link"] = self.body_step    # 头右转 (舵机7, yaw)
             elif key == '5':
-                self.body_state["head_Link2"] = self.body_step   # 头上仰
+                self.body_state["head_Link2"] = -self.body_step  # 头低头 (舵机6, pitch)
             elif key == '6':
-                self.body_state["head_Link2"] = -self.body_step  # 头下俯
+                self.body_state["head_Link2"] = self.body_step   # 头抬头 (舵机6, pitch)
 
             # 底盘控制(方向键 + 数字键 + V/B)
             elif key == 'arrowup':

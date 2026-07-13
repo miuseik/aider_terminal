@@ -336,7 +336,9 @@ class RobotInterface:
             return None
         if 'robstride' in (brand or '').lower():
             return float(pos)
-        # feetech: 步进值(0~4095) → 角度(-180~180)
+        # feetech: 步进值(0~4095) → 逻辑角度(°)，应用 direction/offset 对称变换（与 move_to_angle 一致）
+        if hasattr(driver, 'step_to_angle'):
+            return driver.step_to_angle(servo_id, pos)
         return (pos / 4095.0) * 360.0 - 180.0
 
     def _read_joint_angle(self, part_label, joint_name, joint_info, fallback_driver):

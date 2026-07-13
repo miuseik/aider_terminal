@@ -348,9 +348,10 @@ class ActuatorRouter:
             "get_servo_info":    self._route_get_info,
             "set_torque":        self._route_set_torque,
             "disable_torques":   self._route_disable_torques,
+            "disable_all":       self._route_disable_all,
+            "enable_all":        self._route_enable_all,
             "sync_positions":    self._route_sync_positions,
             "calibrate_servo_zero": self._route_set_zero,
-            "calibrate_all_servo_zero": self._route_set_zero_all,
             "calibrate_all_servo_offsets": self._route_calibrate_all_offsets,
             "calibrate_single_servo_offset": self._route_calibrate_single_offset,
             "goto_pose":         self._route_goto_pose,
@@ -517,6 +518,24 @@ class ActuatorRouter:
         await ctrl.disable_port(port)
         return {"success": True, "message": "All torques disabled"}
 
+    async def _route_disable_all(self, ctrl, cmd: Dict) -> Dict:
+        """失能总线上所有电机（安全停机，覆盖所有已注册电机）。
+
+        cmd 参数: port（默认 can0）
+        """
+        port = cmd.get("port", "can0")
+        ok = ctrl.disable_all_motors(port)
+        return {"success": ok, "message": "All motors disabled" if ok else "Failed to disable all"}
+
+    async def _route_enable_all(self, ctrl, cmd: Dict) -> Dict:
+        """使能总线上所有电机（自动扫描 + 注册 + 使能）。
+
+        cmd 参数: port（默认 can0）
+        """
+        port = cmd.get("port", "can0")
+        ok = ctrl.enable_all_motors(port)
+        return {"success": ok, "message": "All motors enabled" if ok else "Failed to enable all"}
+
     async def _route_sync_positions(self, ctrl, cmd: Dict) -> Dict:
         """批量同步写入执行器位置。
 
@@ -548,23 +567,6 @@ class ActuatorRouter:
             "success": ok,
             "message": f"Zero set for servo {device_id}" if ok else "Failed to set zero",
         }
-
-    async def _route_set_zero_all(self, ctrl, cmd: Dict) -> Dict:
-        """批量设置所有电机当前位置为零位并保存到 Flash。
-
-        cmd 参数: port
-        所有已注册的电机在失能→标零→存 Flash→恢复使能流水线中处理。
-        """
-        port = cmd.get("port", "can0")
-        try:
-            ok = ctrl.set_zero_all_motors(port)
-            return {
-                "success": ok,
-                "message": "Batch zero calibration completed" if ok else "Batch zero calibration failed",
-            }
-        except Exception as e:
-            logger.error("Batch set_zero_all failed on %s: %s", port, e)
-            return {"success": False, "message": str(e)}
 
     async def _route_calibrate_all_offsets(self, ctrl, cmd: Dict) -> Dict:
         """批量校准所有 Feetech 舵机的零位偏移量并写回配置 YAML。

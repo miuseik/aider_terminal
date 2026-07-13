@@ -926,54 +926,7 @@ class RobStrideOfficialDriver:
         motor_rad = self._logical_rad_to_motor_rad(motor_id, position)
         return self._can.set_position_csp(motor_id, motor_rad)
 
-    def set_zero_all(self) -> bool:
-        """设置所有电机当前位置为零位并写入 Flash。
 
-        标零前自动失能所有电机，标零后不自动重新使能。
-        断电后重新上电位置即正确，无需软件解绕。
-        """
-        # 1. 记录当前状态并失能所有电机
-        was_enabled: Dict[int, str] = {}  # motor_id → mode ('mit'|'csp'|'vel')
-        for mid in self._motors:
-            if mid in self._vel_initialized:
-                was_enabled[mid] = 'vel'
-            elif mid in self._csp_initialized:
-                was_enabled[mid] = 'csp'
-            elif mid in self._initialized:
-                was_enabled[mid] = 'mit'
-        self._initialized.clear()
-        self._csp_initialized.clear()
-        self._vel_initialized.clear()
-
-        # 2. 失能所有电机
-        for mid in self._motors:
-            self._can.disable_motor(mid)
-            time.sleep(0.02)
-
-        time.sleep(0.3)  # 等待全部失能确认
-
-        # 3. 设零位 + 保存
-        ok = 0
-        for mid in sorted(self._motors.keys()):
-            if self._can.set_zero_position(mid):
-                ok += 1
-            time.sleep(0.05)
-            self._can.save_parameters(mid)
-            time.sleep(0.05)
-
-        logger.info("set_zero_all: %d/%d motors zeroed and saved to Flash", ok, len(self._motors))
-
-        # 4. 重新使能之前使能的电机
-        for mid, mode in was_enabled.items():
-            if mode == 'mit':
-                self._ensure_ready(mid)
-            elif mode == 'csp':
-                self._ensure_csp_ready(mid)
-            elif mode == 'vel':
-                self._ensure_velocity_mode(mid)
-            time.sleep(0.03)
-
-        return ok > 0
 
     def show_all_status(self) -> None:
         """打印所有电机状态表格 (openArmX 风格)"""

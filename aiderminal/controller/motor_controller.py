@@ -554,7 +554,9 @@ class MotorController:
                 # 使用 feetech-servo-sdk (官方 SDK)
                 if brand.lower() == 'feetech':
                     from aiderminal.drivers.actuator.feetech import ST3215Driver
-                    driver = ST3215Driver(port=port, baudrate=1000000)
+                    # 传入 servo_ids 配置，使 yaml 的 direction / zero_offset 对舵机生效
+                    servo_cfg = self.robot_interface.servo_ids if self.robot_interface else None
+                    driver = ST3215Driver(port=port, baudrate=1000000, servo_config=servo_cfg)
                     if driver.connect():
                         self.drivers[port] = driver
                         print(f"✅ 创建 ST3215 驱动: {brand} @ {port}")

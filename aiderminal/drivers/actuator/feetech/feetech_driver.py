@@ -22,13 +22,19 @@ class ST3215Driver:
     """ST3215 舵机驱动"""
 
     def __init__(self, port: str = '/dev/ttyACM0', baudrate: int = 1000000,
-                 servo_config: Optional[Dict] = None):
+                 servo_config: Optional[Dict] = None,
+                 direction_map: Optional[Dict[int, float]] = None,
+                 offset_map: Optional[Dict[int, float]] = None):
         self.port = port
         self.baudrate = baudrate
         self.is_connected = False
         self._ph: Optional[PortHandler] = None
         self._servo: Optional[sms_sts] = None
-        self.id_to_offset = self._build_id_offset_map(servo_config)
+        # 从配置提取零位偏移与方向（支持扁平结构 part→joint）。
+        # 优先使用调用方传入的 direction_map/offset_map（已按 servo_ids.yaml 解析），
+        # 否则回退从 servo_config 解析（兼容旧调用方）。
+        self.id_to_offset = offset_map if offset_map is not None else self._build_id_map(servo_config, 'zero_offset', 0.0)
+        self.id_to_direction = direction_map if direction_map is not None else self._build_id_map(servo_config, 'direction', 1.0)
 
     # ── 生命周期 ──
 
@@ -122,13 +128,30 @@ class ST3215Driver:
         self, servo_id: int, angle: float,
         speed: int = _DEFAULT_SERVO_SPEED, time_ms: int = 0,
     ) -> bool:
-        """角度制便捷接口：将角度 (°) 转为步进值后发送。"""
+        """角度制便捷接口：将角度 (°) 转为步进值后发送。
+
+        自动应用 direction（电机反向安装时 direction=-1，使逻辑正角映射到物理反向）
+        与 zero_offset（零位校准），与 RobStride 驱动的 direction 语义一致。
+        """
+        d = self.id_to_direction.get(servo_id, 1.0)
         offset = self.id_to_offset.get(servo_id, 0.0)
-        angle_with_offset = angle + offset
+        logical = d * angle            # 应用方向变换
+        angle_with_offset = logical + offset
         normalized = angle_with_offset + 180
         position = int((normalized / 360.0) * 4095)
         position = max(0, min(4095, position))
         return self.set_position(servo_id, position, speed, time_ms)
+
+    def step_to_angle(self, servo_id: int, position: int) -> float:
+        """步进值 (0-4095) → 逻辑角度 (°)，与 move_to_angle 对称。
+
+        先由步进值还原物理角，再应用 direction/offset 逆变换得到逻辑角：
+            logical = direction * (physical - offset)
+        """
+        physical = (position / 4095.0) * 360.0 - 180.0
+        d = self.id_to_direction.get(servo_id, 1.0)
+        offset = self.id_to_offset.get(servo_id, 0.0)
+        return float(d * (physical - offset))
 
     def set_angle(
         self, servo_id: int, angle_deg: float,
@@ -379,33 +402,33 @@ class ST3215Driver:
 
     # ── 内部 ──
 
-    def _build_id_offset_map(self, servo_config: Optional[Dict]) -> Dict[int, float]:
-        """从配置中提取舵机 ID → 零位偏移的映射表。
+    @staticmethod
+    def _build_id_map(servo_config: Optional[Dict], key: str, default) -> Dict[int, float]:
+        """从配置中提取舵机 ID → 指定字段的映射表（支持扁平结构 part→joint）。
 
-        遍历配置树结构 (bus → part → joint)，提取每个关节的 id 和 zero_offset。
+        遍历配置树（扁平：part → joint），提取每个关节的 id 与指定 key。
 
         Args:
-            servo_config: 舵机配置字典
+            servo_config: 舵机配置字典（扁平：{part: {joint: {id, zero_offset, direction, ...}}}）
+            key: 要提取的字段名（如 'zero_offset'、'direction'）
+            default: 字段默认值
 
         Returns:
-            Dict[int, float]: {servo_id: zero_offset}
+            Dict[int, float]: {servo_id: value}
         """
-        id_to_offset = {}
+        result: Dict[int, float] = {}
         if not servo_config:
-            return id_to_offset
+            return result
         try:
-            for bus_config in servo_config.values():
-                if not isinstance(bus_config, dict):
+            for part_config in servo_config.values():
+                if not isinstance(part_config, dict):
                     continue
-                for part_config in bus_config.values():
-                    if not isinstance(part_config, dict):
-                        continue
-                    for joint_info in part_config.values():
-                        if isinstance(joint_info, dict) and 'id' in joint_info:
-                            id_to_offset[joint_info['id']] = joint_info.get('zero_offset', 0)
+                for joint_info in part_config.values():
+                    if isinstance(joint_info, dict) and 'id' in joint_info:
+                        result[joint_info['id']] = float(joint_info.get(key, default))
         except Exception as e:
-            print(f"⚠️ 构建 ID-offset 映射失败: {e}")
-        return id_to_offset
+            print(f"⚠️ 构建 ID-{key} 映射失败: {e}")
+        return result
 
     # ── 零位偏移校准 ────────────────────────────────────
 
