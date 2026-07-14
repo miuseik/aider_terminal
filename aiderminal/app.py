@@ -489,14 +489,10 @@ def create_config_from_args(args) -> TelegripConfig:
     config.websocket_port = args.ws_port
     config.host_ip = args.host
     
-    if args.env_dev:
-        config.server_host = args.server_host if args.server_host else '192.168.0.106'
-        config.api_host = args.api_host if args.api_host else '192.168.0.106'
-    else:
-        if args.server_host:
-            config.server_host = args.server_host
-        if args.api_host:
-            config.api_host = args.api_host
+    if args.server_host:
+        config.server_host = args.server_host
+    if args.api_host:
+        config.api_host = args.api_host
     
     # 处理机器人类型 - 优先级: --role > --role-aider/--role-aloha > --robot-type > 配置文件
     if args.role:

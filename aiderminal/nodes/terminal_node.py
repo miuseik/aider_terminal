@@ -55,16 +55,11 @@ def _ros_param_to_config(node: Node) -> TelegripConfig:
 
     server_host = node.get_parameter('server_host').value
     api_host = node.get_parameter('api_host').value
-    env_dev = node.get_parameter('env_dev').value
 
-    if env_dev:
-        config.server_host = server_host if server_host else '192.168.0.106'
-        config.api_host = api_host if api_host else '192.168.0.106'
-    else:
-        if server_host:
-            config.server_host = server_host
-        if api_host:
-            config.api_host = api_host
+    if server_host:
+        config.server_host = server_host
+    if api_host:
+        config.api_host = api_host
 
     # 同步到模块级单例 —— client.py / actuator_router.py 等从 settings 读配置
     from aiderminal.config import settings
@@ -72,6 +67,8 @@ def _ros_param_to_config(node: Node) -> TelegripConfig:
     settings.config.api_host = config.api_host
     settings.config.websocket_port = config.websocket_port
     settings.config.robot_type = config.robot_type
+
+    print(f"📡 API 端点: https://{config.api_host}:{config.websocket_port}", flush=True)
 
     return config
 

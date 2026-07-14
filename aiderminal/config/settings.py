@@ -15,6 +15,46 @@ from aiderminal.utils.common_utils import get_absolute_path, get_project_root
 
 logger = logging.getLogger(__name__)
 
+
+# =========================== .env 加载 ===========================
+
+def _load_env_file() -> None:
+    """根据 ENV 环境变量加载对应的 .env 文件，设置 os.environ。
+
+    ENV=dev  → env/.env.development
+    其他/未设 → env/.env.production
+
+    在 TelegripConfig 定义前调用，确保 os.getenv() 读取到正确的值。
+    不会覆盖已存在的环境变量（命令行设置的优先级最高）。
+    """
+    env_name = os.getenv("ENV", "pro")
+    env_file_name = ".env.development" if env_name == "dev" else ".env.production"
+    env_file = get_project_root() / "env" / env_file_name
+
+    if not env_file.exists():
+        logger.debug("未找到 .env 文件: %s，使用已有环境变量或默认值", env_file)
+        return
+
+    try:
+        with open(env_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+                    logger.debug("从 %s 加载: %s=%s", env_file_name, key, value)
+    except Exception as e:
+        logger.warning("加载 .env 文件失败 (%s): %s", env_file, e)
+
+
+_load_env_file()
+
 # =========================== 默认配置 ===========================
 
 DEFAULT_CONFIG = {
@@ -419,14 +459,10 @@ def update_config_data(new_config: dict):
 config = TelegripConfig() 
 
 def get_api_endpoint():
-    """获取 API 地址，优先级：命令行参数 > 环境变量 > 配置默认值"""
+    """获取 API 地址，优先级：命令行参数 > 环境变量(.env) > 配置默认值"""
     import sys
-    # 1. 检查命令行参数
     if '--api-host' in sys.argv:
         idx = sys.argv.index('--api-host')
         if idx + 1 < len(sys.argv):
             return sys.argv[idx + 1]
-    if '--env-dev' in sys.argv:
-        return '192.168.0.106'
-    # 2. 返回配置中的值（支持环境变量覆盖）
     return config.api_host 
