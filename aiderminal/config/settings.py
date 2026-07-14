@@ -427,6 +427,6 @@ def get_api_endpoint():
         if idx + 1 < len(sys.argv):
             return sys.argv[idx + 1]
     if '--env-dev' in sys.argv:
-        return 'localhost'
+        return '192.168.0.106'
     # 2. 返回配置中的值（支持环境变量覆盖）
     return config.api_host 

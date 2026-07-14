@@ -22,6 +22,9 @@
 docker compose restart
 ```
 ```bash
+./start-dev.sh
+```
+```bash
 docker compose logs -f
 ```
 ```bash
@@ -69,7 +72,7 @@ sudo usermod -aG docker $USER          # docker 权限不够（执行后重新�
 ## 便捷操作（勿删）
 
 ```bash
-git add ./;git commit -m "hotfix";git push
+git add ./;git commit -m "去掉localhost";git push
 ```
 
 ```bash

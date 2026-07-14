@@ -19,7 +19,7 @@ ROBOT_TYPE="${ROBOT_TYPE:-aider}"
 ENV="${ENV:-pro}"
 
 if [ "$ENV" = "dev" ]; then
-    echo ">>> 启动 terminal_node (robot=$ROBOT_TYPE, env=dev → localhost)"
+    echo ">>> 启动 terminal_node (robot=$ROBOT_TYPE, env=dev → 192.168.0.106)"
     exec ros2 launch aiderminal terminal.launch.py \
         robot_type:=$ROBOT_TYPE \
         env_dev:=true \

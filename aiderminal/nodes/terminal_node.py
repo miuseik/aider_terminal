@@ -58,8 +58,8 @@ def _ros_param_to_config(node: Node) -> TelegripConfig:
     env_dev = node.get_parameter('env_dev').value
 
     if env_dev:
-        config.server_host = server_host if server_host else 'localhost'
-        config.api_host = api_host if api_host else 'localhost'
+        config.server_host = server_host if server_host else '192.168.0.106'
+        config.api_host = api_host if api_host else '192.168.0.106'
     else:
         if server_host:
             config.server_host = server_host

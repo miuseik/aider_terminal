@@ -452,7 +452,7 @@ def parse_arguments():
     parser.add_argument("--host", default="0.0.0.0", help="Host IP address")
     parser.add_argument("--server-host", default=None, help="WebSocket Server host (overrides config)")
     parser.add_argument("--api-host", default=None, help="API Server host (overrides config)")
-    parser.add_argument("--env-dev", action="store_true", help="Use development environment (localhost)")
+    parser.add_argument("--env-dev", action="store_true", help="Use development environment (192.168.0.106)")
     
     # 路径
     parser.add_argument("--urdf", default="URDF/SO100/so100.urdf", help="Path to robot URDF file")
@@ -490,8 +490,8 @@ def create_config_from_args(args) -> TelegripConfig:
     config.host_ip = args.host
     
     if args.env_dev:
-        config.server_host = args.server_host if args.server_host else 'localhost'
-        config.api_host = args.api_host if args.api_host else 'localhost'
+        config.server_host = args.server_host if args.server_host else '192.168.0.106'
+        config.api_host = args.api_host if args.api_host else '192.168.0.106'
     else:
         if args.server_host:
             config.server_host = args.server_host
