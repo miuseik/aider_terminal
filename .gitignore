@@ -50,7 +50,6 @@ pytest_cache/
 .env
 .venv
 .idea
-env/
 venv/
 ENV/
 
