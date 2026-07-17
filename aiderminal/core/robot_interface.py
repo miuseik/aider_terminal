@@ -712,6 +712,7 @@ class RobotInterface:
             print(f"断开过程错误: {e}")
             return False
 
+
     async def send_command(self) -> bool:
         """使用字典格式向机器人发送当前关节角度，并更新仿真。
         
