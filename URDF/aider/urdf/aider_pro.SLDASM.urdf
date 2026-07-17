@@ -733,7 +733,7 @@
     <child
       link="right_arm8" />
     <axis
-      xyz="1 0 0" />
+      xyz="-1 0 0" />
     <limit
       lower="0"
       upper="0"
@@ -902,7 +902,7 @@
     <child
       link="left_arm2" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="0"
       upper="0"
@@ -960,7 +960,7 @@
     <child
       link="left_arm3" />
     <axis
-      xyz="0 0 1" />
+      xyz="0 0 -1" />
     <limit
       lower="0"
       upper="0"
@@ -1018,7 +1018,7 @@
     <child
       link="left_arm4" />
     <axis
-      xyz="1 0 0" />
+      xyz="-1 0 0" />
     <limit
       lower="0"
       upper="0"
@@ -1076,7 +1076,7 @@
     <child
       link="left_arm5" />
     <axis
-      xyz="0 0 1" />
+      xyz="0 0 -1" />
     <limit
       lower="0"
       upper="0"
@@ -1134,7 +1134,7 @@
     <child
       link="left_arm6" />
     <axis
-      xyz="1 0 0" />
+      xyz="-1 0 0" />
     <limit
       lower="0"
       upper="0"
@@ -1192,7 +1192,7 @@
     <child
       link="left_arm7" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="0"
       upper="0"
@@ -1250,7 +1250,7 @@
     <child
       link="left_arm8" />
     <axis
-      xyz="1 0 0" />
+      xyz="-1 0 0" />
     <limit
       lower="0"
       upper="0"
