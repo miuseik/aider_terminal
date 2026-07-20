@@ -30,7 +30,7 @@ class WSTransport:
         return ssl_context
     
     async def connect(self):
-        """连接到服务器，支持自动重连。"""
+        """连接到服务器，支持无限自动重连（循环，不递归）。"""
         self.ssl_context = self.setup_ssl()
         if self.ssl_context is None:
             print("SSL 设置失败")
@@ -40,29 +40,31 @@ class WSTransport:
         port = self.config.websocket_port
         ws_url = f"wss://{host}:{port}/ws/terminal"
         
-        try:
-            print(f"🔌 正在连接服务器: {ws_url}")
-            self.websocket = await websockets.connect(
-                ws_url,
-                ssl=self.ssl_context,
-                ping_interval=20,       # 每20秒发一次 ping
-                ping_timeout=90,        # 等90秒超时（容忍高负载/慢网络）
-                close_timeout=10,       # 关闭握手超时
-                max_size=10 * 1024 * 1024,  # 最大消息10MB
-            )
-            self.is_connected = True
-            print(f"✅ WebSocket 已连接: {ws_url}")
-            
-            # 启动消息接收任务
-            asyncio.create_task(self._receive_loop())
-            return True
-            
-        except Exception as e:
-            print(f"❌ ws 连接失败: {e}")
-            # 3秒后自动重连
-            print(f"🔄 3秒后重连...")
-            await asyncio.sleep(3)
-            return await self.connect()
+        retry_count = 0
+        while True:
+            try:
+                print(f"🔌 正在连接服务器: {ws_url}")
+                self.websocket = await websockets.connect(
+                    ws_url,
+                    ssl=self.ssl_context,
+                    ping_interval=20,
+                    ping_timeout=90,
+                    close_timeout=10,
+                    max_size=10 * 1024 * 1024,
+                )
+                self.is_connected = True
+                print(f"✅ WebSocket 已连接: {ws_url}")
+                retry_count = 0
+
+                # 启动消息接收任务
+                asyncio.create_task(self._receive_loop())
+                return True
+
+            except Exception as e:
+                retry_count += 1
+                print(f"❌ ws 连接失败 (#{retry_count}): {e}")
+                print(f"🔄 3秒后重连...")
+                await asyncio.sleep(3)
     
     async def disconnect(self):
         """断开与服务器的连接。"""
