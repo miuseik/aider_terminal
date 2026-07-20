@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 class VRWebSocketClient:
     """WebSocket 业务层 - 处理 VR 数据和 API 命令"""
     
-    def __init__(self, config, vr_handler, actuator_router=None, control_loop=None):
+    def __init__(self, config, vr_handler, actuator_router=None, control_loop=None, exo_handler=None):
         self.config = config
         self.vr_handler = vr_handler
+        self.exo_handler = exo_handler
         self.actuator_router = actuator_router
         self.control_loop = control_loop
         self.transport = WSTransport(config)
@@ -45,6 +46,10 @@ class VRWebSocketClient:
             # 检查是否为 API 命令
             if data.get('type') == 'api_command':
                 await self.handle_api_command(data)
+            elif data.get('type') == 'exo_data':
+                # 外骨骼关节数据 → ExoHandler
+                if self.exo_handler:
+                    await self.exo_handler.process_message(data)
             else:
                 # 转发到 VR 处理器进行处理
                 await self.vr_handler.process_message(raw_message)

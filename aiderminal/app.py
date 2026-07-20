@@ -37,6 +37,7 @@ def get_local_ip():
 from aiderminal.config.settings import TelegripConfig, get_config_data, update_config_data
 from aiderminal.core.control_loop import ControlLoop
 from aiderminal.inputs.vr_handler import VRHandler
+from aiderminal.inputs.exo_handler import ExoHandler
 from aiderminal.comm.websocket.client import VRWebSocketClient
 from aiderminal.inputs.keyboard_handler import WebKeyboardHandler
 from aiderminal.inputs.base import ControlGoal
@@ -64,13 +65,14 @@ class TelegripSystem:
         
         # 组件
         self.vr_handler = VRHandler(self.command_queue, config)
+        self.exo_handler = ExoHandler(self.command_queue)
         
         # 初始化 API 路由器
         from aiderminal.router.actuator_router import ActuatorRouter
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
         self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
         
-        self.ws_client = VRWebSocketClient(config, self.vr_handler, self.actuator_router, self.control_loop)
+        self.ws_client = VRWebSocketClient(config, self.vr_handler, self.actuator_router, self.control_loop, self.exo_handler)
         
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
 
@@ -80,6 +82,7 @@ class TelegripSystem:
         # 设置交叉引用
         self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
         self.vr_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(VR 接管必需)
+        self.exo_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(外骨骼接管必需)
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
         self.control_loop.main_app = self  # ← 添加 main_app 引用
 
@@ -175,6 +178,7 @@ class TelegripSystem:
             await self.web_keyboard_handler.stop()
             await self.ws_client.disconnect()
             await self.vr_handler.stop()
+            await self.exo_handler.stop()
             # HTTPS server disabled - UI migrated to external Vue project
 
             # 等待清理
@@ -200,13 +204,14 @@ class TelegripSystem:
 
             # 创建新组件
             self.vr_handler = VRHandler(self.command_queue, self.config)
+            self.exo_handler = ExoHandler(self.command_queue)
             
             # 重新初始化 API 路由器
             from aiderminal.router.actuator_router import ActuatorRouter
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
             self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
             
-            self.ws_client = VRWebSocketClient(self.config, self.vr_handler, self.actuator_router, self.control_loop)
+            self.ws_client = VRWebSocketClient(self.config, self.vr_handler, self.actuator_router, self.control_loop, self.exo_handler)
 
             # WebRTC 推流器
             self.webrtc_streamer = WebRTCStreamer(self.config)
@@ -214,6 +219,7 @@ class TelegripSystem:
             # 设置交叉引用
             self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
             self.vr_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(VR 接管必需)
+            self.exo_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(外骨骼接管必需)
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
             self.control_loop.main_app = self  # ← 添加 main_app 引用
 
@@ -225,6 +231,9 @@ class TelegripSystem:
 
             # 启动 VR 处理器（无服务器，仅处理器）
             await self.vr_handler.start()
+
+            # 启动外骨骼处理器
+            await self.exo_handler.start()
 
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.ws_client.connect()
@@ -287,6 +296,9 @@ class TelegripSystem:
             
             # 启动 VR 处理器（无服务器，仅处理器）
             await self.vr_handler.start()
+
+            # 启动外骨骼处理器
+            await self.exo_handler.start()
 
             # 通过 WebSocket 客户端连接到 Aider Server
             await self.ws_client.connect()
@@ -386,6 +398,13 @@ class TelegripSystem:
             print("VR 处理器停止超时")
         except Exception as e:
             print(f"停止 VR 处理器时出错: {e}")
+
+        try:
+            await asyncio.wait_for(self.exo_handler.stop(), timeout=2.0)
+        except asyncio.TimeoutError:
+            print("外骨骼处理器停止超时")
+        except Exception as e:
+            print(f"停止外骨骼处理器时出错: {e}")
 
         # 取消所有任务
         for task in self.tasks:

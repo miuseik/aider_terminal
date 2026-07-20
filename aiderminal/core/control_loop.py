@@ -333,6 +333,24 @@ class ControlLoop:
             delta_rad = goal.metadata.get("body_joint_delta", 0.0)
             self.body_joint_deltas[joint_name] = self.body_joint_deltas.get(joint_name, 0.0) + delta_rad
             return
+
+        # 0.5 外骨骼直接关节角度控制 — 不经过 IK，直接写入 adapter 角度数组
+        if goal.metadata and "exo_joint_angle" in goal.metadata:
+            if self.robot_interface and self.robot_interface.adapter:
+                arm = goal.arm
+                joint_name = goal.metadata["exo_joint_name"]  # e.g. "arm1"
+                angle_deg = goal.metadata["exo_joint_angle"]
+                # 将 arm1-arm4 直接写入 adapter 的角度数组
+                joint_idx = int(joint_name.replace("arm", "")) - 1  # "arm1" → 0
+                adapter = self.robot_interface.adapter
+                angles = adapter.left_angles if arm == "left" else adapter.right_angles
+                if joint_idx < len(angles):
+                    angles[joint_idx] = angle_deg
+                    # 钳制到限位
+                    limits = adapter._arm_limits_deg.get(arm)
+                    if limits is not None and joint_idx < len(limits):
+                        angles[joint_idx] = np.clip(angles[joint_idx], limits[joint_idx, 0], limits[joint_idx, 1])
+            return
         
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm
         
@@ -522,8 +540,18 @@ class ControlLoop:
         if not has_keyboard_base_control:
             self._update_mobile_base(vr_data)
 
+        # 检查外骨骼是否激活（跳过 IK，直接使用 adapter 中已有的关节角度）
+        from aiderminal.inputs.base import _ACTIVE_INPUT_SOURCES
+        exo_active = "exo" in _ACTIVE_INPUT_SOURCES
+
         # 4. 更新左臂（始终更新，用于仿真可视化）
-        if (self.left_arm.mode == ControlMode.POSITION_CONTROL and 
+        if exo_active:
+            # 外骨骼模式: 角度已由 ExoHandler 直接写入 adapter，只需钳制并发送
+            if self.robot_interface and self.robot_interface.adapter:
+                adapter = self.robot_interface.adapter
+                if hasattr(adapter, 'left_angles') and len(adapter.left_angles) >= _settings.NUM_JOINTS:
+                    adapter.left_angles = adapter._clamp_arm_angles("left", adapter.left_angles)
+        elif (self.left_arm.mode == ControlMode.POSITION_CONTROL and 
             self.left_arm.target_position is not None):
             # 求解 IK
             ik_solution = self.robot_interface.solve_ik("left", self.left_arm.target_position)
@@ -542,7 +570,13 @@ class ControlLoop:
                 self.robot_interface.adapter.apply_gripper_from_trigger("left", left_trigger)
 
         # 更新右臂（始终更新，用于仿真可视化）
-        if (self.right_arm.mode == ControlMode.POSITION_CONTROL and 
+        if exo_active:
+            # 外骨骼模式: 角度已由 ExoHandler 直接写入 adapter，只需钳制并发送
+            if self.robot_interface and self.robot_interface.adapter:
+                adapter = self.robot_interface.adapter
+                if hasattr(adapter, 'right_angles') and len(adapter.right_angles) >= _settings.NUM_JOINTS:
+                    adapter.right_angles = adapter._clamp_arm_angles("right", adapter.right_angles)
+        elif (self.right_arm.mode == ControlMode.POSITION_CONTROL and 
             self.right_arm.target_position is not None):
             # 求解 IK
             ik_solution = self.robot_interface.solve_ik("right", self.right_arm.target_position)
