@@ -1,11 +1,11 @@
 """
 外骨骼 (Exoskeleton) 处理器。
 
-接收 ESP32 通过 WebSocket 发送的外骨骼关节角度数据 (24 路电位器, 2 片 CD74HC4067 × 12ch)，
-将其映射为机器人的 ControlGoal，通过 command_queue 驱动真实机器人。
+接收 ESP32 通过 WebSocket 发送的外骨骼关节角度数据 (16 路扫描, 1 片 CD74HC4067)，
+仅 ch0 (左腕偏航) 和 ch13 (右腕偏航) 接了电位器。
 
 数据流:
-  ESP32 (24路电位器) → WebSocket → aider_server → terminal
+  ESP32 (16路电位器) → WebSocket → aider_server → terminal
   → ExoHandler.process_exo_data() → ControlGoal → command_queue
   → ControlLoop._execute_goal() → 电机
 
@@ -27,40 +27,21 @@ from aiderminal.inputs.base import (
 logger = logging.getLogger(__name__)
 
 # ======================== 外骨骼 → 机器人关节映射 ========================
-# 外骨骼 24 路电位器 (2 片 CD74HC4067 × 12ch) → (机器人手臂, 机器人关节索引 0-7)
-# 通道分配: 0-11=MUX0(GPIO32), 12-23=MUX1(GPIO33)
-# 关节索引: 0=arm1(肩旋转), 1=arm2(肩抬升), 2=arm3(肘弯曲),
-#           3=arm4(腕部), 4=arm5(腕翻滚), 5=arm6(腕弯曲),
+# 外骨骼 16 路 (1 片 CD74HC4067 / HW178, ch0-ch15)
+# 关节索引: 0=arm1(肩俯仰), 1=arm2(肩偏航), 2=arm3(肩翻滚),
+#           3=arm4(肘), 4=arm5(腕翻滚), 5=arm6(腕弯曲),
 #           6=arm7(腕偏航), 7=arm8(夹爪)
 #
-# 默认映射（可根据实际外骨骼结构调整）:
-#   左臂: 外骨骼通道 0-7  → 机器人左臂 arm1-arm8  (MUX0 local 0-7)
-#   右臂: 外骨骼通道 12-19 → 机器人右臂 arm1-arm8  (MUX1 local 0-7)
-#   预留: 通道 8-11, 20-23 (身体关节等)
+# 实际接线:
+#   ch0  → 左臂 arm7 (腕偏航)
+#   ch13 → 右臂 arm7 (腕偏航)
+#   其余通道未接电位器
 EXO_TO_ROBOT_MAP: Dict[int, Dict] = {
-    # ---- 左臂 (外骨骼通道 0-7 → 机器人左臂关节 0-7) ----
-    0:  {"arm": "left",  "joint_index": 0},   # arm1 肩旋转
-    1:  {"arm": "left",  "joint_index": 1},   # arm2 肩抬升
-    2:  {"arm": "left",  "joint_index": 2},   # arm3 肘弯曲
-    3:  {"arm": "left",  "joint_index": 3},   # arm4 腕部
-    4:  {"arm": "left",  "joint_index": 4},   # arm5 腕翻滚
-    5:  {"arm": "left",  "joint_index": 5},   # arm6 腕弯曲
-    6:  {"arm": "left",  "joint_index": 6},   # arm7 腕偏航
-    7:  {"arm": "left",  "joint_index": 7},   # arm8 夹爪
+    # ---- 左腕偏航 (外骨骼 ch0 → 机器人左臂 arm7) ----
+    0:  {"arm": "left",  "joint_index": 6},
 
-    # ---- 右臂 (外骨骼通道 12-19 → 机器人右臂关节 0-7) ----
-    12: {"arm": "right", "joint_index": 0},   # arm1 肩旋转
-    13: {"arm": "right", "joint_index": 1},   # arm2 肩抬升
-    14: {"arm": "right", "joint_index": 2},   # arm3 肘弯曲
-    15: {"arm": "right", "joint_index": 3},   # arm4 腕部
-    16: {"arm": "right", "joint_index": 4},   # arm5 腕翻滚
-    17: {"arm": "right", "joint_index": 5},   # arm6 腕弯曲
-    18: {"arm": "right", "joint_index": 6},   # arm7 腕偏航
-    19: {"arm": "right", "joint_index": 7},   # arm8 夹爪
-
-    # ---- 预留: 通道 8-11 (MUX0 空余), 20-23 (MUX1 空余) ----
-    # 8:  {"arm": "body", "joint_name": "waist_Link"},
-    # ...
+    # ---- 右腕偏航 (外骨骼 ch13 → 机器人右臂 arm7) ----
+    13: {"arm": "right", "joint_index": 6},
 }
 
 
@@ -70,16 +51,19 @@ class ExoHandler(BaseInputProvider):
     # 输入源标识（用于 mark_input_active / mark_input_inactive）
     INPUT_SOURCE = "exo"
 
-    def __init__(self, command_queue: asyncio.Queue):
+    def __init__(self, command_queue: asyncio.Queue, server_url: str = None):
         super().__init__(command_queue)
         self._joint_map = dict(EXO_TO_ROBOT_MAP)
+        self._server_url = server_url.rstrip("/") if server_url else None
 
-        # 角度校准偏移 (外骨骼原始角度 + offset = 目标机器人角度)
+        # ---- 校准数据（从 server 拉取） ----
+        # {channel: {pot_min, pot_max, angle_min, angle_max, pot_zero, enabled}}
+        self._calibration: Dict[int, dict] = {}
+
+        # ---- 旧式 offset/scale（校准数据不可用时兜底） ----
         # key: 外骨骼通道索引, value: 偏移量(度)
         self._angle_offsets: Dict[int, float] = {}
-
-        # 角度缩放因子 (外骨骼角度 * scale = 机器人角度)
-        # 默认为 1.0，可调整为负值来反转方向
+        # key: 外骨骼通道索引, value: 缩放因子
         self._angle_scales: Dict[int, float] = {}
 
         # 死区阈值 (度): 角度变化小于此值不发送命令
@@ -97,12 +81,91 @@ class ExoHandler(BaseInputProvider):
         # 夹爪阈值: trigger 值超过此值认为夹爪闭合
         self.gripper_close_threshold: float = 0.5
 
-        logger.info(f"ExoHandler 初始化: {len(self._joint_map)} 个关节映射")
+        logger.info(f"ExoHandler 初始化: {len(self._joint_map)} 个关节映射"
+                    f"{' | server=' + self._server_url if self._server_url else ''}")
 
     async def start(self):
         """启动外骨骼处理器。"""
         self.is_running = True
+        # 从 server 拉取校准数据
+        if self._server_url:
+            await self.load_calibration_from_server()
         logger.info("✅ 外骨骼处理器已启动")
+
+    # ======================== 校准数据加载 ========================
+
+    async def load_calibration_from_server(self) -> bool:
+        """从 aider_server 的 /api/exo/calibration 拉取校准数据。
+
+        校准数据格式:
+        [{"channel": 0, "pot_min": -135, "pot_max": 0, "angle_min": -90, "angle_max": 90, "enabled": true}, ...]
+
+        映射公式 (线性插值):
+            ratio = (raw_pot - pot_min) / (pot_max - pot_min)
+            target_angle = angle_min + ratio * (angle_max - angle_min)
+        """
+        if not self._server_url:
+            logger.warning("未配置 server_url，跳过校准数据加载")
+            return False
+
+        import aiohttp
+        url = f"{self._server_url}/api/exo/calibration"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, ssl=False) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"加载校准数据失败: HTTP {resp.status}")
+                        return False
+                    body = await resp.json()
+                    entries = body.get("data", [])
+
+            self._calibration.clear()
+            loaded = 0
+            for entry in entries:
+                if not entry.get("enabled"):
+                    continue
+                ch = entry["channel"]
+                self._calibration[ch] = {
+                    "pot_min": entry["pot_min"],
+                    "pot_max": entry["pot_max"],
+                    "angle_min": entry["angle_min"],
+                    "angle_max": entry["angle_max"],
+                    "pot_zero": entry.get("pot_zero", 0.0),
+                    # 混合控制: 存储 arm/joint_index，用于 process_exo_data 直接取
+                    "arm": entry.get("arm", "left"),
+                    "joint_index": entry.get("joint_index", 0),
+                }
+                loaded += 1
+
+            logger.info(f"✅ 已加载 {loaded}/{len(entries)} 条外骨骼校准数据")
+            print(f"✅ [ExoHandler] 已加载 {loaded}/{len(entries)} 条外骨骼校准数据 | channels={list(self._calibration.keys())}")
+            return loaded > 0
+
+        except Exception as e:
+            logger.warning(f"加载校准数据失败: {e}，将使用默认 offset/scale")
+            print(f"⚠️  [ExoHandler] 加载校准数据失败: {e}")
+            return False
+
+    def _apply_calibration(self, exo_ch: int, raw_angle: float) -> float:
+        """将外骨骼原始电位器角度映射为机器人关节角度。
+
+        优先使用校准数据（线性插值），没有校准数据时回退到 offset+scale。
+        """
+        calib = self._calibration.get(exo_ch)
+        if calib:
+            pot_min = calib["pot_min"]
+            pot_max = calib["pot_max"]
+            if abs(pot_max - pot_min) < 0.001:
+                return raw_angle  # 范围太窄，直接返回原始值
+            # 线性映射: 电位器范围 → 角度范围
+            ratio = (raw_angle - pot_min) / (pot_max - pot_min)
+            ratio = max(0.0, min(1.0, ratio))  # 钳制到 [0, 1]
+            return calib["angle_min"] + ratio * (calib["angle_max"] - calib["angle_min"])
+
+        # 兜底: 旧式 offset + scale
+        offset = self._angle_offsets.get(exo_ch, 0.0)
+        scale = self._angle_scales.get(exo_ch, 1.0)
+        return raw_angle * scale + offset
 
     async def stop(self):
         """停止外骨骼处理器。"""
@@ -151,14 +214,25 @@ class ExoHandler(BaseInputProvider):
         if not joints:
             return
 
+        # 诊断：每 50 帧打印
+        if not hasattr(ExoHandler, '_proc_count'):
+            ExoHandler._proc_count = 0
+        ExoHandler._proc_count += 1
+        if ExoHandler._proc_count % 50 == 1:
+            # 打印前 4 个关节角度作为示例
+            sample = [f"{joints[i]:.1f}" if i < len(joints) else "?" for i in range(4)]
+            calib_info = f" | 校准={len(self._calibration)}条" if self._calibration else " | 校准=空!"
+            print(f"🦴 [ExoHandler] 处理 #{ExoHandler._proc_count} | joints={len(joints)} | 前4路={sample}{calib_info}")
+
         # 首次收到数据时激活
         if not self._activated:
             self._activated = True
             mark_input_active(self.INPUT_SOURCE)
             logger.info(f"🦴 外骨骼已激活: {len(joints)} 路关节角度")
 
-        # 逐通道处理
-        for exo_ch, mapping in self._joint_map.items():
+        # 逐通道处理 — 只处理 _calibration 中已配置的通道
+        # 未配置的通道 (如 arm5-arm8) 由 VR 手柄独立控制，exo 不管
+        for exo_ch, calib in self._calibration.items():
             if exo_ch >= len(joints):
                 continue
 
@@ -166,10 +240,8 @@ class ExoHandler(BaseInputProvider):
             if raw_angle is None:
                 continue
 
-            # 应用校准
-            offset = self._angle_offsets.get(exo_ch, 0.0)
-            scale = self._angle_scales.get(exo_ch, 1.0)
-            target_angle = raw_angle * scale + offset
+            # 应用校准映射
+            target_angle = self._apply_calibration(exo_ch, raw_angle)
 
             # 死区检测
             last = self._last_angles.get(exo_ch)
@@ -177,12 +249,11 @@ class ExoHandler(BaseInputProvider):
                 continue
             self._last_angles[exo_ch] = target_angle
 
-            # 根据映射类型生成 ControlGoal
-            arm = mapping.get('arm')
+            # 生成 ControlGoal
+            arm = calib.get("arm", "left")
+            joint_index = calib.get("joint_index", 0)
             if arm in ('left', 'right'):
-                await self._send_arm_joint_goal(arm, mapping['joint_index'], target_angle)
-            elif arm == 'body':
-                await self._send_body_joint_goal(mapping['joint_name'], target_angle)
+                await self._send_arm_joint_goal(arm, joint_index, target_angle)
 
     async def _send_arm_joint_goal(self, arm: str, joint_index: int, angle_deg: float):
         """发送单关节角度目标。
@@ -234,6 +305,11 @@ class ExoHandler(BaseInputProvider):
 
         # 腕部偏航: arm7 (joint_index=6)
         if joint_index == 6:
+            if not hasattr(ExoHandler, '_wrist_yaw_count'):
+                ExoHandler._wrist_yaw_count = 0
+            ExoHandler._wrist_yaw_count += 1
+            if ExoHandler._wrist_yaw_count % 50 == 1:
+                print(f"🦾 [ExoHandler] arm7腕偏航 → {arm} arm7 = {angle_deg:.1f}°")
             goal = ControlGoal(
                 arm=arm,
                 wrist_yaw_deg=angle_deg,

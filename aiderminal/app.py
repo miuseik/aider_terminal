@@ -65,7 +65,10 @@ class TelegripSystem:
         
         # 组件
         self.vr_handler = VRHandler(self.command_queue, config)
-        self.exo_handler = ExoHandler(self.command_queue)
+        # 构造 server API URL（用于拉取外骨骼校准数据）
+        _api_host = getattr(config, 'api_host', None) or getattr(config, 'server_host', 'localhost')
+        _api_url = f"https://{_api_host}:{config.websocket_port}"
+        self.exo_handler = ExoHandler(self.command_queue, server_url=_api_url)
         
         # 初始化 API 路由器
         from aiderminal.router.actuator_router import ActuatorRouter
@@ -204,7 +207,9 @@ class TelegripSystem:
 
             # 创建新组件
             self.vr_handler = VRHandler(self.command_queue, self.config)
-            self.exo_handler = ExoHandler(self.command_queue)
+            _api_host = getattr(self.config, 'api_host', None) or getattr(self.config, 'server_host', 'localhost')
+            _api_url = f"https://{_api_host}:{self.config.websocket_port}"
+            self.exo_handler = ExoHandler(self.command_queue, server_url=_api_url)
             
             # 重新初始化 API 路由器
             from aiderminal.router.actuator_router import ActuatorRouter

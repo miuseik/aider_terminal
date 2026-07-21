@@ -48,8 +48,16 @@ class VRWebSocketClient:
                 await self.handle_api_command(data)
             elif data.get('type') == 'exo_data':
                 # 外骨骼关节数据 → ExoHandler
+                if not hasattr(VRWebSocketClient, '_exo_rx_count'):
+                    VRWebSocketClient._exo_rx_count = 0
+                VRWebSocketClient._exo_rx_count += 1
+                if VRWebSocketClient._exo_rx_count % 50 == 1:
+                    print(f"🦴 [Terminal] 收到 exo_data #{VRWebSocketClient._exo_rx_count} | handler={'✓' if self.exo_handler else '✗'}")
                 if self.exo_handler:
                     await self.exo_handler.process_message(data)
+                else:
+                    if VRWebSocketClient._exo_rx_count % 50 == 1:
+                        print(f"⚠️  [Terminal] exo_handler 未设置，exo_data 丢弃")
             else:
                 # 转发到 VR 处理器进行处理
                 await self.vr_handler.process_message(raw_message)

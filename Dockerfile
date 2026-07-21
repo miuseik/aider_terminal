@@ -35,7 +35,7 @@ RUN pip3 install --break-system-packages --ignore-installed \
     setuptools "numpy<2" requests websockets pyyaml scipy opencv-python \
     pybullet pyserial trimesh "aiortc>=1.7.0" "av>=11.0.0" \
     pin-pink "qpsolvers[quadprog]" meshcat_shapes loop_rate_limiters \
-    colcon-common-extensions sounddevice
+    colcon-common-extensions sounddevice aiohttp
 
 # ── 创建工作空间骨架（源码在运行时 volume 挂载）──
 WORKDIR /ws
