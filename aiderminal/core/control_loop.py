@@ -85,6 +85,12 @@ class ControlLoop:
         self.web_keyboard_handler = None
         self.dispatcher = None
         
+        # === 控制模式 (全局) ===
+        # "pure_vr" | "exo_vr_mixed"
+        self.control_mode: str = "pure_vr"
+        # 外骨骼是否正在主动控制（A键或自动启用）
+        self._exo_controlling: bool = False
+
         # === 机械臂状态 ===
         self.left_arm = ArmState("left")
         self.right_arm = ArmState("right")
@@ -316,21 +322,9 @@ class ControlLoop:
         """处理命令队列中的命令。"""
         try:
             # 处理常规控制目标
-            processed = 0
             while not self.command_queue.empty():
                 goal = self.command_queue.get_nowait()
                 await self._execute_goal(goal)
-                processed += 1
-            if processed > 0:
-                # 外骨骼诊断
-                print(f"📦 [ControlLoop] _process_commands 处理了 {processed} 个目标 (队列id={id(self.command_queue)}) | 左腕偏航={self.left_arm.current_wrist_yaw:.1f}° 右腕偏航={self.right_arm.current_wrist_yaw:.1f}°")
-            else:
-                # 即使没处理目标也定期打印队列大小
-                if not hasattr(ControlLoop, '_empty_iter'):
-                    ControlLoop._empty_iter = 0
-                ControlLoop._empty_iter += 1
-                if ControlLoop._empty_iter % 100 == 1:
-                    print(f"📭 [ControlLoop] 队列为空 (id={id(self.command_queue)}) qsize={self.command_queue.qsize()}")
         except Exception as e:
             print(f"处理命令错误: {e}")
             import traceback
@@ -338,14 +332,6 @@ class ControlLoop:
     
     async def _execute_goal(self, goal: ControlGoal):
         """执行控制目标。"""
-        
-        # 外骨骼诊断: 打印进入 _execute_goal 的每个目标的关键字段
-        if goal.metadata and goal.metadata.get("source") == "exo":
-            if not hasattr(ControlLoop, '_exo_exec_count'):
-                ControlLoop._exo_exec_count = 0
-            ControlLoop._exo_exec_count += 1
-            if ControlLoop._exo_exec_count % 10 == 1:
-                print(f"🔵 [execute_goal] 收到exo目标 | arm={goal.arm} | wrist_yaw_deg={goal.wrist_yaw_deg} | wrist_roll={goal.wrist_roll_deg} | wrist_flex={goal.wrist_flex_deg} | metadata={goal.metadata}")
         
         # 0. 身体关节控制 (腰/头/升降) — 键盘增量
         if goal.metadata and "body_joint_name" in goal.metadata:
@@ -464,13 +450,6 @@ class ControlLoop:
                 arm_state.current_wrist_yaw = arm_state.origin_wrist_yaw_angle + goal.wrist_yaw_deg
             else:
                 arm_state.current_wrist_yaw = goal.wrist_yaw_deg
-            # 外骨骼诊断
-            if goal.metadata and goal.metadata.get("source") == "exo":
-                if not hasattr(ControlLoop, '_yw_set'):
-                    ControlLoop._yw_set = 0
-                ControlLoop._yw_set += 1
-                if ControlLoop._yw_set <= 3 or ControlLoop._yw_set % 50 == 1:
-                    print(f"🟢 [yaw_set] {goal.arm} wrist_yaw={goal.wrist_yaw_deg:.1f}° → arm_state now={arm_state.current_wrist_yaw:.1f}° (#{ControlLoop._yw_set})")
         
         # 处理夹爪控制(独立于模式)
         if goal.gripper_closed is not None and self.robot_interface:
@@ -564,17 +543,6 @@ class ControlLoop:
         # 检查外骨骼是否激活
         from aiderminal.inputs.base import _ACTIVE_INPUT_SOURCES
         exo_active = "exo" in _ACTIVE_INPUT_SOURCES
-
-        # 外骨骼诊断: 每 200 帧打印当前腕部角度状态
-        if exo_active:
-            if not hasattr(ControlLoop, '_exo_diag_count'):
-                ControlLoop._exo_diag_count = 0
-            ControlLoop._exo_diag_count += 1
-            if ControlLoop._exo_diag_count % 200 == 1:
-                print(f"🦾 [DIAG] exo_active | 左腕偏航={self.left_arm.current_wrist_yaw:.1f}°"
-                      f" | 右腕偏航={self.right_arm.current_wrist_yaw:.1f}°"
-                      f" | adapter左[6]={self.robot_interface.adapter.left_angles[6] if self.robot_interface and self.robot_interface.adapter else 'N/A'}"
-                      f" | adapter右[6]={self.robot_interface.adapter.right_angles[6] if self.robot_interface and self.robot_interface.adapter else 'N/A'}")
 
         # 更新左臂
         if exo_active:
@@ -706,6 +674,27 @@ class ControlLoop:
                       f"底盘={'🟢' if base_active else '🔴'} "
                       f"(vx={bv['x']:.3f} vy={bv['y']:.3f} vt={bv['theta']:.3f})")
     
+    def set_control_mode(self, mode: str, exo_active: bool = False):
+        """设置系统控制模式 (由 Server 广播触发)。
+        
+        Args:
+            mode: "pure_vr" | "exo_vr_mixed"
+            exo_active: 外骨骼是否启停活跃
+        """
+        old_mode = self.control_mode
+        self.control_mode = mode
+        self._exo_controlling = exo_active
+        
+        # 模式切换时同步全局输入活跃状态
+        from aiderminal.inputs.base import mark_input_active, mark_input_inactive
+        if mode == "exo_vr_mixed" and exo_active:
+            mark_input_active("exo")
+        else:
+            mark_input_inactive("exo")
+        
+        if old_mode != mode:
+            print(f"🎮 [ControlLoop] 控制模式: {old_mode} → {mode} | exo_controlling={self._exo_controlling}")
+    
     @property
     def status(self) -> Dict:
         """获取当前控制循环状态。"""
@@ -720,6 +709,8 @@ class ControlLoop:
         # 基础状态
         status = {
             "running": self.is_running,
+            "control_mode": self.control_mode,
+            "exo_controlling": self._exo_controlling,
             "left_arm_mode": self.left_arm.mode.value,
             "right_arm_mode": self.right_arm.mode.value,
             "visualizer_connected": self.visualizer.is_connected if self.visualizer else False,

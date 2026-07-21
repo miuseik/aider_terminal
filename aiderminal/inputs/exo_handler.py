@@ -72,6 +72,9 @@ class ExoHandler(BaseInputProvider):
         # 是否已激活（收到第一帧数据后自动激活）
         self._activated = False
 
+        # 用户是否手动启用外骨骼控制（A键切换 / auto-enable in exo+VR mode）
+        self._user_enabled = False
+
         # 上一帧角度（用于死区检测）
         self._last_angles: Dict[int, float] = {}
 
@@ -80,6 +83,12 @@ class ExoHandler(BaseInputProvider):
 
         # 夹爪阈值: trigger 值超过此值认为夹爪闭合
         self.gripper_close_threshold: float = 0.5
+
+        # 最后收到数据的时间戳（用于超时检测）
+        self._last_data_time: float = 0.0
+
+        # 超时秒数：超过此时间没收到外骨骼数据则自动停用
+        self._timeout_secs: float = 3.0
 
         logger.info(f"ExoHandler 初始化: {len(self._joint_map)} 个关节映射"
                     f"{' | server=' + self._server_url if self._server_url else ''}")
@@ -90,7 +99,43 @@ class ExoHandler(BaseInputProvider):
         # 从 server 拉取校准数据
         if self._server_url:
             await self.load_calibration_from_server()
+        # 启动超时看门狗
+        asyncio.create_task(self._timeout_watchdog())
         logger.info("✅ 外骨骼处理器已启动")
+
+    async def handle_toggle(self):
+        """A键切换外骨骼启停。"""
+        self.set_enabled(not self._user_enabled, source="A键")
+
+    def set_enabled(self, enabled: bool, source: str = "system"):
+        """设置外骨骼控制启用/停用。
+        
+        Args:
+            enabled: True=启用控制, False=停用
+            source: 触发来源 (用于日志)
+        """
+        if self._user_enabled == enabled:
+            return  # 状态未变化
+        self._user_enabled = enabled
+        if enabled:
+            mark_input_active(self.INPUT_SOURCE)
+            print(f"🦴 [ExoHandler] {source} → 外骨骼控制已启用")
+        else:
+            mark_input_inactive(self.INPUT_SOURCE)
+            print(f"🦴 [ExoHandler] {source} → 外骨骼控制已停用")
+
+    async def _timeout_watchdog(self):
+        """超时看门狗：外骨骼数据断连超时自动停用。"""
+        while self.is_running:
+            await asyncio.sleep(1.0)
+            if not self._user_enabled:
+                continue
+            import time
+            elapsed = time.time() - self._last_data_time
+            if elapsed > self._timeout_secs and self._last_data_time > 0:
+                self._user_enabled = False
+                mark_input_inactive(self.INPUT_SOURCE)
+                print(f"⚠️  [ExoHandler] 外骨骼数据超时 ({elapsed:.1f}s)，自动停用")
 
     # ======================== 校准数据加载 ========================
 
@@ -130,7 +175,8 @@ class ExoHandler(BaseInputProvider):
                     "pot_max": entry["pot_max"],
                     "angle_min": entry["angle_min"],
                     "angle_max": entry["angle_max"],
-                    "pot_zero": entry.get("pot_zero", 0.0),
+                    "pot_zero": entry.get("pot_zero", None),
+                    "reverse": entry.get("reverse", False),
                     # 混合控制: 存储 arm/joint_index，用于 process_exo_data 直接取
                     "arm": entry.get("arm", "left"),
                     "joint_index": entry.get("joint_index", 0),
@@ -149,23 +195,62 @@ class ExoHandler(BaseInputProvider):
     def _apply_calibration(self, exo_ch: int, raw_angle: float) -> float:
         """将外骨骼原始电位器角度映射为机器人关节角度。
 
-        优先使用校准数据（线性插值），没有校准数据时回退到 offset+scale。
+        支持两种模式:
+        1. 中点模式 (pot_zero 已配置):
+           - pot_zero 为物理中点参考值 (手写, YAML 中配置)
+           - raw >= pot_zero → 正方向, 映射到 [0, angle_max]
+           - raw <  pot_zero → 负方向, 映射到 [angle_min, 0]
+           - reverse=true 时翻转输出符号 (正反转)
+        2. 旧式线性插值 (无 pot_zero 时兜底):
+           - pot_min/pot_max → angle_min/angle_max 线性映射
         """
         calib = self._calibration.get(exo_ch)
-        if calib:
-            pot_min = calib["pot_min"]
-            pot_max = calib["pot_max"]
-            if abs(pot_max - pot_min) < 0.001:
-                return raw_angle  # 范围太窄，直接返回原始值
-            # 线性映射: 电位器范围 → 角度范围
-            ratio = (raw_angle - pot_min) / (pot_max - pot_min)
-            ratio = max(0.0, min(1.0, ratio))  # 钳制到 [0, 1]
-            return calib["angle_min"] + ratio * (calib["angle_max"] - calib["angle_min"])
+        if not calib:
+            # 兜底: 旧式 offset + scale
+            offset = self._angle_offsets.get(exo_ch, 0.0)
+            scale = self._angle_scales.get(exo_ch, 1.0)
+            return raw_angle * scale + offset
 
-        # 兜底: 旧式 offset + scale
-        offset = self._angle_offsets.get(exo_ch, 0.0)
-        scale = self._angle_scales.get(exo_ch, 1.0)
-        return raw_angle * scale + offset
+        reverse = calib.get("reverse", False)
+        pot_zero = calib.get("pot_zero", None)
+        pot_min = calib["pot_min"]
+        pot_max = calib["pot_max"]
+        angle_min = calib["angle_min"]
+        angle_max = calib["angle_max"]
+
+        # ---- 中点模式 (pot_zero 有配置) ----
+        if pot_zero is not None and isinstance(pot_zero, (int, float)):
+            if raw_angle >= pot_zero:
+                # 正方向: pot_zero → pot_max  映射到  0 → angle_max
+                span = pot_max - pot_zero
+                if span < 0.001:
+                    angle = 0.0
+                else:
+                    ratio = (raw_angle - pot_zero) / span
+                    ratio = max(0.0, min(1.0, ratio))
+                    angle = ratio * angle_max
+            else:
+                # 负方向: pot_min → pot_zero  映射到  angle_min → 0
+                span = pot_zero - pot_min
+                if span < 0.001:
+                    angle = 0.0
+                else:
+                    ratio = (pot_zero - raw_angle) / span
+                    ratio = max(0.0, min(1.0, ratio))
+                    angle = -ratio * abs(angle_min)
+        else:
+            # ---- 旧式线性插值 (向后兼容, pot_zero 未配置) ----
+            if abs(pot_max - pot_min) < 0.001:
+                return raw_angle
+            ratio = (raw_angle - pot_min) / (pot_max - pot_min)
+            ratio = max(0.0, min(1.0, ratio))
+            angle = angle_min + ratio * (angle_max - angle_min)
+
+        # ---- 正反转 ----
+        if reverse:
+            angle = -angle
+
+        return angle
 
     async def stop(self):
         """停止外骨骼处理器。"""
@@ -214,24 +299,20 @@ class ExoHandler(BaseInputProvider):
         if not joints:
             return
 
-        # 诊断：每 50 帧打印
-        if not hasattr(ExoHandler, '_proc_count'):
-            ExoHandler._proc_count = 0
-        ExoHandler._proc_count += 1
-        if ExoHandler._proc_count % 50 == 1:
-            # 打印前 4 个关节角度作为示例
-            sample = [f"{joints[i]:.1f}" if i < len(joints) else "?" for i in range(4)]
-            calib_info = f" | 校准={len(self._calibration)}条" if self._calibration else " | 校准=空!"
-            print(f"🦴 [ExoHandler] 处理 #{ExoHandler._proc_count} | joints={len(joints)} | 前4路={sample}{calib_info}")
+        # 更新最后收到数据的时间
+        import time
+        self._last_data_time = time.time()
 
-        # 首次收到数据时激活
+        # 首次收到数据时标记已连接（但不自动启用控制）
         if not self._activated:
             self._activated = True
-            mark_input_active(self.INPUT_SOURCE)
-            logger.info(f"🦴 外骨骼已激活: {len(joints)} 路关节角度")
+            logger.info(f"🦴 外骨骼已连接: {len(joints)} 路关节角度")
 
         # 逐通道处理 — 只处理 _calibration 中已配置的通道
-        # 未配置的通道 (如 arm5-arm8) 由 VR 手柄独立控制，exo 不管
+        # 只有 _user_enabled=True 时才发送控制指令
+        if not self._user_enabled:
+            return
+
         for exo_ch, calib in self._calibration.items():
             if exo_ch >= len(joints):
                 continue

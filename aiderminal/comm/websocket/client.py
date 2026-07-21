@@ -48,16 +48,27 @@ class VRWebSocketClient:
                 await self.handle_api_command(data)
             elif data.get('type') == 'exo_data':
                 # 外骨骼关节数据 → ExoHandler
-                if not hasattr(VRWebSocketClient, '_exo_rx_count'):
-                    VRWebSocketClient._exo_rx_count = 0
-                VRWebSocketClient._exo_rx_count += 1
-                if VRWebSocketClient._exo_rx_count % 50 == 1:
-                    print(f"🦴 [Terminal] 收到 exo_data #{VRWebSocketClient._exo_rx_count} | handler={'✓' if self.exo_handler else '✗'}")
                 if self.exo_handler:
                     await self.exo_handler.process_message(data)
-                else:
-                    if VRWebSocketClient._exo_rx_count % 50 == 1:
-                        print(f"⚠️  [Terminal] exo_handler 未设置，exo_data 丢弃")
+            elif data.get('type') == 'exo_toggle':
+                # VR A键 外骨骼启停
+                if self.exo_handler:
+                    await self.exo_handler.handle_toggle()
+            elif data.get('type') == 'control_mode':
+                # Server 广播的控制模式变更
+                mode = data.get('mode', 'pure_vr')
+                exo_active = data.get('exo_active', False)
+                if self.control_loop:
+                    self.control_loop.set_control_mode(mode, exo_active)
+                # 同步外骨骼启停状态（前端按钮走 control_mode，不走 exo_toggle 直接消息）
+                if self.exo_handler:
+                    self.exo_handler.set_enabled(exo_active, source="control_mode")
+                print(f"🎮 [Terminal] 控制模式={mode} | exo_active={exo_active}")
+            elif data.get('type') == 'exo_calibration_reload':
+                # Server 通知重新加载外骨骼校准 (热更新)
+                if self.exo_handler:
+                    await self.exo_handler.load_calibration_from_server()
+                    print("🔄 [Terminal] 外骨骼校准已热更新")
             else:
                 # 转发到 VR 处理器进行处理
                 await self.vr_handler.process_message(raw_message)

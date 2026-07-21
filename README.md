@@ -72,7 +72,7 @@ sudo usermod -aG docker $USER          # docker 权限不够（执行后重新�
 ## 便捷操作（勿删）
 
 ```bash
-git add ./;git commit -m "exo init";git push
+git add ./;git commit -m "exo正反转";git push
 ```
 
 ```bash

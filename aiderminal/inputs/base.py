@@ -68,13 +68,6 @@ class BaseInputProvider(ABC):
         """向命令队列发送控制目标。"""
         try:
             await self.command_queue.put(goal)
-            # 外骨骼诊断
-            if goal.metadata and goal.metadata.get("source") == "exo":
-                if not hasattr(BaseInputProvider, '_put_count'):
-                    BaseInputProvider._put_count = 0
-                BaseInputProvider._put_count += 1
-                if BaseInputProvider._put_count % 100 == 1:
-                    print(f"📤 [send_goal] 队列(id={id(self.command_queue)}) qsize={self.command_queue.qsize()} | count={BaseInputProvider._put_count}")
         except Exception as e:
             # 处理队列满或其他错误
-            print(f"❌ [send_goal] 队列put失败: {e}") 
+            pass 
