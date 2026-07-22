@@ -86,10 +86,12 @@ class ControlLoop:
         self.dispatcher = None
         
         # === 控制模式 (全局) ===
-        # "pure_vr" | "exo_vr_mixed"
+        # "keyboard" | "pure_vr" | "exo_vr_mixed"
         self.control_mode: str = "pure_vr"
         # 外骨骼是否正在主动控制（A键或自动启用）
         self._exo_controlling: bool = False
+        # 外骨骼处理器引用 (由 TelegripSystem 注入)
+        self.exo_handler = None
 
         # === 机械臂状态 ===
         self.left_arm = ArmState("left")
@@ -540,81 +542,42 @@ class ControlLoop:
         if not has_keyboard_base_control:
             self._update_mobile_base(vr_data)
 
-        # 检查外骨骼是否激活
+        # 检查外骨骼是否激活，获取 exo 实际控制的关节索引
         from aiderminal.inputs.base import _ACTIVE_INPUT_SOURCES
         exo_active = "exo" in _ACTIVE_INPUT_SOURCES
+        exo_arm_joints: Dict[str, set] = {"left": set(), "right": set()}
+        if exo_active and self.exo_handler:
+            exo_arm_joints = self.exo_handler.get_controlled_arm_joints()
 
-        # 更新左臂
-        if exo_active:
-            # 混合控制: arm1-arm4 由 exo 写入 adapter，arm5-arm8 仍由 VR 控制
-            if self.robot_interface and self.robot_interface.adapter:
-                adapter = self.robot_interface.adapter
-                if hasattr(adapter, 'left_angles') and len(adapter.left_angles) >= _settings.NUM_JOINTS:
-                    # 保存 exo 写入的 arm1-arm4 (indices 0-3)
-                    exo_arm = adapter.left_angles[0:4].copy()
-                    # 应用腕部角度 (arm5-arm7) — arm_state 中的值来自 VR 或外骨骼
-                    adapter.left_angles[_settings.WRIST_ROLL_INDEX] = self.left_arm.current_wrist_roll
-                    adapter.left_angles[_settings.WRIST_FLEX_INDEX] = self.left_arm.current_wrist_flex
-                    adapter.left_angles[_settings.WRIST_YAW_INDEX] = self.left_arm.current_wrist_yaw
-                    # 恢复 exo 的 arm1-arm4 (防止 VR 模式切换时被覆盖)
-                    adapter.left_angles[0:4] = exo_arm
-                    # 钳制所有角度
-                    adapter.left_angles = adapter._clamp_arm_angles("left", adapter.left_angles)
-            # 夹爪由 VR 扳机独立控制
-            left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
-            if left_trigger is not None and self.robot_interface and self.robot_interface.adapter:
-                self.robot_interface.adapter.apply_gripper_from_trigger("left", left_trigger)
-        elif (self.left_arm.mode == ControlMode.POSITION_CONTROL and 
-            self.left_arm.target_position is not None):
-            # 纯 VR/键盘模式: IK 解算全部关节
-            ik_solution = self.robot_interface.solve_ik("left", self.left_arm.target_position)
-            
-            current_gripper = self.robot_interface.get_arm_angles("left")[_settings.GRIPPER_INDEX]
-            self.robot_interface.update_arm_angles("left", ik_solution,
-                                                 self.left_arm.current_wrist_flex,
-                                                 self.left_arm.current_wrist_roll,
-                                                 current_gripper,
-                                                 self.left_arm.current_wrist_yaw)
-            
-            left_trigger = self.vr_raw_data.get('leftController', {}).get('trigger', None)
-            if left_trigger is not None:
-                self.robot_interface.adapter.apply_gripper_from_trigger("left", left_trigger)
+        # 更新左/右臂 — 统一处理: 先跑 IK（键盘/VR），exo 关节覆盖 IK 结果
+        for arm_name in ("left", "right"):
+            arm_state = self.left_arm if arm_name == "left" else self.right_arm
+            exo_indices = exo_arm_joints.get(arm_name, set())
 
-        # 更新右臂
-        if exo_active:
-            # 混合控制: arm1-arm4 由 exo 写入 adapter，arm5-arm8 仍由 VR 控制
-            if self.robot_interface and self.robot_interface.adapter:
-                adapter = self.robot_interface.adapter
-                if hasattr(adapter, 'right_angles') and len(adapter.right_angles) >= _settings.NUM_JOINTS:
-                    # 保存 exo 写入的 arm1-arm4 (indices 0-3)
-                    exo_arm = adapter.right_angles[0:4].copy()
-                    # 应用腕部角度 (arm5-arm7) — arm_state 中的值来自 VR 或外骨骼
-                    adapter.right_angles[_settings.WRIST_ROLL_INDEX] = self.right_arm.current_wrist_roll
-                    adapter.right_angles[_settings.WRIST_FLEX_INDEX] = self.right_arm.current_wrist_flex
-                    adapter.right_angles[_settings.WRIST_YAW_INDEX] = self.right_arm.current_wrist_yaw
-                    # 恢复 exo 的 arm1-arm4
-                    adapter.right_angles[0:4] = exo_arm
-                    # 钳制所有角度
-                    adapter.right_angles = adapter._clamp_arm_angles("right", adapter.right_angles)
-            # 夹爪由 VR 扳机独立控制
-            right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
-            if right_trigger is not None and self.robot_interface and self.robot_interface.adapter:
-                self.robot_interface.adapter.apply_gripper_from_trigger("right", right_trigger)
-        elif (self.right_arm.mode == ControlMode.POSITION_CONTROL and 
-            self.right_arm.target_position is not None):
-            # 纯 VR/键盘模式: IK 解算全部关节
-            ik_solution = self.robot_interface.solve_ik("right", self.right_arm.target_position)
-            
-            current_gripper = self.robot_interface.get_arm_angles("right")[_settings.GRIPPER_INDEX]
-            self.robot_interface.update_arm_angles("right", ik_solution,
-                                                  self.right_arm.current_wrist_flex,
-                                                  self.right_arm.current_wrist_roll,
-                                                  current_gripper,
-                                                  self.right_arm.current_wrist_yaw)
-            
-            right_trigger = self.vr_raw_data.get('rightController', {}).get('trigger', None)
-            if right_trigger is not None:
-                self.robot_interface.adapter.apply_gripper_from_trigger("right", right_trigger)
+            if (arm_state.mode == ControlMode.POSITION_CONTROL and
+                arm_state.target_position is not None):
+                ik_solution = self.robot_interface.solve_ik(arm_name, arm_state.target_position)
+
+                # 用 exo 直接角度覆盖 IK 解中对应的 arm1-arm4 关节
+                if exo_active and exo_indices and self.robot_interface and self.robot_interface.adapter:
+                    adapter = self.robot_interface.adapter
+                    exo_angles = adapter.left_angles if arm_name == "left" else adapter.right_angles
+                    for idx in exo_indices:
+                        if idx < len(ik_solution):
+                            ik_solution[idx] = exo_angles[idx]  # _execute_goal 已写入最新 exo 值
+
+                current_gripper = self.robot_interface.get_arm_angles(arm_name)[_settings.GRIPPER_INDEX]
+                self.robot_interface.update_arm_angles(arm_name, ik_solution,
+                                                      arm_state.current_wrist_flex,
+                                                      arm_state.current_wrist_roll,
+                                                      current_gripper,
+                                                      arm_state.current_wrist_yaw)
+
+            # VR 扳机 → 夹爪
+            trigger_key = f"{arm_name}Controller"
+            trigger = self.vr_raw_data.get(trigger_key, {}).get('trigger', None)
+            if trigger is not None and self.robot_interface and self.robot_interface.adapter:
+                self.robot_interface.adapter.apply_gripper_from_trigger(arm_name, trigger)
 
 
         # === 底盘速度斜坡: 将方波目标平滑为线性过渡, 消除顿挫 ===
@@ -678,7 +641,7 @@ class ControlLoop:
         """设置系统控制模式 (由 Server 广播触发)。
         
         Args:
-            mode: "pure_vr" | "exo_vr_mixed"
+            mode: "keyboard" | "pure_vr" | "exo_vr_mixed"
             exo_active: 外骨骼是否启停活跃
         """
         old_mode = self.control_mode

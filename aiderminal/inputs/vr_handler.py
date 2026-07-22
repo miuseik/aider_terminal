@@ -98,6 +98,10 @@ class VRHandler(BaseInputProvider):
     async def process_controller_data(self, data: Dict):
         """处理传入的 VR 控制器数据。"""
         
+        # keyboard 模式下忽略 VR 输入
+        if self.control_loop and self.control_loop.control_mode == "keyboard":
+            return
+        
         # 0. 头显: 提取相对 yaw/pitch, 存到 vr_raw_data 供 adapter 映射
         if 'headset' in data and data['headset']:
             self._feed_headset_raw(data['headset'])

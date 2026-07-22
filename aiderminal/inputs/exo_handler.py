@@ -66,8 +66,12 @@ class ExoHandler(BaseInputProvider):
         # key: 外骨骼通道索引, value: 缩放因子
         self._angle_scales: Dict[int, float] = {}
 
-        # 死区阈值 (度): 角度变化小于此值不发送命令
-        self.dead_zone_deg: float = 0.5
+        # 死区阈值 (度): 平滑后角度变化小于此值不发送命令
+        self.dead_zone_deg: float = 1.5
+
+        # EMA 指数平滑: alpha 越小越平滑 (0~1, 0=全旧值, 1=全原始值)
+        self._ema_alpha: float = 0.25
+        self._ema_values: Dict[int, float] = {}  # {channel: smoothed_angle}
 
         # 是否已激活（收到第一帧数据后自动激活）
         self._activated = False
@@ -153,16 +157,21 @@ class ExoHandler(BaseInputProvider):
             logger.warning("未配置 server_url，跳过校准数据加载")
             return False
 
-        import aiohttp
+        import asyncio
         url = f"{self._server_url}/api/exo/calibration"
+
+        def _fetch():
+            import requests
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            resp = requests.get(url, timeout=5, verify=False)
+            if resp.status_code != 200:
+                raise Exception(f"HTTP {resp.status_code}")
+            return resp.json().get("data", [])
+
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, ssl=False) as resp:
-                    if resp.status != 200:
-                        logger.warning(f"加载校准数据失败: HTTP {resp.status}")
-                        return False
-                    body = await resp.json()
-                    entries = body.get("data", [])
+            loop = asyncio.get_running_loop()
+            entries = await loop.run_in_executor(None, _fetch)
 
             self._calibration.clear()
             loaded = 0
@@ -324,17 +333,26 @@ class ExoHandler(BaseInputProvider):
             # 应用校准映射
             target_angle = self._apply_calibration(exo_ch, raw_angle)
 
-            # 死区检测
+            # EMA 指数平滑滤波 — 消除 ADC 噪声抖动
+            prev_ema = self._ema_values.get(exo_ch)
+            if prev_ema is None:
+                self._ema_values[exo_ch] = target_angle
+                smoothed = target_angle
+            else:
+                smoothed = self._ema_alpha * target_angle + (1 - self._ema_alpha) * prev_ema
+                self._ema_values[exo_ch] = smoothed
+
+            # 死区检测（基于平滑后的角度）
             last = self._last_angles.get(exo_ch)
-            if last is not None and abs(target_angle - last) < self.dead_zone_deg:
+            if last is not None and abs(smoothed - last) < self.dead_zone_deg:
                 continue
-            self._last_angles[exo_ch] = target_angle
+            self._last_angles[exo_ch] = smoothed
 
             # 生成 ControlGoal
             arm = calib.get("arm", "left")
             joint_index = calib.get("joint_index", 0)
             if arm in ('left', 'right'):
-                await self._send_arm_joint_goal(arm, joint_index, target_angle)
+                await self._send_arm_joint_goal(arm, joint_index, smoothed)
 
     async def _send_arm_joint_goal(self, arm: str, joint_index: int, angle_deg: float):
         """发送单关节角度目标。
@@ -467,6 +485,23 @@ class ExoHandler(BaseInputProvider):
     def get_joint_mapping(self) -> Dict[int, Dict]:
         """获取当前关节映射。"""
         return dict(self._joint_map)
+
+    def get_controlled_arm_joints(self) -> Dict[str, set]:
+        """返回 exo 当前控制的 arm 关节索引 (0=arm1, ...,6=arm7)。
+        
+        Returns:
+            {"left": {0, 3, 6}, "right": {6}} — 只包含 exo 实际启用且映射到的关节
+            如果 exo 未启用 (_user_enabled=False)，返回空 set。
+        """
+        result: Dict[str, set] = {"left": set(), "right": set()}
+        if not self._user_enabled:
+            return result
+        for exo_ch, calib in self._calibration.items():
+            arm = calib.get("arm", "")
+            jidx = calib.get("joint_index", -1)
+            if arm in ("left", "right") and 0 <= jidx <= 6:
+                result[arm].add(jidx)
+        return result
 
     def get_stats(self) -> dict:
         """获取外骨骼处理器状态。"""
