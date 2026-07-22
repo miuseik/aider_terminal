@@ -19,6 +19,9 @@
 | 查看日志 | `docker compose logs -f` |
 | 重建镜像 | `docker compose down && docker compose build --no-cache && docker compose up -d` |
 ```bash
+./start-dev.sh
+```
+```bash
 docker compose restart
 ```
 ```bash
