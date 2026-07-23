@@ -286,7 +286,7 @@ class ControlLoop:
             if self.robot_interface.is_engaged:
                 print("🛑 关闭前断开机器人...")
                 await self.robot_interface.disengage()
-            self.robot_interface.disconnect()
+            await self.robot_interface.disconnect()
 
         if self.visualizer:
             self.visualizer.disconnect()

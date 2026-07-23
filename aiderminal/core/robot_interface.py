@@ -712,6 +712,22 @@ class RobotInterface:
             print(f"断开过程错误: {e}")
             return False
 
+    async def disconnect(self) -> None:
+        """断开所有底层电机驱动并重置连接状态。
+
+        供控制循环停止 / 系统软重启时释放 CAN/串口资源，
+        避免旧 driver 仍持有端口导致重建后无法重新连接。
+
+        底层委托给 ActuatorController.cleanup()（异步关闭所有 driver）。
+        """
+        try:
+            if self.motor_controller and hasattr(self.motor_controller, "cleanup"):
+                await self.motor_controller.cleanup()
+        except Exception as e:
+            print(f"清理电机控制器时出错: {e}")
+        self.is_connected = False
+        self.is_engaged = False
+
 
     async def send_command(self) -> bool:
         """使用字典格式向机器人发送当前关节角度，并更新仿真。
