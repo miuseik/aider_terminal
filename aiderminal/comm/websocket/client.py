@@ -279,16 +279,27 @@ class VRWebSocketClient:
                 }))
             else:
                 print("❌ goto_pose: 无机器人接口")
+                await self.transport.send_raw(encode_message({
+                    "type": "goto_pose_response",
+                    "success": False,
+                    "message": "机器人未连接",
+                }))
         elif action == 'list_poses':
+            # 姿态列表来自静态配置，不依赖硬件连接，始终返回
             if cl and cl.robot_interface:
                 poses = cl.robot_interface.list_poses()
-                print(f"📋 可用姿态: {list(poses.keys())}")
-                await self.transport.send_raw(encode_message({
-                    "type": "list_poses_response",
-                    "poses": poses,
-                }))
             else:
-                print("❌ list_poses: 无机器人接口")
+                from aiderminal.config.settings import get_robot_poses
+                raw = get_robot_poses()
+                poses = {name: {"left": d.get("left", []), "right": d.get("right", []), "body": d.get("body", {})} for name, d in raw.items()}
+            from aiderminal.config.settings import get_default_pose_name
+            default_pose = get_default_pose_name()
+            print(f"📋 可用姿态: {list(poses.keys())} (默认: {default_pose})")
+            await self.transport.send_raw(encode_message({
+                "type": "list_poses_response",
+                "poses": poses,
+                "default_pose": default_pose,
+            }))
         elif action == 'robot_disconnect':
             if cl and cl.robot_interface:
                 ri = cl.robot_interface

@@ -75,8 +75,10 @@ async def goto_pose(ri, arm: str, pose_name: str, duration: float = 5.0) -> Dict
     if target_left is None and target_right is None and not target_body:
         return {"success": False, "message": f"姿态 '{pose_name}' 无有效角度定义"}
 
-    # 真机连接时需使能，纯仿真模式跳过
-    if ri.is_connected:
+    # 真机连接且尚未使能时才使能。
+    # 注意：每次 engage() 都会 force_reinitialize 所有电机（先 disable 再 enable），
+    # 若无条件调用，切换姿态时会让电机短暂失能一下。仅在真正未使能时调用即可避免。
+    if ri.is_connected and not getattr(ri, "is_engaged", False):
         ri.engage()
 
     # ---- 平滑插值过渡 ----

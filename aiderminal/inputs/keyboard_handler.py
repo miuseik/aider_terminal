@@ -32,6 +32,9 @@ class WebKeyboardHandler(BaseInputProvider):
         # 机器人接口引用(将由控制循环设置)
         self.robot_interface = None
 
+        # ControlLoop 引用(将由 TelegripSystem 注入)
+        self.control_loop = None
+
         # 断开连接回调(将由TelegripSystem设置)
         self.disconnect_callback = None
 
@@ -180,6 +183,9 @@ class WebKeyboardHandler(BaseInputProvider):
 
     def on_key_press(self, key: str):
         """处理来自Web UI的按键按下事件。"""
+        # keyboard 模式下才处理键盘输入
+        if self.control_loop and self.control_loop.control_mode != "keyboard":
+            return
         try:
             mark_input_active("keyboard")
             # 左臂控制(WASD + QE)
@@ -483,6 +489,11 @@ class WebKeyboardHandler(BaseInputProvider):
 
         while self.is_running:
             try:
+                # keyboard 模式下才处理
+                if self.control_loop and self.control_loop.control_mode != "keyboard":
+                    await asyncio.sleep(0.05)
+                    continue
+
                 # Process both arms
                 for arm, arm_state in [("left", self.left_arm_state), ("right", self.right_arm_state)]:
                     if arm_state["position_control_active"]:

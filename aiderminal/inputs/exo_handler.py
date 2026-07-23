@@ -26,21 +26,13 @@ from aiderminal.inputs.base import (
 
 logger = logging.getLogger(__name__)
 
-# ======================== 外骨骼 → 机器人关节映射 ========================
+# ======================== 外骨骼 → 机器人关节映射 (兜底，实际走 yaml 校准) ========================
 # 外骨骼 16 路 (1 片 CD74HC4067 / HW178, ch0-ch15)
-# 关节索引: 0=arm1(肩俯仰), 1=arm2(肩偏航), 2=arm3(肩翻滚),
-#           3=arm4(肘), 4=arm5(腕翻滚), 5=arm6(腕弯曲),
-#           6=arm7(腕偏航), 7=arm8(夹爪)
-#
-# 实际接线:
-#   ch0  → 左臂 arm7 (腕偏航)
-#   ch13 → 右臂 arm7 (腕偏航)
-#   其余通道未接电位器
+# 关节索引: 0=arm0(肩俯仰), 1=arm1(肩偏航), 2=arm2(肩翻滚),
+#           3=arm3(肘), 4=arm4(腕翻滚), 5=arm5(腕弯曲),
+#           6=arm6(腕偏航), 7=arm7(夹爪)
 EXO_TO_ROBOT_MAP: Dict[int, Dict] = {
-    # ---- 左腕偏航 (外骨骼 ch0 → 机器人左臂 arm7) ----
     0:  {"arm": "left",  "joint_index": 6},
-
-    # ---- 右腕偏航 (外骨骼 ch13 → 机器人右臂 arm7) ----
     13: {"arm": "right", "joint_index": 6},
 }
 
@@ -206,9 +198,11 @@ class ExoHandler(BaseInputProvider):
 
         支持两种模式:
         1. 中点模式 (pot_zero 已配置):
-           - pot_zero 为物理中点参考值 (手写, YAML 中配置)
-           - raw >= pot_zero → 正方向, 映射到 [0, angle_max]
-           - raw <  pot_zero → 负方向, 映射到 [angle_min, 0]
+           - pot_zero 为物理中点参考值
+           - pot_travel 为电位器从零位能拧的最大物理行程 (默认 90°)
+           - raw >= pot_zero → 偏移量/span 映射到 [0, angle_max]
+           - raw <  pot_zero → 偏移量/span 映射到 [angle_min, 0]
+           - 正负方向使用相同 span (pot_travel)，保证对称
            - reverse=true 时翻转输出符号 (正反转)
         2. 旧式线性插值 (无 pot_zero 时兜底):
            - pot_min/pot_max → angle_min/angle_max 线性映射
@@ -222,31 +216,25 @@ class ExoHandler(BaseInputProvider):
 
         reverse = calib.get("reverse", False)
         pot_zero = calib.get("pot_zero", None)
-        pot_min = calib["pot_min"]
-        pot_max = calib["pot_max"]
+        pot_min = calib.get("pot_min", -90.0)
+        pot_max = calib.get("pot_max", 90.0)
         angle_min = calib["angle_min"]
         angle_max = calib["angle_max"]
 
         # ---- 中点模式 (pot_zero 有配置) ----
         if pot_zero is not None and isinstance(pot_zero, (int, float)):
-            if raw_angle >= pot_zero:
-                # 正方向: pot_zero → pot_max  映射到  0 → angle_max
-                span = pot_max - pot_zero
-                if span < 0.001:
-                    angle = 0.0
-                else:
-                    ratio = (raw_angle - pot_zero) / span
-                    ratio = max(0.0, min(1.0, ratio))
-                    angle = ratio * angle_max
+            # 以 pot_zero 为中心，正负方向使用相同的物理行程 span
+            pot_travel = float(calib.get("pot_travel", 90.0))
+            if pot_travel < 0.001:
+                angle = 0.0
             else:
-                # 负方向: pot_min → pot_zero  映射到  angle_min → 0
-                span = pot_zero - pot_min
-                if span < 0.001:
-                    angle = 0.0
+                offset = raw_angle - pot_zero
+                ratio = offset / pot_travel
+                ratio = max(-1.0, min(1.0, ratio))
+                if ratio >= 0:
+                    angle = ratio * angle_max
                 else:
-                    ratio = (pot_zero - raw_angle) / span
-                    ratio = max(0.0, min(1.0, ratio))
-                    angle = -ratio * abs(angle_min)
+                    angle = -abs(ratio) * abs(angle_min)
         else:
             # ---- 旧式线性插值 (向后兼容, pot_zero 未配置) ----
             if abs(pot_max - pot_min) < 0.001:
@@ -323,6 +311,9 @@ class ExoHandler(BaseInputProvider):
             return
 
         for exo_ch, calib in self._calibration.items():
+            # 单独电位器开关：enabled=false 的通道不参与控制（不发送指令）
+            if not calib.get("enabled", True):
+                continue
             if exo_ch >= len(joints):
                 continue
 
@@ -357,10 +348,11 @@ class ExoHandler(BaseInputProvider):
     async def _send_arm_joint_goal(self, arm: str, joint_index: int, angle_deg: float):
         """发送单关节角度目标。
 
-        使用 POSITION_CONTROL 模式，通过 target_position 控制末端位置。
-        对于腕部关节 (arm5/arm6/arm7) 和夹爪 (arm8)，使用直接角度控制。
+        对于 arm0-arm3 (joint_index 0-3): 直接写入 adapter 角度数组 (不经过 IK)。
+        对于腕部关节 arm4-arm6 (joint_index 4-6): 写入 ControlGoal 腕部字段。
+        夹爪 arm7 (joint_index 7): 通过 gripper_closed 控制。
         """
-        # 夹爪: arm8 (joint_index=7)，通过 gripper_closed + trigger_value 控制
+        # 夹爪: arm7 (joint_index=7)，通过 gripper_closed + trigger_value 控制
         if joint_index == 7:
             # 将角度映射为 trigger_value (0-1): 假设外骨骼角度范围 -90°~0°
             trigger_value = max(0.0, min(1.0, -angle_deg / 90.0))
@@ -376,7 +368,7 @@ class ExoHandler(BaseInputProvider):
             await self.send_goal(goal)
             return
 
-        # 腕部翻滚: arm5 (joint_index=4)
+        # 腕部翻滚: arm4 (joint_index=4)
         if joint_index == 4:
             goal = ControlGoal(
                 arm=arm,
@@ -389,7 +381,7 @@ class ExoHandler(BaseInputProvider):
             await self.send_goal(goal)
             return
 
-        # 腕部弯曲: arm6 (joint_index=5)
+        # 腕部弯曲: arm5 (joint_index=5)
         if joint_index == 5:
             goal = ControlGoal(
                 arm=arm,
@@ -402,13 +394,13 @@ class ExoHandler(BaseInputProvider):
             await self.send_goal(goal)
             return
 
-        # 腕部偏航: arm7 (joint_index=6)
+        # 腕部偏航: arm6 (joint_index=6)
         if joint_index == 6:
             if not hasattr(ExoHandler, '_wrist_yaw_count'):
                 ExoHandler._wrist_yaw_count = 0
             ExoHandler._wrist_yaw_count += 1
             if ExoHandler._wrist_yaw_count % 50 == 1:
-                print(f"🦾 [ExoHandler] arm7腕偏航 → {arm} arm7 = {angle_deg:.1f}°")
+                print(f"🦾 [ExoHandler] arm6腕偏航 → {arm} arm6 = {angle_deg:.1f}°")
             goal = ControlGoal(
                 arm=arm,
                 wrist_yaw_deg=angle_deg,
@@ -487,7 +479,7 @@ class ExoHandler(BaseInputProvider):
         return dict(self._joint_map)
 
     def get_controlled_arm_joints(self) -> Dict[str, set]:
-        """返回 exo 当前控制的 arm 关节索引 (0=arm1, ...,6=arm7)。
+        """返回 exo 当前控制的 arm 关节索引 (0=arm0, ...,6=arm6)。
         
         Returns:
             {"left": {0, 3, 6}, "right": {6}} — 只包含 exo 实际启用且映射到的关节
@@ -497,6 +489,9 @@ class ExoHandler(BaseInputProvider):
         if not self._user_enabled:
             return result
         for exo_ch, calib in self._calibration.items():
+            # 单独电位器开关：enabled=false 的通道不计入受控关节
+            if not calib.get("enabled", True):
+                continue
             arm = calib.get("arm", "")
             jidx = calib.get("joint_index", -1)
             if arm in ("left", "right") and 0 <= jidx <= 6:

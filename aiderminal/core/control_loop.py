@@ -435,23 +435,31 @@ class ControlLoop:
                 arm_state.goal_position = goal.target_position.copy()
         
         # 处理腕部运动 — 独立于位置控制模式（VR/键盘/外骨骼都会设置腕部角度）
+        # 外骨骼激活时，VR/键盘的手腕值不覆盖 arm_state（避免 exo 绝对角度被 VR 相对角度冲掉）
+        from aiderminal.inputs.base import _ACTIVE_INPUT_SOURCES as _wrist_sources
+        exo_active_for_wrist = "exo" in _wrist_sources
+        is_exo_source = goal.metadata and goal.metadata.get("source") == "exo"
+
         if goal.wrist_roll_deg is not None:
-            if goal.metadata and goal.metadata.get("relative_position", False):
-                arm_state.current_wrist_roll = arm_state.origin_wrist_roll_angle + goal.wrist_roll_deg
-            else:
-                arm_state.current_wrist_roll = goal.wrist_roll_deg
-        
+            if not (exo_active_for_wrist and not is_exo_source):
+                if goal.metadata and goal.metadata.get("relative_position", False):
+                    arm_state.current_wrist_roll = arm_state.origin_wrist_roll_angle + goal.wrist_roll_deg
+                else:
+                    arm_state.current_wrist_roll = goal.wrist_roll_deg
+
         if goal.wrist_flex_deg is not None:
-            if goal.metadata and goal.metadata.get("relative_position", False):
-                arm_state.current_wrist_flex = arm_state.origin_wrist_flex_angle + goal.wrist_flex_deg
-            else:
-                arm_state.current_wrist_flex = goal.wrist_flex_deg
-        
+            if not (exo_active_for_wrist and not is_exo_source):
+                if goal.metadata and goal.metadata.get("relative_position", False):
+                    arm_state.current_wrist_flex = arm_state.origin_wrist_flex_angle + goal.wrist_flex_deg
+                else:
+                    arm_state.current_wrist_flex = goal.wrist_flex_deg
+
         if goal.wrist_yaw_deg is not None:
-            if goal.metadata and goal.metadata.get("relative_position", False):
-                arm_state.current_wrist_yaw = arm_state.origin_wrist_yaw_angle + goal.wrist_yaw_deg
-            else:
-                arm_state.current_wrist_yaw = goal.wrist_yaw_deg
+            if not (exo_active_for_wrist and not is_exo_source):
+                if goal.metadata and goal.metadata.get("relative_position", False):
+                    arm_state.current_wrist_yaw = arm_state.origin_wrist_yaw_angle + goal.wrist_yaw_deg
+                else:
+                    arm_state.current_wrist_yaw = goal.wrist_yaw_deg
         
         # 处理夹爪控制(独立于模式)
         if goal.gripper_closed is not None and self.robot_interface:
@@ -549,23 +557,27 @@ class ControlLoop:
         if exo_active and self.exo_handler:
             exo_arm_joints = self.exo_handler.get_controlled_arm_joints()
 
-        # 更新左/右臂 — 统一处理: 先跑 IK（键盘/VR），exo 关节覆盖 IK 结果
+        # 更新左/右臂
         for arm_name in ("left", "right"):
             arm_state = self.left_arm if arm_name == "left" else self.right_arm
-            exo_indices = exo_arm_joints.get(arm_name, set())
 
-            if (arm_state.mode == ControlMode.POSITION_CONTROL and
-                arm_state.target_position is not None):
+            if exo_active and self.robot_interface and self.robot_interface.adapter:
+                # === 外骨骼全控模式：完全不走 IK，直接用 adapter 角度 ===
+                # adapter angles 由 _execute_goal 的 exo_joint_angle 路径写入 (arm0-arm3)
+                # arm_state.current_wrist_* 由 exo 的 wrist 目标写入 (arm4-arm6)
+                adapter = self.robot_interface.adapter
+                angles = adapter.left_angles if arm_name == "left" else adapter.right_angles
+                current_gripper = angles[_settings.GRIPPER_INDEX] if len(angles) > _settings.GRIPPER_INDEX else 0.0
+                self.robot_interface.update_arm_angles(arm_name, angles,
+                                                      arm_state.current_wrist_flex,
+                                                      arm_state.current_wrist_roll,
+                                                      current_gripper,
+                                                      arm_state.current_wrist_yaw)
+
+            elif (arm_state.mode == ControlMode.POSITION_CONTROL and
+                  arm_state.target_position is not None):
+                # === IK 模式（纯VR/键盘，无外骨骼） ===
                 ik_solution = self.robot_interface.solve_ik(arm_name, arm_state.target_position)
-
-                # 用 exo 直接角度覆盖 IK 解中对应的 arm1-arm4 关节
-                if exo_active and exo_indices and self.robot_interface and self.robot_interface.adapter:
-                    adapter = self.robot_interface.adapter
-                    exo_angles = adapter.left_angles if arm_name == "left" else adapter.right_angles
-                    for idx in exo_indices:
-                        if idx < len(ik_solution):
-                            ik_solution[idx] = exo_angles[idx]  # _execute_goal 已写入最新 exo 值
-
                 current_gripper = self.robot_interface.get_arm_angles(arm_name)[_settings.GRIPPER_INDEX]
                 self.robot_interface.update_arm_angles(arm_name, ik_solution,
                                                       arm_state.current_wrist_flex,
@@ -654,6 +666,11 @@ class ControlLoop:
             mark_input_active("exo")
         else:
             mark_input_inactive("exo")
+
+        if mode == "keyboard":
+            mark_input_active("keyboard")
+        else:
+            mark_input_inactive("keyboard")
         
         if old_mode != mode:
             print(f"🎮 [ControlLoop] 控制模式: {old_mode} → {mode} | exo_controlling={self._exo_controlling}")

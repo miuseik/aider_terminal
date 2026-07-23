@@ -118,42 +118,25 @@ POSES = {
     },
 }
 
-# ---- 姿态偏好（度） ----
-# IK 求解时的默认舒适姿态，PostureTask 以此为目标
-# TODO: 将 POSTURE 硬编码值迁移到 servo_ids.yaml 的 default_angle 字段，
-#       统一从 YAML 读取默认姿态，避免 settings.py 和 YAML 各存一份。
-#       参考: aider_server/sql/servo_ids.yaml (已加好 default_angle 字段)
-POSTURE = {
-    # "left_arm1":   45,
-    # "left_arm2":   20,
-    # "left_arm3":   0,    # arm3 now stays near 0°
-    # "left_arm4":   50,
-    # "left_arm5":   0,
-    # "left_arm6":   0,
-    # "left_arm7":   0,
-    # "left_arm8":   0,
-    # "right_arm1": -45,
-    # "right_arm2": -20,
-    # "right_arm3":  0,    # arm3 now stays near 0°
-    # "right_arm4": -50,
-    # "right_arm5":  0,
-    # "right_arm6":  0,
-    # "right_arm7":  0,
-    # "right_arm8":  0,
-    "left_arm1": 10,
-    "left_arm2": 30,  # 肩稍向后/下
-    "left_arm3": 50,
-    "left_arm4": 50,  # 肘微弯（左臂 axis=-1，正=弯）
-    "left_arm5": 0,
-    "left_arm6": 0,
-    "left_arm7": 0,
-    "left_arm8": 0,
-    "right_arm1": -10,
-    "right_arm2": -30,  # 肩稍向后/下
-    "right_arm3": -50,
-    "right_arm4": -50,  # 肘微弯（右臂 axis=1，负=弯）
-    "right_arm5": 0,
-    "right_arm6": 0,
-    "right_arm7": 0,
-    "right_arm8": 0,
-}
+# ---- 默认姿态（度） ----
+# 启动姿态 / IK 舒适姿态 = 下拉框中的某个预设姿态，单一数据源，
+# 不再在 settings.py 里维护一份与 POSES 重复的硬编码常量。
+# 想改机器人默认姿态，改 DEFAULT_POSE_NAME 指向 POSES 里任意一个键即可。
+# 默认用 "safe"（全 0，干净初始位）；"default" 是 [10,30,50,50] 舒适位，保留在下拉框供手动选用。
+DEFAULT_POSE_NAME = "safe"
+
+
+def get_default_posture() -> dict:
+    """从 POSES[DEFAULT_POSE_NAME] 推导 IK 默认舒适姿态（joint_name→角度, 度）。
+
+    与前端姿态下拉框共享同一份预设，避免再硬编码一份重复值。
+    """
+    pose = POSES.get(DEFAULT_POSE_NAME, {})
+    result = {}
+    for arm in ("left", "right"):
+        angles = pose.get(arm, [])
+        joint_names = ARM_JOINT_NAMES_LEFT if arm == "left" else ARM_JOINT_NAMES_RIGHT
+        for i, deg in enumerate(angles):
+            if i < len(joint_names):
+                result[joint_names[i]] = deg
+    return result

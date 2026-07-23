@@ -268,6 +268,12 @@ def get_robot_poses() -> dict:
     return getattr(robot, "POSES", {})
 
 
+def get_default_pose_name() -> str:
+    """返回默认启动姿态名（下拉框预设之一，单一数据源）。"""
+    robot = _get_robot_settings()
+    return getattr(robot, "DEFAULT_POSE_NAME", "default")
+
+
 def get_joint_limits_deg() -> dict:
     """返回当前机器人类型的关节限位字典 {joint_name: {lower, upper}} (度)。"""
     robot = _get_robot_settings()

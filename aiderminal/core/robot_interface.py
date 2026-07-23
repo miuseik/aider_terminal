@@ -864,12 +864,6 @@ class RobotInterface:
             pos_cmds = actions.get("position_commands", [])
             spd_cmds = actions.get("speed_commands", [])
 
-            # 当 VR/键盘有输入时打印硬件命令（便于排查电机 ID 和角度）
-            if is_any_input_active():
-                for cmd in pos_cmds:
-                    tgt_str = ",".join(f"{sid}:{ang:.1f}°" for sid, ang in cmd['targets'].items())
-                    print(f"[HW] pos_cmd port={cmd['port']} targets=[{tgt_str}]")
-
             loop = asyncio.get_event_loop()
             executor = self.motor_controller._executor
             _HW_TIMEOUT = 1.0  # 单个串口操作超时（秒），超时则跳过该端口

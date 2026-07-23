@@ -45,7 +45,7 @@ _settings_spec = _iu.spec_from_loader("_robot_settings", _settings_loader)
 _robot_settings = _iu.module_from_spec(_settings_spec)
 _settings_loader.exec_module(_robot_settings)
 JOINT_LIMIT_OVERRIDES = _robot_settings.JOINT_LIMIT_OVERRIDES
-POSTURE = _robot_settings.POSTURE
+get_default_posture = _robot_settings.get_default_posture
 
 
 class AiderPinkSolver:
@@ -165,12 +165,12 @@ class AiderPinkSolver:
         return q
 
     def _make_posture_config(self) -> np.ndarray:
-        """构建姿态偏好配置，从 robots/aider/settings.py 的 POSTURE 字典读取。
+        """构建姿态偏好配置，从下拉框预设 POSES[DEFAULT_POSE_NAME] 推导。
 
         关节值单位：度。
         """
         q = self._make_zero_config()
-        for name, deg in POSTURE.items():
+        for name, deg in get_default_posture().items():
             qi = self._q_idx(name)
             if qi >= 0:
                 q[qi] = np.radians(deg)

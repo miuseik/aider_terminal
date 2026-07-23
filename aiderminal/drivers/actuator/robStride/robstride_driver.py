@@ -88,6 +88,8 @@ class RobStrideOfficialDriver:
         self._vel_target_rad: Dict[int, float] = {}
         self._csp_speed_limit: float = 1.0  # CSP 最大速度 (rad/s)，openArmX 默认 1 rad/s ≈ 57°/s
         self._last_stale_warn: Dict[int, float] = {}  # motor_id → 上次 stale 日志时间戳（防刷屏）
+        # 掉电判定阈值：已使能电机反馈停滞超过该秒数 → 判定掉电/掉线 → 自动重启系统
+        self._power_loss_stale: float = 3.0
 
         # 关节方向/偏移校正：处理电机反向安装和机械零点不重合
         # direction = +1.0 表示正方向一致，-1.0 表示反向安装
@@ -129,6 +131,7 @@ class RobStrideOfficialDriver:
         self._motor_mode.clear()
         self._vel_target_rad.clear()
 
+
     def force_reinitialize(self) -> None:
         """强制清空所有电机的初始化标记，使下次 set_position/set_velocity 时自动重新使能。
 
@@ -139,6 +142,7 @@ class RobStrideOfficialDriver:
         self._vel_initialized.clear()
         self._motor_mode.clear()
         self._vel_target_rad.clear()
+
         logger.info("RobStride %s: all motor init flags cleared — will re‑engage on next command", self._can_name)
 
     @property
@@ -168,6 +172,7 @@ class RobStrideOfficialDriver:
         for attempt in range(3):
             if self._enable_sequence(device_id) and self._is_mit_mode(device_id):
                 self._initialized.add(device_id)
+    
                 self._motor_mode[device_id] = "mit"
                 if device_id in self._motors:
                     self._motors[device_id].enabled = True
@@ -184,6 +189,7 @@ class RobStrideOfficialDriver:
         )
         if self._ensure_csp_ready(device_id):
             self._motor_mode[device_id] = "csp"
+
             return True
         # 3) CSP 也失败 → 回退 VELOCITY 速度模式（Edu Lite 05 等只支持速度模式的型号）
         logger.warning(
@@ -192,6 +198,7 @@ class RobStrideOfficialDriver:
         )
         if self._ensure_velocity_mode(device_id):
             self._motor_mode[device_id] = "vel"
+
             if device_id in self._motors:
                 self._motors[device_id].enabled = True
             logger.info("[%s] motor %d enabled (VELOCITY mode + pos-closed-loop)",
@@ -780,6 +787,13 @@ class RobStrideOfficialDriver:
             ready = self._ensure_ready(mid)
             if not ready:
                 fail_reasons.append(f"id={mid}")
+                continue
+            # 掉电即软重启：已使能电机反馈停滞 → 立即请求系统软重启（与前端"重启系统"同路径）
+            now = time.time()
+            fb = self._can.get_feedback(mid)
+            if fb is None or (now - fb.timestamp) > self._power_loss_stale:
+                from aiderminal.controller.actuator_controller import request_system_restart
+                request_system_restart(f"motor {mid} on {self._can_name} 掉电")
                 continue
             motor_deg = self._logical_deg_to_motor_deg(mid, logical_deg)
             pos_rad = deg_to_rad(motor_deg)
