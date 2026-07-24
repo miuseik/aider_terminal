@@ -33,7 +33,7 @@ RUN pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 # ── Python 依赖 ──
 RUN pip3 install --break-system-packages --ignore-installed \
     setuptools "numpy<2" requests websockets pyyaml scipy opencv-python \
-    pybullet pyserial trimesh "aiortc>=1.7.0" "av>=11.0.0" \
+    pybullet pyserial trimesh fast-simplification "aiortc>=1.7.0" "av>=11.0.0" \
     pin-pink "qpsolvers[quadprog]" meshcat_shapes loop_rate_limiters \
     colcon-common-extensions sounddevice
 
