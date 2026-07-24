@@ -167,9 +167,46 @@ class AiderAdapter:
             return np.array([0.3, 0.0, 0.5])
         return pos
 
+    def compute_fk_pose(self, arm: str, angles_deg: np.ndarray):
+        """正运动学: 8 关节角度 → TCP 位姿 (位置, 旋转矩阵)，base_link 坐标系。"""
+        if self.ik_solver is None:
+            return np.array([0.3, 0.0, 0.5]), np.eye(3)
+        body = {
+            "lift_Link": self.lift_height_mm / 1000.0,
+            "waist_Link": self.waist_angle,
+            "head_Link": self.head_yaw,
+            "head_Link2": self.head_pitch,
+        }
+        pos, rot = self.ik_solver.forward_kinematics_se3(arm, angles_deg, body)
+        if pos is None:
+            return np.array([0.3, 0.0, 0.5]), np.eye(3)
+        return pos, rot
+
+    def compute_waist_pose(self):
+        """腰部 (waist_Link) 在 base_link 系的位姿 (位置, 旋转矩阵)。
+
+        waist_Link 是双臂的共同父节点，其位姿仅由 lift/waist 关节决定（与臂无关）。
+        用作 TCP 目标点的参考坐标系：目标点表示在腰部系下，
+        waist/lift 变化时目标点跟随腰部，避免超出臂可达范围。
+        """
+        if self.ik_solver is None:
+            return np.zeros(3), np.eye(3)
+        body = {
+            "lift_Link": self.lift_height_mm / 1000.0,
+            "waist_Link": self.waist_angle,
+            "head_Link": self.head_yaw,
+            "head_Link2": self.head_pitch,
+        }
+        return self.ik_solver.frame_pose("waist_Link", body)
+
     def solve_ik(self, arm: str, target_position: np.ndarray,
-                 current_angles: Optional[np.ndarray] = None) -> np.ndarray:
-        """逆运动学: 末端位置 → 8 关节角度 (度)。"""
+                 current_angles: Optional[np.ndarray] = None,
+                 target_orientation: Optional[np.ndarray] = None) -> np.ndarray:
+        """逆运动学: 末端位置(+姿态) → 8 关节角度 (度)。
+
+        target_orientation: 目标 TCP 姿态四元数 [x,y,z,w]（可选）。
+        传入后 IK 同时解算 TCP 姿态，旋转以 TCP 为圆心。
+        """
         if current_angles is None:
             current_angles = self._get_angles(arm)
 
@@ -188,6 +225,7 @@ class AiderAdapter:
             target_position=np.array(target_position),
             current_angles=current_angles,
             body_state=body,
+            target_orientation=target_orientation,
         )
 
         if sol is None:
@@ -203,22 +241,27 @@ class AiderAdapter:
 
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray,
                           wrist_flex: float, wrist_roll: float,
-                          gripper: float, wrist_yaw: float = 0.0) -> np.ndarray:
+                          gripper: float, wrist_yaw: float = 0.0,
+                          override_wrist: bool = True) -> np.ndarray:
         """更新指定臂的关节角度（含限位钳制）。
 
-        Aider 8-DOF: IK 解全部 8 关节，wrist_roll/flex/yaw 覆盖 arm5/6/7。
+        Aider 8-DOF: IK 解全部 8 关节。
+        override_wrist=True 时 wrist_roll/flex/yaw 覆盖 arm5/6/7（旧的手腕直控）；
+        override_wrist=False 时保留 IK 解出的 arm5/6/7（全位姿 TCP IK，姿态由 IK 决定）。
+        夹爪 arm8 始终由 gripper 覆盖（独立于 IK）。
         """
         angles = ik_angles.copy()
 
-        # arm5 = wrist roll (Z轴), arm6 = wrist flex (X轴), arm7 = wrist yaw (Y轴), arm8 = gripper
-        if len(angles) >= 5:
-            angles[4] = wrist_roll    # arm5 (Z轴, 前臂旋前/旋后)
-        if len(angles) >= 6:
-            angles[5] = wrist_flex    # arm6 (X轴)
-        if len(angles) >= 7:
-            angles[6] = wrist_yaw     # arm7 (Y轴, 偏航)
+        if override_wrist:
+            # arm5 = wrist roll (Z轴), arm6 = wrist flex (X轴), arm7 = wrist yaw (Y轴)
+            if len(angles) >= 5:
+                angles[4] = wrist_roll    # arm5 (Z轴, 前臂旋前/旋后)
+            if len(angles) >= 6:
+                angles[5] = wrist_flex    # arm6 (X轴)
+            if len(angles) >= 7:
+                angles[6] = wrist_yaw     # arm7 (Y轴, 偏航)
         if len(angles) >= 8:
-            angles[7] = gripper       # arm8 (夹爪)
+            angles[7] = gripper           # arm8 (夹爪)
 
         if arm == "left":
             self.left_angles = self._clamp_arm_angles(arm, angles)

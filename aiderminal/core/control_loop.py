@@ -48,7 +48,13 @@ class ArmState:
         self.current_wrist_roll = 0.0  # 当前腕部翻滚角
         self.current_wrist_flex = 0.0  # 当前腕部弯曲角
         self.current_wrist_yaw = 0.0   # 当前腕部偏航角
-        
+        # 全位姿 TCP IK: 握把激活时的 TCP 姿态(旋转矩阵) 与 目标姿态四元数[x,y,z,w]
+        self.origin_orientation = None
+        self.target_orientation = None
+        # 腰部参考系: 握把激活时的腰部位姿(位置+旋转)，目标点跟随腰部
+        self.grip_waist_pos = None
+        self.grip_waist_rot = None
+
     def reset(self):
         """重置机械臂状态为空闲。"""
         self.mode = ControlMode.IDLE
@@ -58,6 +64,10 @@ class ArmState:
         self.origin_wrist_roll_angle = 0.0
         self.origin_wrist_flex_angle = 0.0
         self.origin_wrist_yaw_angle = 0.0
+        self.origin_orientation = None
+        self.target_orientation = None
+        self.grip_waist_pos = None
+        self.grip_waist_rot = None
 
 
 class ControlLoop:
@@ -393,7 +403,7 @@ class ControlLoop:
                 if self.robot_interface:
                     current_position = self.robot_interface.get_current_end_effector_position(goal.arm)
                     current_angles = self.robot_interface.get_arm_angles(goal.arm)
-                    
+
                     # 将所有内容重置为当前位置(类似 VR 握把按下)
                     arm_state.target_position = current_position.copy()
                     arm_state.goal_position = current_position.copy()
@@ -404,7 +414,27 @@ class ControlLoop:
                     arm_state.origin_wrist_roll_angle = current_angles[_settings.WRIST_ROLL_INDEX]
                     arm_state.origin_wrist_flex_angle = current_angles[_settings.WRIST_FLEX_INDEX]
                     arm_state.origin_wrist_yaw_angle = current_angles[_settings.WRIST_YAW_INDEX]
-                
+
+                    # 全位姿 TCP IK: 捕获握把激活时的 TCP 姿态作为旋转基准
+                    try:
+                        _, _origin_rot = self.robot_interface.get_end_effector_pose(goal.arm)
+                        arm_state.origin_orientation = _origin_rot.copy()
+                        # 初始目标姿态 = 当前姿态（四元数 [x,y,z,w]）
+                        from scipy.spatial.transform import Rotation as _R
+                        arm_state.target_orientation = _R.from_matrix(_origin_rot).as_quat()
+                    except Exception:
+                        arm_state.origin_orientation = None
+                        arm_state.target_orientation = None
+
+                    # 腰部参考系: 记录握把激活时的腰部位姿
+                    try:
+                        _wpos, _wrot = self.robot_interface.adapter.compute_waist_pose()
+                        arm_state.grip_waist_pos = _wpos.copy()
+                        arm_state.grip_waist_rot = _wrot.copy()
+                    except Exception:
+                        arm_state.grip_waist_pos = None
+                        arm_state.grip_waist_rot = None
+
                 print(f"🔒 {goal.arm.upper()}握把激活 - 控制{goal.arm}臂（目标重置为当前位置）")
                 
             elif goal.mode == ControlMode.IDLE:
@@ -435,6 +465,20 @@ class ControlLoop:
                 # 绝对位置(遗留 - 不应再使用)
                 arm_state.target_position = goal.target_position.copy()
                 arm_state.goal_position = goal.target_position.copy()
+
+        # 处理目标姿态 - VR 手柄相对旋转 → TCP 目标姿态 (全位姿 TCP IK)
+        if (arm_state.mode == ControlMode.POSITION_CONTROL and
+                goal.metadata and goal.metadata.get("relative_quaternion") is not None and
+                arm_state.origin_orientation is not None):
+            try:
+                from scipy.spatial.transform import Rotation as _R
+                from aiderminal.core.kinematic.utils import vr_rotation_to_robot
+                _rel_robot = vr_rotation_to_robot(goal.metadata["relative_quaternion"])  # [x,y,z,w]
+                _rel_rot = _R.from_quat(_rel_robot).as_matrix()
+                _target_rot = _rel_rot @ arm_state.origin_orientation
+                arm_state.target_orientation = _R.from_matrix(_target_rot).as_quat()
+            except Exception as _e:
+                pass
         
         # 处理腕部运动 — 独立于位置控制模式（VR/键盘/外骨骼都会设置腕部角度）
         # 外骨骼激活时，VR/键盘的手腕值不覆盖 arm_state（避免 exo 绝对角度被 VR 相对角度冲掉）
@@ -579,13 +623,33 @@ class ControlLoop:
             elif (arm_state.mode == ControlMode.POSITION_CONTROL and
                   arm_state.target_position is not None):
                 # === IK 模式（纯VR/键盘，无外骨骼） ===
-                ik_solution = self.robot_interface.solve_ik(arm_name, arm_state.target_position)
+                # 全位姿 TCP IK: 位置+姿态都由 IK 解算，腕关节(arm5/6/7)由 IK 决定，
+                # 不再用 VR 腕部角度覆盖（override_wrist=False），旋转以 TCP 为圆心。
+                _target_pos = arm_state.target_position
+                _target_ori = arm_state.target_orientation
+                # 腰部参考系: 目标点跟随腰部（lift/waist 变化时保持臂可达）
+                if arm_state.grip_waist_pos is not None and self.robot_interface.adapter:
+                    try:
+                        _wpos, _wrot = self.robot_interface.adapter.compute_waist_pose()
+                        # 腰部自握把以来的增量旋转
+                        _R_delta = _wrot @ arm_state.grip_waist_rot.T
+                        _target_pos = _R_delta @ (arm_state.target_position - arm_state.grip_waist_pos) + _wpos
+                        if _target_ori is not None:
+                            from scipy.spatial.transform import Rotation as _R
+                            _Rt = _R.from_quat(_target_ori).as_matrix()
+                            _target_ori = _R.from_matrix(_R_delta @ _Rt).as_quat()
+                    except Exception:
+                        pass
+                ik_solution = self.robot_interface.solve_ik(
+                    arm_name, _target_pos,
+                    target_orientation=_target_ori)
                 current_gripper = self.robot_interface.get_arm_angles(arm_name)[_settings.GRIPPER_INDEX]
                 self.robot_interface.update_arm_angles(arm_name, ik_solution,
                                                       arm_state.current_wrist_flex,
                                                       arm_state.current_wrist_roll,
                                                       current_gripper,
-                                                      arm_state.current_wrist_yaw)
+                                                      arm_state.current_wrist_yaw,
+                                                      override_wrist=False)
 
             # VR 扳机 → 夹爪
             trigger_key = f"{arm_name}Controller"

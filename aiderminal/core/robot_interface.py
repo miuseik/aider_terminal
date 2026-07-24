@@ -620,15 +620,21 @@ class RobotInterface:
         angles = self.get_arm_angles(arm)
         return self.adapter.compute_fk(arm, angles)
 
+    def get_end_effector_pose(self, arm: str):
+        """获取指定机械臂的 TCP 位姿 (位置, 旋转矩阵)。委托给适配器。"""
+        angles = self.get_arm_angles(arm)
+        return self.adapter.compute_fk_pose(arm, angles)
+
     def solve_ik(self, arm: str, target_position: np.ndarray,
                  target_orientation: Optional[np.ndarray] = None) -> np.ndarray:
         """逆运动学求解。委托给适配器。"""
         current_angles = self.get_arm_angles(arm)
-        return self.adapter.solve_ik(arm, target_position, current_angles)
+        return self.adapter.solve_ik(arm, target_position, current_angles,
+                                     target_orientation=target_orientation)
 
-    def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float, wrist_yaw: float = 0.0):
+    def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float, wrist_yaw: float = 0.0, override_wrist: bool = True):
         """更新关节角度（含限位钳制）。委托给适配器。"""
-        self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper, wrist_yaw)
+        self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper, wrist_yaw, override_wrist)
 
     def engage(self) -> bool:
         """使能机器人电机(开始发送指令)。

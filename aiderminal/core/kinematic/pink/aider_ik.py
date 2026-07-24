@@ -55,9 +55,12 @@ class AiderPinkSolver:
     """
 
     # 末端执行器 frame 名称（在 URDF 中定义）
+    # 使用 TCP (tool center point) 而非 arm8：
+    # TCP 是工具尖点，与 arm8 平级挂在 arm7 下（fixed），不随夹爪旋转。
+    # IK 控制 TCP 的位置+姿态，VR 手柄直接映射到 TCP，旋转以 TCP 为圆心。
     ARM_LINKS = {
-        "left": "left_arm8",
-        "right": "right_arm8",
+        "left": "left_hand_tcp",
+        "right": "right_hand_tcp",
     }
 
     def __init__(self, urdf_path: Optional[str] = None):
@@ -250,6 +253,38 @@ class AiderPinkSolver:
         pos = self.robot.data.oMf[frame_id].translation
         return np.array(pos[:3])
 
+    def forward_kinematics_se3(self, arm: str, angles_deg: np.ndarray,
+                               body_state: Optional[dict] = None):
+        """正运动学: 关节角度 → TCP 位姿 (位置 + 旋转矩阵, base_link 坐标系)。
+
+        Returns:
+            (pos[3], rot[3x3])，失败返回 (None, None)
+        """
+        if arm not in self._end_frame_ids:
+            return None, None
+        q = self._update_current_q(arm, angles_deg, body_state)
+        pin.forwardKinematics(self.robot.model, self.robot.data, q)
+        pin.updateFramePlacements(self.robot.model, self.robot.data)
+        tf = self.robot.data.oMf[self._end_frame_ids[arm]]
+        return tf.translation.copy(), tf.rotation.copy()
+
+    def frame_pose(self, frame_name: str, body_state: Optional[dict] = None):
+        """任意 frame 在 base_link 系的位姿 (pos, rot)。
+
+        手臂关节置零（waist_Link 在臂上游，不受臂关节影响），
+        仅 body_state (lift/waist/head) 决定其位姿。
+        """
+        q = self._make_zero_config()
+        if body_state:
+            for jname, val in body_state.items():
+                qi = self._q_idx(jname)
+                if qi >= 0:
+                    q[qi] = val
+        pin.forwardKinematics(self.robot.model, self.robot.data, q)
+        pin.updateFramePlacements(self.robot.model, self.robot.data)
+        tf = self.robot.data.oMf[self.robot.model.getFrameId(frame_name)]
+        return tf.translation.copy(), tf.rotation.copy()
+
     def _extract_arm_angles(self, q: np.ndarray, arm: str) -> np.ndarray:
         """从完整配置 q 中提取指定臂的 8 个关节角度（度）。"""
         angles = np.zeros(len(self.arm_joints[arm]))
@@ -263,7 +298,11 @@ class AiderPinkSolver:
               current_angles: np.ndarray,
               body_state: Optional[dict] = None,
               target_orientation: Optional[np.ndarray] = None,
-              dt: float = 0.05) -> Optional[np.ndarray]:
+              dt: float = 0.05,
+              position_cost: float = 1.0,
+              orientation_cost: float = 0.5,
+              posture_cost: float = 0.05,
+              enable_elbow_avoidance: bool = True) -> Optional[np.ndarray]:
         """单臂 IK 求解。
 
         Args:
@@ -273,6 +312,8 @@ class AiderPinkSolver:
             body_state: 身体关节状态 {lift_m, waist_rad, head_yaw_rad, head_pitch_rad}
             target_orientation: 目标姿态四元数 [x,y,z,w]（可选）
             dt: 积分时间步长
+            position_cost: 位置任务权重（提高可减小位置稳态误差，旋转更锁 TCP 圆心）
+            orientation_cost: 姿态任务权重（仅 target_orientation 提供时生效）
 
         Returns:
             8 个关节角度（度），失败返回 None
@@ -290,14 +331,17 @@ class AiderPinkSolver:
         # 1. 末端执行器位置任务
         ee_task = FrameTask(
             self.ARM_LINKS[arm],
-            position_cost=1.0,
-            orientation_cost=0.5 if target_orientation is not None else 0.0,
+            position_cost=position_cost,
+            orientation_cost=orientation_cost if target_orientation is not None else 0.0,
             lm_damping=1.0,
         )
         target_se3 = pin.SE3.Identity()
         target_se3.translation = np.asarray(target_position, dtype=float)
         if target_orientation is not None:
-            target_se3.rotation = pin.Quaternion(*target_orientation).matrix()
+            # target_orientation 约定为 [x,y,z,w]（scipy 顺序）。
+            # pin.Quaternion(w,x,y,z) 按 Eigen 构造，必须显式重排，否则姿态完全错误。
+            qx, qy, qz, qw = target_orientation
+            target_se3.rotation = pin.Quaternion(qw, qx, qy, qz).matrix()
         ee_task.transform_target_to_world = target_se3
         tasks.append(ee_task)
 
@@ -319,7 +363,7 @@ class AiderPinkSolver:
             if qi >= 0:
                 posture_target[qi] = self._posture_q[qi]
 
-        posture_task = PostureTask(cost=0.05)
+        posture_task = PostureTask(cost=posture_cost)
         posture_task.set_target(posture_target)
         tasks.append(posture_task)
 
@@ -328,7 +372,7 @@ class AiderPinkSolver:
         #    X 方向：远离 X=0（同样用 elbow_x 符号）
         elbow_frame = f"{arm}_arm4"
         elbow_fid = self.robot.model.getFrameId(elbow_frame)
-        if elbow_fid < self.robot.model.nframes:
+        if enable_elbow_avoidance and elbow_fid < self.robot.model.nframes:
             elbow_pos = configuration.get_transform_frame_to_world(
                 elbow_frame).translation
             elbow_y = elbow_pos[1]

@@ -228,7 +228,17 @@ class VRHandler(BaseInputProvider):
                     controller.z_axis_rotation = self.extract_roll_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
                     controller.x_axis_rotation = self.extract_pitch_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
                     controller.y_axis_rotation = self.extract_yaw_from_quaternion(controller.accumulated_rotation_quat, controller.origin_quaternion)
-                
+
+                # 相对旋转四元数（VR 坐标系，[x,y,z,w]），供 control_loop 做全位姿 TCP IK
+                relative_quat = None
+                if controller.origin_quaternion is not None and controller.accumulated_rotation_quat is not None:
+                    try:
+                        _o = R.from_quat(controller.origin_quaternion)
+                        _c = R.from_quat(controller.accumulated_rotation_quat)
+                        relative_quat = (_c * _o.inv()).as_quat().tolist()  # [x,y,z,w]
+                    except Exception:
+                        relative_quat = None
+
                 # 创建位置控制目标
                 # 注意：这里发送相对位置，control_loop 会处理将其添加到机器人当前位置
                 goal = ControlGoal(
@@ -241,7 +251,8 @@ class VRHandler(BaseInputProvider):
                     metadata={
                         "source": "vr_grip",
                         "relative_position": True,
-                        "origin_position": controller.origin_position.copy()
+                        "origin_position": controller.origin_position.copy(),
+                        "relative_quaternion": relative_quat
                     }
                 )
                 await self.send_goal(goal)

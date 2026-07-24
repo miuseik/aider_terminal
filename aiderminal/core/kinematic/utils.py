@@ -48,6 +48,21 @@ def vr_to_robot_coordinates(vr_pos: dict, scale: float = 1.0) -> np.ndarray:
     return fn(vr_pos, scale)
 
 
+def vr_rotation_to_robot(rel_quat_xyzw) -> np.ndarray:
+    """将 VR 坐标系下的相对旋转四元数 [x,y,z,w] 转换到机器人坐标系 [x,y,z,w]。
+
+    与 _vr_to_robot_aider 的位置映射 [-vr_x, vr_z, vr_y] 是同一个旋转 R_POS，
+    保证位置与姿态使用一致的坐标变换。R_POS @ m @ R_POS.T 为换基共轭。
+    """
+    from scipy.spatial.transform import Rotation as _R
+    R_POS = np.array([[-1.0, 0.0, 0.0],
+                      [0.0, 0.0, 1.0],
+                      [0.0, 1.0, 0.0]])
+    m = _R.from_quat(rel_quat_xyzw).as_matrix()
+    m_robot = R_POS @ m @ R_POS.T
+    return _R.from_matrix(m_robot).as_quat()
+
+
 def compute_relative_position(current_vr_pos: dict, origin_vr_pos: dict, scale: float = 1.0,
                               dead_zone: float = 0.005) -> np.ndarray:
     """计算从 VR 原点到当前位置的相对位置，带死区过滤微小抖动。
