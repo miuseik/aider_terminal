@@ -76,6 +76,8 @@ class ControlLoop:
         self.command_queue = command_queue
         self.control_commands_queue = control_commands_queue
         self.config = config
+        # 进程启动时间戳（秒）：随 hardware_status 推送，前端据此检测 Terminal 重启（Docker 拉起新进程时值变化）
+        self._started_at = time.time()
         
         # === 核心组件 ===
         self.robot_interface = None
@@ -640,14 +642,7 @@ class ControlLoop:
             bv = self.base_velocity_target
             base_active = abs(bv["x"]) > 0.001 or abs(bv["y"]) > 0.001 or abs(bv["theta"]) > 0.001
             
-            # 只在 VR/键盘有输入时才打印DIAG信息
-            from aiderminal.inputs.base import is_any_input_active
-            if is_any_input_active():
-                print(f"[DIAG] IK解算器={ik_solver_count} | "
-                      f"左臂={'🟢' if left_ik_ok else '🔴'} | "
-                      f"右臂={'🟢' if right_ik_ok else '🔴'} | "
-                      f"底盘={'🟢' if base_active else '🔴'} "
-                      f"(vx={bv['x']:.3f} vy={bv['y']:.3f} vt={bv['theta']:.3f})")
+
     
     def set_control_mode(self, mode: str, exo_active: bool = False):
         """设置系统控制模式 (由 Server 广播触发)。
@@ -691,6 +686,8 @@ class ControlLoop:
             "running": self.is_running,
             "control_mode": self.control_mode,
             "exo_controlling": self._exo_controlling,
+            # 进程启动时间戳：Terminal 重启（Docker 拉起）后值变化，前端据此弹"已重启"确认
+            "started_at": self._started_at,
             "left_arm_mode": self.left_arm.mode.value,
             "right_arm_mode": self.right_arm.mode.value,
             "visualizer_connected": self.visualizer.is_connected if self.visualizer else False,

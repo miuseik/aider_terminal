@@ -350,17 +350,11 @@ class VRWebSocketClient:
                 "result": result,
             }))
         elif action == 'restart':
-            print("🔄 收到重启命令")
-            if cl and hasattr(cl, 'main_app'):
-                cl.main_app.restart()
-                # 超时保护：10秒后强制硬重启
-                import threading, os, sys
-                def force_restart():
-                    import time
-                    time.sleep(10)
-                    print("⚠️ 软重启超时，执行强制硬重启")
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
-                threading.Thread(target=force_restart, daemon=True).start()
+            # 直接退出进程，由 Docker (restart: unless-stopped) 拉起全新容器：
+            # 全新 Python 进程 + 重新 import + setup_can + 重连 server，替代原软重启序列
+            print("🔄 收到重启命令，进程退出等待 Docker 重启")
+            import os
+            os._exit(1)
         elif action.startswith('control_') or action == 'calibrate_motor':
             if not self.actuator_router:
                 print("⚠️ API命令路由器未初始化")

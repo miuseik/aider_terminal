@@ -5,6 +5,7 @@ RobStride 官方驱动适配器 — 实现 JointActuatorInterface 契约
 使 ActuatorController 可以无差别控制舵机和电机。
 """
 
+import os
 import time
 import logging
 from typing import Dict, List, Optional
@@ -788,13 +789,12 @@ class RobStrideOfficialDriver:
             if not ready:
                 fail_reasons.append(f"id={mid}")
                 continue
-            # 掉电即软重启：已使能电机反馈停滞 → 立即请求系统软重启（与前端"重启系统"同路径）
+            # 掉电即重启：已使能电机反馈停滞 → 直接退出进程，由 Docker (unless-stopped) 拉起全新容器
             now = time.time()
             fb = self._can.get_feedback(mid)
             if fb is None or (now - fb.timestamp) > self._power_loss_stale:
-                from aiderminal.controller.actuator_controller import request_system_restart
-                request_system_restart(f"motor {mid} on {self._can_name} 掉电")
-                continue
+                logger.warning("🔄 检测到电机掉电，进程退出等待 Docker 重启: motor %d on %s", mid, self._can_name)
+                os._exit(1)
             motor_deg = self._logical_deg_to_motor_deg(mid, logical_deg)
             pos_rad = deg_to_rad(motor_deg)
             # 按使能阶段确定的模式发指令：CSP 走位置模式、VELOCITY(vel) 走速度模式

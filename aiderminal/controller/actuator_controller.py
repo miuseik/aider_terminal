@@ -13,37 +13,6 @@ from concurrent.futures import ThreadPoolExecutor
 logger = logging.getLogger(__name__)
 
 
-# ── 电机掉电自动重启 ─────────────────────────────────
-# 检测到电机掉电（已使能的电机突然失去反馈）时，回调触发系统软重启，
-# 与前端"设置 → 系统设置 → 重启系统"按钮走同一条路径 (TelegripSystem.restart)。
-# 用冷却时间防止：同一掉电事件被多个电机重复触发、或软重启未完成时重复触发。
-_AUTO_RESTART_COOLDOWN = 10.0
-_last_auto_restart_ts = 0.0
-_restart_request_cb = None
-
-
-def set_global_restart_callback(cb) -> None:
-    """由 TelegripSystem 在启动时注入（通常是 self.restart）。"""
-    global _restart_request_cb
-    _restart_request_cb = cb
-
-
-def request_system_restart(reason: str) -> None:
-    """请求系统软重启（带冷却保护，避免掉电期间无限重启风暴）。"""
-    global _last_auto_restart_ts
-    if _restart_request_cb is None:
-        return
-    now = time.time()
-    if now - _last_auto_restart_ts < _AUTO_RESTART_COOLDOWN:
-        return
-    _last_auto_restart_ts = now
-    logger.warning("🔄 检测到电机掉电，自动重启系统: %s", reason)
-    try:
-        _restart_request_cb()
-    except Exception as e:  # 不阻断主流程
-        logger.error("自动重启回调异常: %s", e)
-
-
 @dataclass
 class ActuatorInfo:
     """执行器注册信息."""

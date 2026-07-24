@@ -13,7 +13,6 @@ import socket
 import contextlib
 from typing import Optional
 import queue  # 添加常规队列用于线程安全通信
-import threading
 
 
 def get_local_ip():
@@ -91,10 +90,6 @@ class TelegripSystem:
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
         self.control_loop.main_app = self  # ← 添加 main_app 引用
 
-        # 注入电机掉电自动重启回调（与前端"重启系统"按钮同一条路径）
-        from aiderminal.controller.actuator_controller import set_global_restart_callback
-        set_global_restart_callback(self.restart)
-
         # 为 ESC 键设置断开连接回调
         self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")
         
@@ -141,163 +136,11 @@ class TelegripSystem:
         except Exception as e:
             print(f"处理控制命令时出错: {e}")
     
-    def restart(self):
-        """重启遥操作系统。"""
-        def do_restart():
-            try:
-                print("正在启动系统重启...")
-                # 使用存储的主事件循环引用来调度软重启
-                if self.main_loop and not self.main_loop.is_closed():
-                    future = asyncio.run_coroutine_threadsafe(self._soft_restart_sequence(), self.main_loop)
-                    # 等待重启完成
-                    future.result(timeout=30.0)
-                else:
-                    print("主事件循环不可用，无法重启")
-            except Exception as e:
-                print(f"重启过程中出错: {e}")
-        
-        # 在单独的线程中运行重启以避免阻塞 HTTP 响应
-        restart_thread = threading.Thread(target=do_restart, daemon=True)
-        restart_thread.start()
-    
-    async def _soft_restart_sequence(self):
-        """通过重新初始化组件执行软重启，而不退出进程。"""
-        try:
-            print("开始软重启序列...")
-            
-            # 等待片刻让 HTTP 响应发送
-            await asyncio.sleep(1)
-            
-            # 取消所有任务
-            for task in self.tasks:
-                task.cancel()
-            
-            # 等待任务完成并设置超时
-            if self.tasks:
-                try:
-                    await asyncio.wait_for(
-                        asyncio.gather(*self.tasks, return_exceptions=True), 
-                        timeout=5.0
-                    )
-                except asyncio.TimeoutError:
-                    print("部分任务未在超时时间内完成")
-            
-            # 按相反顺序停止组件
-            await self.control_loop.stop()
-            await self.web_keyboard_handler.stop()
-            await self.ws_client.disconnect()
-            await self.vr_handler.stop()
-            await self.exo_handler.stop()
-            # HTTPS server disabled - UI migrated to external Vue project
-
-            # 等待清理
-            await asyncio.sleep(1)
-
-            # 从文件重新加载配置但保留命令行覆盖
-            from aiderminal.config.settings import get_config_data
-            file_config = get_config_data()
-            print("已从文件重新加载配置")
-
-            # 保留现有的配置对象以保持命令行参数
-            # 只更新配置文件中可能已更改的特定值
-
-            # 使用现有配置重新创建组件
-            self.command_queue = asyncio.Queue()
-            self.control_commands_queue = queue.Queue(maxsize=10)
-
-            # 确保 CAN 接口已正确配置
-            try:
-                setup_can()
-            except Exception as e:
-                logger.warning("CAN setup failed (non-fatal): %s", e)
-
-            # 创建新组件
-            self.vr_handler = VRHandler(self.command_queue, self.config)
-            _api_host = getattr(self.config, 'api_host', None) or getattr(self.config, 'server_host', 'localhost')
-            _api_url = f"https://{_api_host}:{self.config.websocket_port}"
-            self.exo_handler = ExoHandler(self.command_queue, server_url=_api_url)
-            
-            # 重新初始化 API 路由器
-            from aiderminal.router.actuator_router import ActuatorRouter
-            self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
-            self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
-            
-            self.ws_client = VRWebSocketClient(self.config, self.vr_handler, self.actuator_router, self.control_loop, self.exo_handler)
-
-            # WebRTC 推流器
-            self.webrtc_streamer = WebRTCStreamer(self.config)
-
-            # 设置交叉引用
-            self.vr_handler.web_keyboard_handler = self.web_keyboard_handler
-            self.vr_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(VR 接管必需)
-            self.exo_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(外骨骼接管必需)
-            self.web_keyboard_handler.control_loop = self.control_loop  # ← 注入 control_loop 引用(键盘模式检查)
-            self.control_loop.exo_handler = self.exo_handler  # ← 注入 exo_handler 引用(ControlLoop 查询 exo 控制的关节)
-            self.control_loop.web_keyboard_handler = self.web_keyboard_handler
-            self.control_loop.main_app = self  # ← 添加 main_app 引用
-
-            # 为 ESC 键设置断开连接回调
-            self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")
-
-            # 清除旧任务
-            self.tasks = []
-
-            # 启动 VR 处理器（无服务器，仅处理器）
-            await self.vr_handler.start()
-
-            # 启动外骨骼处理器
-            await self.exo_handler.start()
-
-            # 通过 WebSocket 客户端连接到 Aider Server
-            await self.ws_client.connect()
-
-            # WebRTC 视频推流
-            if getattr(self.config, 'enable_webrtc', False):
-                print("📹 启动 WebRTC 视频推流...")
-                self.webrtc_streamer.set_transport(self.ws_client.transport)
-                webrtc_task = asyncio.create_task(self.webrtc_streamer.run())
-                self.tasks.append(webrtc_task)
-                # 等待 WebRTC 加入房间完成，再启动控制循环（PyBullet 会阻塞事件循环）
-                try:
-                    await asyncio.wait_for(self.webrtc_streamer._joined.wait(), timeout=30)
-                except asyncio.TimeoutError:
-                    print("⚠️ WebRTC 加入房间超时，继续启动...")
-
-            # 启动 Web 键盘处理器
-            await self.web_keyboard_handler.start()
-
-            # 启动控制循环
-            control_task = asyncio.create_task(self.control_loop.start())
-            self.tasks.append(control_task)
-
-            # 启动硬件状态周期推送（业务归属 WebSocket 客户端，由客户端自身维护）
-            status_pusher_task = asyncio.create_task(self.ws_client.run_status_pusher())
-            self.tasks.append(status_pusher_task)
-
-            # 启动控制命令处理器
-            command_processor_task = asyncio.create_task(self._run_command_processor())
-            self.tasks.append(command_processor_task)
-
-            print("系统重启成功完成")
-
-            # 如果请求则自动连接机器人（在重启后保留自动连接行为）
-            if self.config.autoconnect:
-                print("🔌 重启后自动连接机器人电机...")
-                await asyncio.sleep(0.5)  # Brief delay to let components settle
-                self.add_control_command("robot_connect")
-            
-        except Exception as e:
-            print(f"软重启序列期间出错: {e}")
-            raise
-    
     async def start(self):
         """启动所有系统组件。"""
         try:
             self.is_running = True
-            
-            # 存储主事件循环引用以用于重启功能
-            self.main_loop = asyncio.get_event_loop()
-            
+
             # 启动时确保 CAN 接口配置正确
             try:
                 setup_can()

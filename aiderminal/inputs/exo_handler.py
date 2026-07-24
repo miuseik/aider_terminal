@@ -199,10 +199,8 @@ class ExoHandler(BaseInputProvider):
         支持两种模式:
         1. 中点模式 (pot_zero 已配置):
            - pot_zero 为物理中点参考值
-           - pot_travel 为电位器从零位能拧的最大物理行程 (默认 90°)
-           - raw >= pot_zero → 偏移量/span 映射到 [0, angle_max]
-           - raw <  pot_zero → 偏移量/span 映射到 [angle_min, 0]
-           - 正负方向使用相同 span (pot_travel)，保证对称
+           - raw >= pot_zero → [0, angle_max]，span = pot_max - pot_zero
+           - raw <  pot_zero → [angle_min, 0]，span = pot_zero - pot_min
            - reverse=true 时翻转输出符号 (正反转)
         2. 旧式线性插值 (无 pot_zero 时兜底):
            - pot_min/pot_max → angle_min/angle_max 线性映射
@@ -223,18 +221,14 @@ class ExoHandler(BaseInputProvider):
 
         # ---- 中点模式 (pot_zero 有配置) ----
         if pot_zero is not None and isinstance(pot_zero, (int, float)):
-            # 以 pot_zero 为中心，正负方向使用相同的物理行程 span
-            pot_travel = float(calib.get("pot_travel", 90.0))
-            if pot_travel < 0.001:
-                angle = 0.0
+            if raw_angle >= pot_zero:
+                span = pot_max - pot_zero
+                ratio = 0.0 if span < 0.001 else max(0.0, min(1.0, (raw_angle - pot_zero) / span))
+                angle = ratio * angle_max
             else:
-                offset = raw_angle - pot_zero
-                ratio = offset / pot_travel
-                ratio = max(-1.0, min(1.0, ratio))
-                if ratio >= 0:
-                    angle = ratio * angle_max
-                else:
-                    angle = -abs(ratio) * abs(angle_min)
+                span = pot_zero - pot_min
+                ratio = 0.0 if span < 0.001 else max(0.0, min(1.0, (pot_zero - raw_angle) / span))
+                angle = -ratio * abs(angle_min)
         else:
             # ---- 旧式线性插值 (向后兼容, pot_zero 未配置) ----
             if abs(pot_max - pot_min) < 0.001:
