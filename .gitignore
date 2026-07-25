@@ -47,11 +47,9 @@ pytest_cache/
 .pytest_cache/
 
 # Environments
-.env
 .venv
 .idea
 venv/
-ENV/
 
 # Spyder project settings
 .spyderproject
