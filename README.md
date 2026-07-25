@@ -90,7 +90,7 @@ cd www/aider_terminal
 ```
 
 ```bash
-ssh gaoda@192.168.0.110
+ssh gaoda@192.168.0.113
 #cd /www/aider/aider_terminal ;sudo git pull ; ./start-pro.sh
 cd /www/aider/aider_terminal ;sudo git pull ; docker compose restart
 密码：gaoda123
