@@ -896,7 +896,9 @@ class RobotInterface:
                     continue
                 port = cmd["port"]
                 targets = cmd["targets"]
-                driver = self.motor_controller._get_or_create_driver(port)
+                # 用线程执行，避免 CAN 掉线时 setup_can 的阻塞 subprocess 卡死事件循环，
+                # 导致 WebSocket 心跳超时掉线（服务端 WS_PING_TIMEOUT=10 会据此 close(1011)）
+                driver = await asyncio.to_thread(self.motor_controller._get_or_create_driver, port)
                 if driver and hasattr(driver, 'sync_write_positions'):
                     try:
                         await asyncio.wait_for(
@@ -927,7 +929,8 @@ class RobotInterface:
                     except asyncio.TimeoutError:
                         print(f"[HW] speed_mode port={port} id={servo_id} 超时，跳过")
                 # 批量写入速度
-                driver = self.motor_controller._get_or_create_driver(port)
+                # 同上：避免 CAN 重连阻塞事件循环（事件循环卡死会导致 WS 心跳超时掉线）
+                driver = await asyncio.to_thread(self.motor_controller._get_or_create_driver, port)
                 if driver and hasattr(driver, 'sync_write_spec_batch'):
                     try:
                         await asyncio.wait_for(
@@ -950,7 +953,8 @@ class RobotInterface:
                     port = self.online_servos.get(lid)
                     if not port:
                         continue
-                    driver = self.motor_controller._get_or_create_driver(port)
+                    # 同上：避免 CAN 重连阻塞事件循环
+                    driver = await asyncio.to_thread(self.motor_controller._get_or_create_driver, port)
                     if driver and hasattr(driver, '_send_velocity_rad'):
                         try:
                             await asyncio.wait_for(
@@ -982,7 +986,8 @@ class RobotInterface:
         key = f"_speed_mode_{port}_{servo_id}"
         if not hasattr(self, key):
             loop = asyncio.get_event_loop()
-            driver = self.motor_controller._get_or_create_driver(port)
+            # 同上：避免 CAN 重连阻塞事件循环
+            driver = await asyncio.to_thread(self.motor_controller._get_or_create_driver, port)
             if driver and hasattr(driver, 'set_velocity_mode'):
                 await loop.run_in_executor(
                     self.motor_controller._executor,
