@@ -129,7 +129,37 @@ class RobotInterface:
     @right_arm_angles.setter
     def right_arm_angles(self, value):
         self.adapter.right_angles = value
-    
+
+    def set_arm_angles(self, arm: str, angles, clamp: bool = True):
+        """写入臂关节角度。clamp=True（默认）时经软限位钳制，覆盖姿态预设等命令路径。
+
+        注意：硬件反馈读回请用 left_arm_angles/right_arm_angles 属性直写（不钳制，保留真实读数）。
+        """
+        arr = np.asarray(angles, dtype=float)
+        if clamp and self.adapter is not None:
+            arr = self.adapter._clamp_arm_angles(arm, arr)
+        if arm == "left":
+            self.adapter.left_angles = arr
+        else:
+            self.adapter.right_angles = arr
+
+    # 姿态语义名 → URDF 关节名 映射（供 set_body_joint 使用）
+    _BODY_JOINT_MAP = {
+        "waist":      "waist_Link",
+        "head_yaw":   "head_Link",
+        "head_pitch": "head_Link2",
+    }
+
+    def set_body_joint(self, name: str, angle_rad: float):
+        """写入身体关节（腰/头）角度，经软限位钳制。命令路径统一入口。
+
+        注意：硬件反馈读回请直写 ri.adapter.waist_angle 等属性（不钳制，保留真实读数）。
+        """
+        if self.adapter is None:
+            return
+        urdf_name = self._BODY_JOINT_MAP.get(name, name)
+        self.adapter.set_body_joint_absolute(urdf_name, float(angle_rad))
+
     def set_servo_ids_config(self, config: dict):
         """设置舵机 ID 配置（从 Server 获取，扁平结构，无 bus 包装）"""
         if not config:

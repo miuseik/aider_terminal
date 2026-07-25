@@ -89,9 +89,9 @@ async def goto_pose(ri, arm: str, pose_name: str, duration: float = 5.0) -> Dict
         t = (i + 1) / steps
         eased = t * t * (3.0 - 2.0 * t)  # smoothstep
         if target_left is not None:
-            ri.left_arm_angles = start_left + (target_left - start_left) * eased
+            ri.set_arm_angles("left", start_left + (target_left - start_left) * eased)
         if target_right is not None:
-            ri.right_arm_angles = start_right + (target_right - start_right) * eased
+            ri.set_arm_angles("right", start_right + (target_right - start_right) * eased)
         _apply_body(ri, start_body, target_body, eased)
         ri.last_send_time = 0
         await ri.send_command()
@@ -99,9 +99,9 @@ async def goto_pose(ri, arm: str, pose_name: str, duration: float = 5.0) -> Dict
 
     # ---- 最终帧：精确设为目标值 ----
     if target_left is not None:
-        ri.left_arm_angles = target_left
+        ri.set_arm_angles("left", target_left)
     if target_right is not None:
-        ri.right_arm_angles = target_right
+        ri.set_arm_angles("right", target_right)
     _apply_body(ri, start_body, target_body, 1.0)
     ri.last_send_time = 0
     await ri.send_command()
@@ -132,16 +132,16 @@ async def return_to_initial_position(ri, duration: float = 5.0):
         for i in range(steps):
             t = (i + 1) / steps
             eased = t * t * (3.0 - 2.0 * t)  # smoothstep
-            ri.left_arm_angles = start_left + (target_left - start_left) * eased
-            ri.right_arm_angles = start_right + (target_right - start_right) * eased
+            ri.set_arm_angles("left", start_left + (target_left - start_left) * eased)
+            ri.set_arm_angles("right", start_right + (target_right - start_right) * eased)
             _apply_body(ri, start_body, target_body, eased)
             ri.last_send_time = 0
             await ri.send_command()
             await asyncio.sleep(step_s)
 
         # 最终帧：精确设为目标值
-        ri.left_arm_angles = target_left
-        ri.right_arm_angles = target_right
+        ri.set_arm_angles("left", target_left)
+        ri.set_arm_angles("right", target_right)
         _apply_body(ri, start_body, target_body, 1.0)
         ri.last_send_time = 0
         await ri.send_command()
@@ -152,14 +152,10 @@ async def return_to_initial_position(ri, duration: float = 5.0):
 
 
 def _apply_body(ri, start_body: dict, target_body: dict, eased: float):
-    """将 eased 插值结果写入 adapter 的身体关节属性。"""
+    """将 eased 插值结果写入 adapter 的身体关节属性（经软限位钳制）。"""
     for key in target_body:
         val = start_body[key] + (target_body[key] - start_body[key]) * eased
         if key == "lift":
             ri.adapter.lift_height_mm = val
-        elif key == "waist":
-            ri.adapter.waist_angle = val
-        elif key == "head_yaw":
-            ri.adapter.head_yaw = val
-        elif key == "head_pitch":
-            ri.adapter.head_pitch = val
+        else:
+            ri.set_body_joint(key, val)

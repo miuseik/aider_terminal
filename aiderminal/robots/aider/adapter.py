@@ -37,7 +37,7 @@ from aiderminal.config.settings import (
     TelegripConfig, NUM_JOINTS, NUM_IK_JOINTS,
     GRIPPER_INDEX, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT,
 )
-from aiderminal.robots.aider.settings import JOINT_LIMIT_OVERRIDES
+from aiderminal.robots.aider.settings import JOINT_LIMIT_OVERRIDES, SOFT_LIMIT_MARGIN_DEG
 
 # ======================== 麦克纳姆轮常量 ========================
 WHEEL_RADIUS: float = 0.05
@@ -269,9 +269,25 @@ class AiderAdapter:
             self.right_angles = self._clamp_arm_angles(arm, angles)
         return angles
 
-    def _clamp_arm_angles(self, arm: str, angles: np.ndarray) -> np.ndarray:
-        """钳制臂关节角度到 URDF 限位（与 settings.py 同步）。"""
+    def _soft_arm_limits(self, arm: str) -> Optional[np.ndarray]:
+        """带安全余量的软限位 (Nx2)。在物理限位基础上各留 SOFT_LIMIT_MARGIN_DEG，
+        让指令角度永远到不了物理死区，避免电机顶死硬限位失能。"""
         limits = self._arm_limits_deg.get(arm)
+        if limits is None:
+            return None
+        m = SOFT_LIMIT_MARGIN_DEG
+        out = limits.copy()
+        out[:, 0] = out[:, 0] + m
+        out[:, 1] = out[:, 1] - m
+        # 余量过大导致下界越过上界时，回退到物理限位
+        for i in range(len(out)):
+            if out[i, 0] > out[i, 1]:
+                out[i, 0], out[i, 1] = limits[i, 0], limits[i, 1]
+        return out
+
+    def _clamp_arm_angles(self, arm: str, angles: np.ndarray) -> np.ndarray:
+        """钳制臂关节角度到软限位（物理限位 - 安全余量）。"""
+        limits = self._soft_arm_limits(arm)
         if limits is None:
             return angles
         for i in range(min(len(angles), len(limits))):
@@ -279,9 +295,9 @@ class AiderAdapter:
         return angles
 
     def apply_gripper_from_trigger(self, arm: str, trigger_value: float) -> None:
-        """根据 VR 扳机值 (0~1) 设置夹爪角度，钳制到 URDF 限位。"""
+        """根据 VR 扳机值 (0~1) 设置夹爪角度，钳制到软限位。"""
         gripper_angle = -trigger_value * 90.0
-        limits = self._arm_limits_deg.get(arm)
+        limits = self._soft_arm_limits(arm)
         if limits is not None and len(limits) > GRIPPER_INDEX:
             gripper_angle = np.clip(gripper_angle, limits[GRIPPER_INDEX, 0], limits[GRIPPER_INDEX, 1])
         if arm == "left" and len(self.left_angles) > GRIPPER_INDEX:
@@ -291,9 +307,18 @@ class AiderAdapter:
 
     # ======================== 身体关节 ========================
 
-    def set_body_joint_delta(self, joint_name: str, delta_rad: float) -> None:
-        """增量更新身体关节（腰/头），钳制到 URDF 限位内。"""
+    def _soft_body_limit(self, joint_name: str):
+        """身体关节软限位 (lo_deg, hi_deg)，在 JOINT_LIMIT_OVERRIDES 基础上留余量。"""
         lo_deg, hi_deg = JOINT_LIMIT_OVERRIDES.get(joint_name, (-180, 180))
+        m = SOFT_LIMIT_MARGIN_DEG
+        lo, hi = lo_deg + m, hi_deg - m
+        if lo > hi:
+            lo, hi = lo_deg, hi_deg
+        return lo, hi
+
+    def set_body_joint_delta(self, joint_name: str, delta_rad: float) -> None:
+        """增量更新身体关节（腰/头），钳制到软限位内。"""
+        lo_deg, hi_deg = self._soft_body_limit(joint_name)
         lo, hi = math.radians(lo_deg), math.radians(hi_deg)
         if joint_name == "waist_Link":
             self.waist_angle = np.clip(self.waist_angle + delta_rad, lo, hi)
@@ -303,8 +328,8 @@ class AiderAdapter:
             self.head_pitch = np.clip(self.head_pitch + delta_rad, lo, hi)
     
     def set_body_joint_absolute(self, joint_name: str, angle_rad: float) -> None:
-        """绝对设置身体关节角度（头显 VR），钳制到 URDF 限位内。"""
-        lo_deg, hi_deg = JOINT_LIMIT_OVERRIDES.get(joint_name, (-180, 180))
+        """绝对设置身体关节角度（头显 VR），钳制到软限位内。"""
+        lo_deg, hi_deg = self._soft_body_limit(joint_name)
         lo, hi = math.radians(lo_deg), math.radians(hi_deg)
         val = float(np.clip(angle_rad, lo, hi))
         if joint_name == "waist_Link":
@@ -315,7 +340,7 @@ class AiderAdapter:
             self.head_pitch = val
 
     # ======================== 头显 → 身体关节映射 ========================
-    # 腰 (waist_Link):     绕X轴, 负值=鞠躬, 正值=下腰  1 DOF  -90°~0° (坐标→弯腰)
+    # 腰 (waist_Link):     绕X轴, 负值=鞠躬, 正值=下腰  1 DOF  -90°~+30° (坐标→弯腰)
     # 脖 (head_Link,  id7): 绕Z轴, 转头/偏航  1 DOF  ±60°
     # 脖 (head_Link2, id6): 绕X轴, 负值=低头, 正值=抬头  1 DOF  -30°~45°  (俯仰→抬头)
     HEAD_YAW_TO_NECK   = 1.0   # 头显 yaw  → 脖子转头 (head_Link, id7)

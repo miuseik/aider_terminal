@@ -366,10 +366,8 @@ class ControlLoop:
                 angles = adapter.left_angles if arm == "left" else adapter.right_angles
                 if joint_idx < len(angles):
                     angles[joint_idx] = angle_deg
-                    # 钳制到限位
-                    limits = adapter._arm_limits_deg.get(arm)
-                    if limits is not None and joint_idx < len(limits):
-                        angles[joint_idx] = np.clip(angles[joint_idx], limits[joint_idx, 0], limits[joint_idx, 1])
+                    # 钳制到软限位（物理限位 - 安全余量），避免顶死硬限位
+                    adapter._clamp_arm_angles(arm, angles)
             return
         
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm
