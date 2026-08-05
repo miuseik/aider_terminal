@@ -83,7 +83,7 @@ git pull
 ```
 
 ```bash
-ssh gaoda@192.168.0.114
+ssh gaoda@192.168.0.113
 
 cd www/aider_terminal
 密码：gaoda
