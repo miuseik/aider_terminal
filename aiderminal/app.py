@@ -157,7 +157,10 @@ class TelegripSystem:
             await self.exo_handler.start()
 
             # 通过 WebSocket 客户端连接到 Aider Server
-            await self.ws_client.connect()
+            # 后台启动：连不上/服务器离线时，重连在后台循环进行，
+            # 不阻塞控制循环、键盘、状态推送等其余组件的启动。
+            ws_task = asyncio.create_task(self.ws_client.connect())
+            self.tasks.append(ws_task)
 
             # WebRTC 视频推流
             if getattr(self.config, 'enable_webrtc', False):
