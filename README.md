@@ -1,6 +1,6 @@
 # Aider Terminal
 
-双 臂机器人遥操作系统 —— PyBullet 仿真 · Pink IK · WebRTC 推流
+双 臂机器人遥操 作系统 —— PyBullet 仿真 · Pink IK · WebRTC 推流
 
 ---
 
@@ -75,7 +75,7 @@ sudo usermod -aG docker $USER          # docker 权限不够（执行后重新�
 ## 便捷操作（勿删）
 
 ```bash
-git add ./;git commit -m "排除env";git push
+git add ./;git commit -m "hub";git push
 ```
 
 ```bash
