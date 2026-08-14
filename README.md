@@ -1,6 +1,6 @@
 # Aider Terminal
 
-双臂机器人遥操作系统 —— PyBullet 仿真 · Pink IK · WebRTC 推流
+双 臂机器人遥操作系统 —— PyBullet 仿真 · Pink IK · WebRTC 推流
 
 ---
 
