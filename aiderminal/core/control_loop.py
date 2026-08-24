@@ -134,6 +134,10 @@ class ControlLoop:
         self._process_debug_logged = False
         
         self.is_running = False
+
+        # === 动作录制 (VR 录制/回放，terminal 侧) ===
+        self._recording: Optional["Recording"] = None
+        self._playback = None  # PlaybackProvider 实例（懒加载）
     
     async def setup(self) -> bool:
         """设置机器人接口和可视化器。
@@ -694,6 +698,13 @@ class ControlLoop:
         # === 发送指令到真机并更新仿真 ===
         await self.robot_interface.send_command()
 
+        # === 动作录制: 每帧解算后采集 (在 send_command 之后，状态已最终确定) ===
+        if self._recording is not None:
+            try:
+                self._recording.sample(self.left_arm, self.right_arm, self.robot_interface)
+            except Exception as e:
+                logger.warning(f"录制采样失败: {e}")
+
     def _periodic_logging(self):
         """定期打印诊断信息（每2秒一次）。"""
         current_time = time.time()
@@ -811,4 +822,68 @@ class ControlLoop:
                 "lift_connected": False
             })
         
+        # 录制状态（前端菜单据此渲染列表）
+        try:
+            from aiderminal.core.recorder import list_recordings
+            recordings = list_recordings()
+        except Exception:
+            recordings = []
+        status["recordings"] = recordings
+        status["recording_active"] = self._recording is not None
+        status["recording_name"] = self._recording.name if self._recording else None
+
         return status
+
+    # ============ VR 动作录制 / 回放 ============
+    async def handle_rec_command(self, msg: Dict):
+        """处理前端发来的录制指令。
+
+        msg 格式:
+          {"type":"rec_command","action":"start","rec_type":"target"|"joint","name":"xxx"}
+          {"type":"rec_command","action":"stop"}
+          {"type":"rec_command","action":"play","name":"xxx","rec_type":"target"|"joint"}
+          {"type":"rec_command","action":"rename","old_name":"a","new_name":"b"}
+          {"type":"rec_command","action":"list"}
+        """
+        action = msg.get("action")
+        from aiderminal.core.recorder import Recording, PlaybackProvider, rename_recording, list_recordings
+
+        if action == "start":
+            rec_type = msg.get("rec_type", "target")
+            name = msg.get("name") or f"rec_{int(time.time())}"
+            if self._recording is not None:
+                # 先停掉旧的
+                self._recording.save()
+            self._recording = Recording(name, rec_type)
+            print(f"🎬 [Rec] 开始录制: {name} (type={rec_type})")
+
+        elif action == "stop":
+            if self._recording is not None:
+                path = self._recording.save()
+                print(f"💾 [Rec] 录制结束已保存: {path} ({len(self._recording.frames)} 帧)")
+                self._recording = None
+            else:
+                print("⚠️ [Rec] 没有正在进行的录制")
+
+        elif action == "play":
+            name = msg.get("name")
+            rec_type = msg.get("rec_type", "target")
+            if not name:
+                print("⚠️ [Rec] play 缺少 name")
+                return
+            if self._playback is None:
+                self._playback = PlaybackProvider(self)
+            # 异步回放，不阻塞控制循环
+            asyncio.create_task(self._playback.play(name, rec_type))
+
+        elif action == "rename":
+            old = msg.get("old_name")
+            new = msg.get("new_name")
+            ok = rename_recording(old, new) if (old and new) else False
+            print(f"✏️ [Rec] 重命名 {old} → {new}: {'OK' if ok else 'FAIL'}")
+
+        elif action == "list":
+            print(f"📋 [Rec] 列表: {list_recordings()}")
+
+        else:
+            print(f"⚠️ [Rec] 未知 action: {action}")

@@ -30,6 +30,16 @@ class AIInputProvider(BaseInputProvider):
         super().__init__(command_queue)
         self._active_arms: set = set()
 
+    async def start(self):
+        """启动 AI 输入提供者 (无外部资源, 仅置运行标志)。"""
+        self.is_running = True
+
+    async def stop(self):
+        """停止 AI 输入提供者, 停用所有已激活臂。"""
+        for arm in list(self._active_arms):
+            await self.disable(arm)
+        self.is_running = False
+
     async def enable(self, arm: str = "left"):
         """激活某臂的位置控制 (类似 VR 握把按下)。"""
         if arm in self._active_arms:

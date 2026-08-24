@@ -54,6 +54,12 @@ class VRWebSocketClient:
                 # VR A键 外骨骼启停
                 if self.exo_handler:
                     await self.exo_handler.handle_toggle()
+            elif data.get('type') == 'rec_command':
+                # VR 动作录制/回放指令 → ControlLoop
+                if self.control_loop:
+                    await self.control_loop.handle_rec_command(data)
+                else:
+                    print("⚠️ rec_command: 无 control_loop")
             elif data.get('type') == 'control_mode':
                 # Server 广播的控制模式变更
                 mode = data.get('mode', 'pure_vr')
