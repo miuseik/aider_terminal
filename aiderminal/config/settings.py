@@ -339,8 +339,8 @@ class TelegripConfig:
     # 网络设置
     websocket_port: int = WEBSOCKET_PORT
     host_ip: str = HOST_IP
-    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "ws.houqicg.com")
-    api_host: str = os.getenv("TELEGRIP_API_HOST", "www.houqicg.com")
+    server_host: str = os.getenv("TELEGRIP_SERVER_HOST", "server.houqicg.com")
+    api_host: str = os.getenv("TELEGRIP_API_HOST", "bot.houqicg.com")
     enable_webrtc: bool = True
     webrtc_room_id: str = "robot-camera"
     ice_servers: list = None

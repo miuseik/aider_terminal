@@ -56,7 +56,7 @@ network:
     - urls: ["turn:121.40.151.10:3478"]
       username: "aider"
       credential: "aider123456"
-    - urls: ["turns:houqicg.com:5349"]
+    - urls: ["turns:server.houqicg.com:5349"]
       username: "aider"
       credential: "aider123456"
 
@@ -79,8 +79,8 @@ robot:
 
 > 可选：通过环境变量覆盖服务器地址
 > ```bash
-> export TELEGRIP_SERVER_HOST=ws.houqicg.com
-> export TELEGRIP_API_HOST=www.houqicg.com
+> export TELEGRIP_SERVER_HOST=server.houqicg.com
+> export TELEGRIP_API_HOST=bot.houqicg.com
 > ```
 
 ---

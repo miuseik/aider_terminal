@@ -21,8 +21,8 @@ network:
   host_ip: 0.0.0.0
   websocket_port: 8442
   # 服务器地址配置（可选,优先使用命令行参数 --env-dev 或 --env-pro）
-  # server_host: ws.houqicg.com    # WebSocket Server 地址
-  # api_host: www.houqicg.com      # API Server 地址
+  # server_host: server.houqicg.com    # WebSocket Server 地址
+  # api_host: bot.houqicg.com      # API Server 地址
   # server_port: 8442
   enable_webrtc: true   # 启用 aiortc WebRTC 视频推流（纯 Python，全平台可用）
   # --- 音频 ---
@@ -37,7 +37,7 @@ network:
     - urls: ["turn:121.40.151.10:3478"]
       username: "aider"
       credential: "aider123456"
-    - urls: ["turns:houqicg.com:5349"]
+    - urls: ["turns:server.houqicg.com:5349"]
       username: "aider"
       credential: "aider123456"
   # --- 摄像头 ---

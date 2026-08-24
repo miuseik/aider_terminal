@@ -1,5 +1,5 @@
 #!/bin/bash
-# start-pro.sh — 生产模式（连接 houqicg.com）
+# start-pro.sh — 生产模式（连接 bot.houqicg.com / server.houqicg.com）
 # 等价于 Vue 的 npm run pro
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -7,7 +7,7 @@ cd "$SCRIPT_DIR"
 
 xhost +local:docker &>/dev/null || true
 
-echo ">>> Aider Terminal — 生产模式 (houqicg.com)"
+echo ">>> Aider Terminal — 生产模式 (bot.houqicg.com / server.houqicg.com)"
 docker compose up -d
 
 echo ""
