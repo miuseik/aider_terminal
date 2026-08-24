@@ -21,8 +21,8 @@ network:
   host_ip: 0.0.0.0
   websocket_port: 8442
   # 服务器地址配置（可选,优先使用命令行参数 --env-dev 或 --env-pro）
-  # server_host: ws.houqicg.com    # WebSocket Server 地址
-  # api_host: www.houqicg.com      # API Server 地址
+  # server_host: server.houqicg.com    # WebSocket Server 地址
+  # api_host: bot.houqicg.com      # API Server 地址
   # server_port: 8442
   enable_webrtc: true   # 启用 aiortc WebRTC 视频推流（纯 Python，全平台可用）
   # --- WebRTC 信令（复用 /ws/terminal 通道，无需独立 URL）---

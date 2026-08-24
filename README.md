@@ -25,7 +25,7 @@
 docker compose restart
 ```
 ```bash
-./start-dev.sh
+./start-pro.sh
 ```
 ```bash
 docker compose logs -f
