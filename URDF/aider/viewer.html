@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aider URDF 查看器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; }
+  #canvas { display: block; position: fixed; inset: 0; }
+  #panel {
+    position: fixed; top: 10px; right: 10px;
+    background: rgba(16,16,32,0.92); border: 1px solid #333;
+    border-radius: 8px; padding: 12px; color: #ccc;
+    max-height: 92vh; overflow-y: auto; width: 260px;
+    font-size: 12px; z-index: 10;
+  }
+  #panel h3 { color: #6cf; margin: 0 0 8px; font-size: 14px; }
+  .joint-group { margin-bottom: 6px; }
+  .joint-group label { display: block; color: #999; margin-bottom: 2px; }
+  .joint-group input[type=range] { width: 100%; }
+  .joint-group .val { float: right; color: #6cf; font-family: monospace; }
+  .arm-section { margin-bottom: 8px; }
+  .arm-section h4 { color: #f90; font-size: 12px; margin: 6px 0 3px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+  #status { position: fixed; bottom: 10px; left: 10px; color: #666; font-size: 11px; z-index: 10; }
+  button {
+    background: #333; color: #ccc; border: 1px solid #555;
+    border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 11px;
+    margin-top: 6px; width: 100%;
+  }
+  button:hover { background: #444; }
+</style>
+</head>
+<body>
+
+<div id="canvas"></div>
+<div id="panel">
+  <h3>关节控制</h3>
+  <div id="sliders"></div>
+  <button id="reset-btn">复位所有关节</button>
+</div>
+<div id="status">加载中...</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "three/examples/jsm/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import URDFLoader from 'https://unpkg.com/urdf-loader@0.12.1/src/URDFLoader.js';
+
+// ── Three.js 初始化 ────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 50);
+camera.position.set(3, 2.5, 3.5);
+camera.lookAt(0, 0.8, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById('canvas').appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x404060, 1.5));
+const sun = new THREE.DirectionalLight(0xffffff, 3);
+sun.position.set(5, 10, 5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 50;
+sun.shadow.camera.left = -5; sun.shadow.camera.right = 5;
+sun.shadow.camera.top = 5; sun.shadow.camera.bottom = -5;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x6688cc, 1.5);
+fill.position.set(-3, 2, -3);
+scene.add(fill);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(6, 6),
+  new THREE.MeshStandardMaterial({ color: 0x222233, roughness: 0.9 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+scene.add(new THREE.GridHelper(6, 20, 0x333355, 0x222244));
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.8, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.update();
+
+const $status = document.getElementById('status');
+let robot = null;
+let correctionGroup = null;
+let jointNames = [];
+let jointMap = {};
+
+// URDF 是 Z-up, Three.js 是 Y-up, 这里把模型绕 X 轴 -90° 摆正
+const CORRECTION_QUAT = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(1, 0, 0), -Math.PI / 2
+);
+
+function loadURDF() {
+  return new Promise((resolve, reject) => {
+    $status.textContent = '加载 URDF ...';
+    const loader = new URDFLoader();
+    loader.packages = { 'aider_pro01': './' };
+
+    loader.loadMeshCb = (url, manager, done) => {
+      const stlUrl = url.replace(/^package:\/\/.*?\/meshes\//, 'meshes/');
+      const stlLoader = new STLLoader();
+      stlLoader.load(stlUrl, (geometry) => {
+        geometry.computeVertexNormals();
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0xd5cfbf, roughness: 0.6, metalness: 0.1,
+        });
+        const mesh = new THREE.Mesh(geometry, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        done(mesh);
+      }, undefined, () => {
+        const geo = new THREE.BoxGeometry(0.03, 0.03, 0.03);
+        const mat = new THREE.MeshStandardMaterial({ color: 0xff6600 });
+        const cube = new THREE.Mesh(geo, mat);
+        cube.castShadow = true;
+        done(cube);
+      });
+    };
+
+    loader.load('urdf/aider_pro.SLDASM.urdf', resolve, undefined, reject);
+  });
+}
+
+async function initRobot() {
+  robot = await loadURDF();
+
+  correctionGroup = new THREE.Group();
+  correctionGroup.quaternion.copy(CORRECTION_QUAT);
+  correctionGroup.add(robot);
+  scene.add(correctionGroup);
+
+  jointMap = robot.joints || {};
+  jointNames = Object.keys(jointMap);
+  console.log('URDF joints:', jointNames);
+
+  // 纯查看器兜底: URDF 里 limit 0-0 的关节在查看器里放开到 ±π, 否则动不了
+  for (const name of jointNames) {
+    const joint = jointMap[name];
+    const jType = joint.jointType || 'revolute';
+    const lim = joint.limit || {};
+    if (lim.lower === 0 && lim.upper === 0) {
+      joint.limit = {
+        lower: jType === 'prismatic' ? 0 : -Math.PI,
+        upper: jType === 'prismatic' ? 0.3 : Math.PI,
+      };
+    }
+  }
+
+  buildUI(jointNames, jointMap);
+  $status.textContent = `加载完成 — ${jointNames.length} 关节`;
+}
+
+function buildUI(names, map) {
+  const container = document.getElementById('sliders');
+  container.innerHTML = '';
+
+  const sections = [
+    { title: '底盘 & 升降', keys: ['lift_Link'] },
+    { title: '腰部', keys: ['waist_Link'] },
+    { title: '头部', keys: ['head_Link', 'head_Link2'] },
+    { title: '左臂', keys: ['left_arm1','left_arm2','left_arm3','left_arm4','left_arm5','left_arm6','left_arm7','left_arm8'] },
+    { title: '右臂', keys: ['right_arm1','right_arm2','right_arm3','right_arm4','right_arm5','right_arm6','right_arm7','right_arm8'] },
+  ];
+
+  for (const sec of sections) {
+    const existing = sec.keys.filter(k => map[k]);
+    if (existing.length === 0) continue;
+
+    const secDiv = document.createElement('div');
+    secDiv.className = 'arm-section';
+    const h4 = document.createElement('h4');
+    h4.textContent = sec.title;
+    secDiv.appendChild(h4);
+    container.appendChild(secDiv);
+
+    for (const jName of existing) {
+      const joint = map[jName];
+      const jType = joint.jointType || 'revolute';
+      const limit = joint.limit || {};
+      let lower = limit.lower, upper = limit.upper;
+      if (lower == null || upper == null || (lower === 0 && upper === 0)) {
+        lower = jType === 'prismatic' ? 0 : -Math.PI;
+        upper = jType === 'prismatic' ? 0.3 : Math.PI;
+      }
+      const step = jType === 'prismatic' ? 0.001 : 0.01;
+
+      const div = document.createElement('div');
+      div.className = 'joint-group';
+
+      const label = document.createElement('label');
+      const valSpan = document.createElement('span');
+      valSpan.className = 'val';
+      valSpan.id = `val-${jName}`;
+      valSpan.textContent = '0.00';
+      label.textContent = jName + ' ';
+      label.appendChild(valSpan);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.id = `slider-${jName}`;
+      slider.min = String(lower);
+      slider.max = String(upper);
+      slider.step = String(step);
+      slider.value = '0';
+
+      slider.addEventListener('input', () => {
+        joint.setJointValue(parseFloat(slider.value));
+        const span = document.getElementById(`val-${jName}`);
+        if (span) span.textContent = Number(slider.value).toFixed(2);
+      });
+
+      div.appendChild(label);
+      div.appendChild(slider);
+      secDiv.appendChild(div);
+    }
+  }
+}
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  for (const name of jointNames) {
+    const joint = jointMap[name];
+    if (joint?.setJointValue) joint.setJointValue(0);
+    const slider = document.getElementById(`slider-${name}`);
+    const span = document.getElementById(`val-${name}`);
+    if (slider) slider.value = '0';
+    if (span) span.textContent = '0.00';
+  }
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+initRobot().then(animate);
+</script>
+</body>
+</html>
