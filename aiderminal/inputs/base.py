@@ -47,6 +47,10 @@ class ControlGoal:
     # 用于调试/监控的附加数据
     metadata: Optional[Dict[str, Any]] = None
 
+    # AI / 脚本直接控制末端: 绝对 TCP 位姿 (机器人基座系)
+    # {"position": [x,y,z], "orientation": [x,y,z,w]} — 直接喂 IK, 不走相对偏移
+    absolute_tcp: Optional[Dict[str, np.ndarray]] = None
+
 class BaseInputProvider(ABC):
     """输入提供者的抽象基类。"""
     

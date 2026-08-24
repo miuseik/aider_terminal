@@ -34,16 +34,4 @@ URDF_TO_INTERNAL_NAME_MAP = {
 INITIAL_LEFT_ARM = [0, -100, 100, 60, 0, 0]
 INITIAL_RIGHT_ARM = [0, -100, 100, 60, 0, 0]
 
-# ---- 关节限位（度，通用 internal 名） ----
-# 用于 custom IK (_clamp)
-JOINT_LIMITS_DEG = {
-    "shoulder_pan":  {"lower": -90, "upper": 90},
-    "shoulder_lift": {"lower": -150, "upper": 30},
-    "elbow_flex":    {"lower": -150, "upper": 30},
-    "wrist_flex":    {"lower": -90, "upper": 90},
-    "wrist_roll":    {"lower": -90, "upper": 90},
-    "gripper":       {"lower": -90, "upper": 0},
-}
 
-# ---- 身体关节限位（Aloha 无身体关节） ----
-BODY_JOINT_LIMITS = {}

@@ -46,9 +46,11 @@ class WebKeyboardHandler(BaseInputProvider):
             "current_offset": np.zeros(3),
             "current_wrist_roll_offset": 0.0,
             "current_wrist_flex_offset": 0.0,
+            "current_wrist_yaw_offset": 0.0,
             "delta_pos": np.zeros(3),
             "delta_wrist_roll": 0.0,
             "delta_wrist_flex": 0.0,
+            "delta_wrist_yaw": 0.0,
             "position_control_active": False,
             "gripper_closed": False,
             "last_key_time": 0.0,
@@ -62,9 +64,11 @@ class WebKeyboardHandler(BaseInputProvider):
             "current_offset": np.zeros(3),
             "current_wrist_roll_offset": 0.0,
             "current_wrist_flex_offset": 0.0,
+            "current_wrist_yaw_offset": 0.0,
             "delta_pos": np.zeros(3),
             "delta_wrist_roll": 0.0,
             "delta_wrist_flex": 0.0,
+            "delta_wrist_yaw": 0.0,
             "position_control_active": False,
             "gripper_closed": False,
             "last_key_time": 0.0,
@@ -143,6 +147,7 @@ class WebKeyboardHandler(BaseInputProvider):
                 arm_state["current_offset"] = np.zeros(3)
                 arm_state["current_wrist_roll_offset"] = 0.0
                 arm_state["current_wrist_flex_offset"] = 0.0
+                arm_state["current_wrist_yaw_offset"] = 0.0
 
                 print(f"🌐 {arm.upper()} arm web keyboard origin set at position: {current_position.round(3)}")
 
@@ -234,8 +239,18 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._update_key_activity("left")
                 self.left_arm_state["delta_wrist_flex"] = ANGLE_STEP
 
-            # 左夹爪控制
+            # 左手腕偏航角 (UI 键位: F/G)
             elif key == 'f':
+                self._auto_activate_arm_if_needed("left")
+                self._update_key_activity("left")
+                self.left_arm_state["delta_wrist_yaw"] = -ANGLE_STEP
+            elif key == 'g':
+                self._auto_activate_arm_if_needed("left")
+                self._update_key_activity("left")
+                self.left_arm_state["delta_wrist_yaw"] = ANGLE_STEP
+
+            # 左夹爪控制 (UI 键位: C)
+            elif key == 'c':
                 self.left_arm_state["gripper_closed"] = not self.left_arm_state["gripper_closed"]
                 print(f"左夹爪: {'闭合' if self.left_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("left")
@@ -286,8 +301,18 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._update_key_activity("right")
                 self.right_arm_state["delta_wrist_flex"] = ANGLE_STEP
 
-            # 右夹爪控制
-            elif key == ';':
+            # 右手腕偏航角 (UI 键位: P / /)
+            elif key == 'p':
+                self._auto_activate_arm_if_needed("right")
+                self._update_key_activity("right")
+                self.right_arm_state["delta_wrist_yaw"] = -ANGLE_STEP
+            elif key == '/':
+                self._auto_activate_arm_if_needed("right")
+                self._update_key_activity("right")
+                self.right_arm_state["delta_wrist_yaw"] = ANGLE_STEP
+
+            # 右夹爪控制 (UI 键位: .)
+            elif key in (';', '.'):
                 self.right_arm_state["gripper_closed"] = not self.right_arm_state["gripper_closed"]
                 print(f"右夹爪: {'闭合' if self.right_arm_state['gripper_closed'] else '打开'} (网页)")
                 self._send_gripper_goal("right")
@@ -381,6 +406,9 @@ class WebKeyboardHandler(BaseInputProvider):
             elif key in ('r', 't'):
                 self.left_arm_state["delta_wrist_flex"] = 0
                 self._check_if_all_keys_released("left")
+            elif key in ('f', 'g'):
+                self.left_arm_state["delta_wrist_yaw"] = 0
+                self._check_if_all_keys_released("left")
 
             # 右臂 - 按键释放时重置增量
             elif key in ('i', 'k'):
@@ -397,6 +425,9 @@ class WebKeyboardHandler(BaseInputProvider):
                 self._check_if_all_keys_released("right")
             elif key in ('h', 'y'):
                 self.right_arm_state["delta_wrist_flex"] = 0
+                self._check_if_all_keys_released("right")
+            elif key in ('p', '/'):
+                self.right_arm_state["delta_wrist_yaw"] = 0
                 self._check_if_all_keys_released("right")
             
             # 身体关节 - 按键释放时清零
@@ -438,7 +469,8 @@ class WebKeyboardHandler(BaseInputProvider):
 
         if (np.all(arm_state["delta_pos"] == 0) and
             arm_state["delta_wrist_roll"] == 0 and
-            arm_state["delta_wrist_flex"] == 0):
+            arm_state["delta_wrist_flex"] == 0 and
+            arm_state["delta_wrist_yaw"] == 0):
             arm_state["any_key_pressed"] = False
 
     def _check_keyboard_fully_idle(self):
@@ -452,11 +484,13 @@ class WebKeyboardHandler(BaseInputProvider):
             mark_input_inactive("keyboard")
 
     def _send_gripper_goal(self, arm: str):
-        """发送夹爪控制目标到队列。"""
+        """发送夹爪控制目标到队列。
+
+        mode 保持 None（不改变控制模式）——夹爪切换不应停用位置控制。
+        """
         arm_state = self.left_arm_state if arm == "left" else self.right_arm_state
         goal = ControlGoal(
             arm=arm,
-            mode=ControlMode.IDLE,
             gripper_closed=arm_state["gripper_closed"],
             metadata={"source": f"web_keyboard_gripper_{arm}"}
         )
@@ -511,11 +545,13 @@ class WebKeyboardHandler(BaseInputProvider):
                         arm_state["current_offset"] += arm_state["delta_pos"]
                         arm_state["current_wrist_roll_offset"] += arm_state["delta_wrist_roll"]
                         arm_state["current_wrist_flex_offset"] += arm_state["delta_wrist_flex"]
+                        arm_state["current_wrist_yaw_offset"] += arm_state["delta_wrist_yaw"]
 
                         # 如果有活动移动,发送位置更新
                         if (np.any(arm_state["delta_pos"] != 0) or
                             arm_state["delta_wrist_roll"] != 0 or
-                            arm_state["delta_wrist_flex"] != 0):
+                            arm_state["delta_wrist_flex"] != 0 or
+                            arm_state["delta_wrist_yaw"] != 0):
 
                             # print(f"🎮key 发送{arm}臂控制: offset={arm_state['current_offset']}")
                             goal = ControlGoal(
@@ -524,6 +560,7 @@ class WebKeyboardHandler(BaseInputProvider):
                                 target_position=arm_state["current_offset"].copy(),
                                 wrist_roll_deg=arm_state["current_wrist_roll_offset"],
                                 wrist_flex_deg=arm_state["current_wrist_flex_offset"],
+                                wrist_yaw_deg=arm_state["current_wrist_yaw_offset"],
                                 metadata={
                                     "source": f"web_keyboard_{arm}",
                                     "relative_position": True

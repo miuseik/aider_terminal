@@ -802,9 +802,17 @@ class RobotInterface:
         return success
 
     def set_gripper(self, arm: str, closed: bool, trigger_value: Optional[float] = None):
-        """设置指定机械臂的夹爪状态(仅存储 trigger_value,实际映射在 control_loop 中完成)。"""
-        # 这个方法现在只是占位符,真正的线性映射在 _update_visualization() 中执行
-        pass
+        """设置指定机械臂的夹爪状态(键盘 C/. 或 VR 扳机)。
+
+        委托 adapter 映射为 arm8 夹爪角度并钳制到软限位；
+        trigger_value 为 None 时按开/关布尔映射为 0/1（与 VR 扳机行为一致）。
+        """
+        if self.adapter is None:
+            return
+        if trigger_value is not None:
+            self.adapter.apply_gripper_from_trigger(arm, trigger_value)
+        else:
+            self.adapter.apply_gripper_from_trigger(arm, 1.0 if closed else 0.0)
 
     def get_arm_angles(self, arm: str) -> np.ndarray:
         """获取指定机械臂的当前关节角度。"""
@@ -1077,7 +1085,13 @@ class RobotInterface:
         self.lift_height_mm = self.adapter.lift_height_mm
 
     def _update_markers(self):
-        """更新目标/位姿标记点。"""
+        """更新目标/位姿标记点。
+
+        与 VR / 键盘一致：仅在该臂处于 POSITION_CONTROL（握把/控制已激活）时绘制，
+        否则隐藏。当前点（红/蓝）= 实时 FK；目标点（绿/黄）= arm_state.target_position。
+        任何输入源（VR/键盘/AI 绝对 TCP）只要走 control_loop 的 _execute_goal 设了
+        arm_state.target_position，marker 就会自动显示，无需各自特殊化。
+        """
         if not self.visualizer:
             return
 

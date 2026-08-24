@@ -446,23 +446,32 @@ class ControlLoop:
                 
                 print(f"🔓 {goal.arm.upper()}臂: 位置控制已停用")
         
-        # 处理位置控制 - VR 和键盘现在工作方式相同(相对于原点的绝对偏移)
-        if goal.target_position is not None and arm_state.mode == ControlMode.POSITION_CONTROL:
-            if goal.metadata and goal.metadata.get("relative_position", False):
-                # VR 和键盘都发送相对于机器人原点位置的绝对偏移
-                if arm_state.origin_position is not None:
-                    arm_state.target_position = arm_state.origin_position + goal.target_position
-                    arm_state.goal_position = arm_state.target_position.copy()
-                else:
-                    # 尚未设置原点,使用当前位置作为基准
-                    if self.robot_interface:
-                        current_position = self.robot_interface.get_current_end_effector_position(goal.arm)
-                        arm_state.target_position = current_position + goal.target_position
-                        arm_state.goal_position = arm_state.target_position.copy()
+        # AI / 脚本直接控制末端: 绝对 TCP 位姿 (不走相对偏移, 不依赖 origin)
+        if (goal.absolute_tcp is not None and
+                arm_state.mode == ControlMode.POSITION_CONTROL):
+            _tcp = goal.absolute_tcp
+            if _tcp.get("position") is not None:
+                arm_state.target_position = np.asarray(_tcp["position"], dtype=float).copy()
+                arm_state.goal_position = arm_state.target_position.copy()
+                arm_state.origin_position = arm_state.target_position.copy()
+            if _tcp.get("orientation") is not None:
+                arm_state.target_orientation = np.asarray(_tcp["orientation"], dtype=float).copy()
+                arm_state.origin_orientation = arm_state.target_orientation.copy()
+
+        # 处理位置控制 - VR 和键盘发送相对于机器人原点位置的绝对偏移
+        # (绝对 TCP 模式已在上面 absolute_tcp 分支处理完, 这里不再覆盖)
+        if (goal.target_position is not None
+                and arm_state.mode == ControlMode.POSITION_CONTROL):
+            # VR 和键盘都发送相对于机器人原点位置的绝对偏移
+            if arm_state.origin_position is not None:
+                arm_state.target_position = arm_state.origin_position + goal.target_position
+                arm_state.goal_position = arm_state.target_position.copy()
             else:
-                # 绝对位置(遗留 - 不应再使用)
-                arm_state.target_position = goal.target_position.copy()
-                arm_state.goal_position = goal.target_position.copy()
+                # 尚未设置原点,使用当前位置作为基准
+                if self.robot_interface:
+                    current_position = self.robot_interface.get_current_end_effector_position(goal.arm)
+                    arm_state.target_position = current_position + goal.target_position
+                    arm_state.goal_position = arm_state.target_position.copy()
 
         # 处理目标姿态 - VR 手柄相对旋转 → TCP 目标姿态 (全位姿 TCP IK)
         if (arm_state.mode == ControlMode.POSITION_CONTROL and
@@ -621,8 +630,9 @@ class ControlLoop:
             elif (arm_state.mode == ControlMode.POSITION_CONTROL and
                   arm_state.target_position is not None):
                 # === IK 模式（纯VR/键盘，无外骨骼） ===
-                # 全位姿 TCP IK: 位置+姿态都由 IK 解算，腕关节(arm5/6/7)由 IK 决定，
-                # 不再用 VR 腕部角度覆盖（override_wrist=False），旋转以 TCP 为圆心。
+                # 位置 IK（对齐 aloha）：Pink solver 默认 lock_wrist=True，
+                # IK 只约束 TCP 位置、不约束姿态；手腕(arm5/6/7)锁到直控值，
+                # 由 update_arm_angles 的 wrist_* 参数决定（与 aloha 一致）。
                 _target_pos = arm_state.target_position
                 _target_ori = arm_state.target_orientation
                 # 腰部参考系: 目标点跟随腰部（lift/waist 变化时保持臂可达）
@@ -638,16 +648,19 @@ class ControlLoop:
                             _target_ori = _R.from_matrix(_R_delta @ _Rt).as_quat()
                     except Exception:
                         pass
+                # 手腕锁模式 IK 不依赖 orientation 约束，但保留传入（被 solver 忽略）。
                 ik_solution = self.robot_interface.solve_ik(
                     arm_name, _target_pos,
                     target_orientation=_target_ori)
                 current_gripper = self.robot_interface.get_arm_angles(arm_name)[_settings.GRIPPER_INDEX]
+                # 手腕由直控值决定（键盘 R/T/F/G/Z/X 键 + VR 手柄均写入 current_wrist_*），
+                # override_wrist=True 确保 IK 锁定的手腕值被直控值覆盖。
                 self.robot_interface.update_arm_angles(arm_name, ik_solution,
                                                       arm_state.current_wrist_flex,
                                                       arm_state.current_wrist_roll,
                                                       current_gripper,
                                                       arm_state.current_wrist_yaw,
-                                                      override_wrist=False)
+                                                      override_wrist=True)
 
             # VR 扳机 → 夹爪
             trigger_key = f"{arm_name}Controller"

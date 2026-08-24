@@ -274,18 +274,6 @@ def get_default_pose_name() -> str:
     return getattr(robot, "DEFAULT_POSE_NAME", "default")
 
 
-def get_joint_limits_deg() -> dict:
-    """返回当前机器人类型的关节限位字典 {joint_name: {lower, upper}} (度)。"""
-    robot = _get_robot_settings()
-    return getattr(robot, "JOINT_LIMITS_DEG", {})
-
-
-def get_body_joint_limits() -> dict:
-    """返回身体关节限位字典。"""
-    robot = _get_robot_settings()
-    return getattr(robot, "BODY_JOINT_LIMITS", {})
-
-
 # --- 默认初始化 (aider) ---
 # 模块加载时设默认值，main.py/teminal_node.py 会调用 set_robot_type() 覆盖。
 # 注意：不能用 __import__("robots/aider/settings")，因为 robots/aider/__init__.py

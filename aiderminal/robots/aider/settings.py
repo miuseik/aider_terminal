@@ -14,9 +14,9 @@ WRIST_YAW_INDEX = 6
 GRIPPER_INDEX = 7
 JOINT_NAMES = ["arm1", "arm2", "arm3", "arm4", "arm5", "arm6", "arm7", "arm8"]
 ARM_JOINT_NAMES_LEFT = ["left_arm1", "left_arm2", "left_arm3", "left_arm4",
-                         "left_arm5", "left_arm6", "left_arm7", "left_arm8"]
+                        "left_arm5", "left_arm6", "left_arm7", "left_arm8"]
 ARM_JOINT_NAMES_RIGHT = ["right_arm1", "right_arm2", "right_arm3", "right_arm4",
-                          "right_arm5", "right_arm6", "right_arm7", "right_arm8"]
+                         "right_arm5", "right_arm6", "right_arm7", "right_arm8"]
 URDF_PATH = "URDF/aider/urdf/aider_pro.SLDASM.urdf"
 END_EFFECTOR_LINK_NAME = "left_arm8"
 COMMON_MOTORS = {
@@ -37,31 +37,10 @@ URDF_TO_INTERNAL_NAME_MAP = {
 
 # ---- 初始位置（度） ----
 # 断开/复位时的目标角度（arm1~arm8），全零即归零姿态
-INITIAL_LEFT_ARM = [0, 0, 0, 0, 0, 0, 0, 0]
-INITIAL_RIGHT_ARM = [0, 0, 0, 0, 0, 0, 0, 0]
+INITIAL_LEFT_ARM = [10, 0, 0, 20, 0, 0, 0, 0]
+INITIAL_RIGHT_ARM = [-10, 0, 0, -20, 0, 0, 0, 0]
 
-# ---- 关节限位（度，通用 internal 名） ----
-# 用于 custom IK (_clamp)，key 为 arm1~arm8
-JOINT_LIMITS_DEG = {
-    "arm1": {"lower": -90,  "upper": 90},
-    "arm2": {"lower": -150, "upper": 30},
-    "arm3": {"lower": -150, "upper": 30},
-    "arm4": {"lower": -90,  "upper": 90},
-    "arm5": {"lower": -45,  "upper": 45},
-    "arm6": {"lower": -70,  "upper": 70},
-    "arm7": {"lower": -45,  "upper": 45},
-    "arm8": {"lower": -90,  "upper": 0},
-}
-
-# ---- 身体关节限位 ----
-BODY_JOINT_LIMITS = {
-    "waist_Link":  {"lower_deg": -90, "upper_deg": 90},
-    "head_Link":   {"lower_deg": -60, "upper_deg": 60},
-    "head_Link2":  {"lower_deg": -30, "upper_deg": 45},
-    "lift_Link":   {"lower_m":    0.0, "upper_m":  0.5},
-}
-
-# ---- 关节限位覆盖（度） ----
+# ---- 关节限位覆盖（度；lift_Link 为米） ----
 # 启动时 _patch_urdf_limits() 将这些值写入 URDF <limit> 标签，
 # Pinocchio 加载 URDF 时原生读入正确限位，零运行时开销。
 # 键 = 关节名（与 URDF 中 joint name 一致），值 = (下限°, 上限°)
@@ -73,27 +52,30 @@ BODY_JOINT_LIMITS = {
 # 注：单关节-from-neutral 是一种保守场景，组合姿势边界更复杂，但足以证明原限位不安全。
 JOINT_LIMIT_OVERRIDES = {
     # -- 左臂 --
-    "left_arm1":  (-136, 136),     # 碰撞边界 ±200° 无撞，保持
-    "left_arm2":  (-3, 91),        # 碰撞下限 -3°（中性位负向即自撞），原 -151 收紧
-    "left_arm3":  (-54, 91),       # 碰撞下限 -54°，原 -91 收紧
-    "left_arm4":  (-1, 136),       # 碰撞边界 [-161,157] 内，保持
-    "left_arm5":  (-42, 180),      # 碰撞下限 -42°，原 -180 收紧
-    "left_arm6":  (-90, 90),       # 碰撞边界 [-130,159] 内，保持
-    "left_arm7":  (-22, 90),       # 碰撞下限 -22°，原 -90 收紧
-    "left_arm8":  (-59, 1),        # 碰撞下限 -59°，原 -91 收紧
+    "left_arm1": (-136, 136),  # 碰撞边界 ±200° 无撞，保持
+    "left_arm2": (-3, 91),  # 碰撞下限 -3°（中性位负向即自撞），原 -151 收紧
+    "left_arm3": (-54, 91),  # 碰撞下限 -54°，原 -91 收紧
+    "left_arm4": (-1, 136),  # 碰撞边界 [-161,157] 内，保持
+    "left_arm5": (-42, 180),  # 碰撞下限 -42°，原 -180 收紧
+    "left_arm6": (-90, 90),  # 碰撞边界 [-130,159] 内，保持
+    "left_arm7": (-22, 90),  # 碰撞下限 -22°，原 -90 收紧
+    "left_arm8": (-59, 1),  # 碰撞下限 -59°，原 -91 收紧
+    "left_arm12": (-1, 59),  # 夹爪右指: 随 arm8 反向联动 (arm12=-arm8)，无独立舵机
     # -- 右臂 --
-    "right_arm1": (-136, 136),     # 碰撞边界 ±200° 无撞，保持
-    "right_arm2": (-151, 3),       # 碰撞上限 +3°，原 91 收紧
-    "right_arm3": (-59, 71),       # 碰撞 [-59,71]，原 ±91 收紧
-    "right_arm4": (-136, 1),       # 碰撞边界 [-156,158] 内，保持
-    "right_arm5": (-180, 47),      # 碰撞上限 +47°，原 180 收紧
-    "right_arm6": (-90, 90),       # 碰撞边界 [-154,130] 内，保持
-    "right_arm7": (-90, 22),       # 碰撞上限 +22°，原 90 收紧
-    "right_arm8": (-59, 1),        # 碰撞下限 -59°，原 -91 收紧
+    "right_arm1": (-136, 136),  # 碰撞边界 ±200° 无撞，保持
+    "right_arm2": (-151, 3),  # 碰撞上限 +3°，原 91 收紧
+    "right_arm3": (-59, 71),  # 碰撞 [-59,71]，原 ±91 收紧
+    "right_arm4": (-136, 1),  # 碰撞边界 [-156,158] 内，保持
+    "right_arm5": (-180, 47),  # 碰撞上限 +47°，原 180 收紧
+    "right_arm6": (-90, 90),  # 碰撞边界 [-154,130] 内，保持
+    "right_arm7": (-90, 22),  # 碰撞上限 +22°，原 90 收紧
+    "right_arm8": (-59, 1),  # 碰撞下限 -59°，原 -91 收紧
+    "right_arm12": (-1, 59),  # 夹爪右指: 随 arm8 反向联动 (arm12=-arm8)，无独立舵机
     # -- 身体关节 --
-    "waist_Link":  (-90, 30),   # 负值=鞠躬(前倾) 正值=下腰(后仰)；放开上限到 +30° 使中立直立(0°)可达，不再永久前倾（碰撞边界 [-132,185] 内）
-    "head_Link":   (-60, 60),   # 碰撞边界 ±200° 无撞，保持
-    "head_Link2":  (-30, 45),   # 碰撞边界 [-61,70] 内，保持
+    "waist_Link": (-90, 30),  # 负值=鞠躬(前倾) 正值=下腰(后仰)；放开上限到 +30° 使中立直立(0°)可达，不再永久前倾（碰撞边界 [-132,185] 内）
+    "head_Link": (-60, 60),  # 碰撞边界 ±200° 无撞，保持
+    "head_Link2": (-30, 45),  # 碰撞边界 [-61,70] 内，保持
+    "lift_Link": (0.0, 0.5),  # prismatic 升降关节，单位米（非角度），下=最低 上=最高 0.5m
 }
 
 # ---- 软限位安全余量（度） ----
@@ -109,24 +91,24 @@ SOFT_LIMIT_MARGIN_DEG = 5
 _BODY_ZERO = {"waist": 0, "head_yaw": 0, "head_pitch": 0, "lift": 0}
 POSES = {
     "safe": {
-        "left":  INITIAL_LEFT_ARM,
+        "left": INITIAL_LEFT_ARM,
         "right": INITIAL_RIGHT_ARM,
-        "body":  _BODY_ZERO,
+        "body": _BODY_ZERO,
     },
     "default": {
-        "left":  [10, 30, 50, 50, 0, 0, 0, 0],
-        "right": [-10, -30, -50, -50, 0, 0, 0, 0],
-        "body":  _BODY_ZERO,
+        "left": [10, 0, 0, 20, 0, 0, 0, 0],
+        "right": [-10, -0, 0, -20, 0, 0, 0, 0],
+        "body": _BODY_ZERO,
     },
     "zero": {
-        "left":  [0, 0, 0, 0, 0, 0, 0, 0],
+        "left": [0, 0, 0, 0, 0, 0, 0, 0],
         "right": [0, 0, 0, 0, 0, 0, 0, 0],
-        "body":  _BODY_ZERO,
+        "body": _BODY_ZERO,
     },
     "test": {
-        "left":  [30, 30, 30, 30, 30, 30, 30, 30],
+        "left": [30, 30, 30, 30, 30, 30, 30, 30],
         "right": [-30, -30, -30, -30, -30, -30, -30, -30],
-        "body":  _BODY_ZERO,
+        "body": _BODY_ZERO,
     },
 }
 

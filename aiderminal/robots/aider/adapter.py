@@ -669,6 +669,13 @@ class AiderAdapter:
         for i in range(num_joints):
             info = p.getJointInfo(visualizer.aider_id, i, physicsClientId=cid)
             joint_name = info[1].decode("UTF-8")
+            if joint_name == f"{arm}_arm12":
+                # 夹爪右指联动: arm12 = -arm8（无独立舵机，纯几何跟随）
+                if len(joint_angles_rad) >= 8 and not np.isnan(joint_angles_rad[7]):
+                    p.resetJointState(visualizer.aider_id, i,
+                                      -joint_angles_rad[7],
+                                      physicsClientId=cid)
+                continue
             if joint_name.startswith(prefix):
                 try:
                     joint_num = int(joint_name[len(prefix):]) - 1  # 0-indexed

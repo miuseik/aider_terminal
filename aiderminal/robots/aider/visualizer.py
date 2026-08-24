@@ -121,7 +121,7 @@ class AiderVisualizer:
             p.configureDebugVisualizer(p.COV_ENABLE_WIREFRAME, 0)
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, -9.81)
+        p.setGravity(0, 0, 0)  # 仿真关重力：模型悬停不掉落，IK(Pinocchio) 本就不受重力影响
         p.setTimeStep(0.02)
         p.loadURDF("plane.urdf")
 
@@ -165,6 +165,12 @@ class AiderVisualizer:
             _replace_mesh_uri,
             urdf_content
         )
+
+        # ---- 同步 settings 关节限位到 URDF ----
+        # 新 URDF 所有关节 limit 为 0/0（导出未设限位），PyBullet 会把 lower==upper 的
+        # revolute 关节当 fixed，导致所有关节不可动。复用 IK 的限位 patch（settings 为唯一数据源）。
+        from aiderminal.core.kinematic.pink.aider_ik import AiderPinkSolver
+        urdf_content = AiderPinkSolver._patch_urdf_limits(urdf_content)
 
         # 写入临时文件加载
         tmp_urdf = tempfile.NamedTemporaryFile(

@@ -45,6 +45,8 @@ _settings_spec = _iu.spec_from_loader("_robot_settings", _settings_loader)
 _robot_settings = _iu.module_from_spec(_settings_spec)
 _settings_loader.exec_module(_robot_settings)
 JOINT_LIMIT_OVERRIDES = _robot_settings.JOINT_LIMIT_OVERRIDES
+ARM_JOINT_NAMES_LEFT = _robot_settings.ARM_JOINT_NAMES_LEFT
+ARM_JOINT_NAMES_RIGHT = _robot_settings.ARM_JOINT_NAMES_RIGHT
 get_default_posture = _robot_settings.get_default_posture
 
 
@@ -56,11 +58,11 @@ class AiderPinkSolver:
 
     # 末端执行器 frame 名称（在 URDF 中定义）
     # 使用 TCP (tool center point) 而非 arm8：
-    # TCP 是工具尖点，与 arm8 平级挂在 arm7 下（fixed），不随夹爪旋转。
+    # TCP 是工具尖点，fixed 挂在 arm7 下（不随夹爪旋转）。
     # IK 控制 TCP 的位置+姿态，VR 手柄直接映射到 TCP，旋转以 TCP 为圆心。
     ARM_LINKS = {
-        "left": "left_hand_tcp",
-        "right": "right_hand_tcp",
+        "left": "left_TCP",
+        "right": "right_TCP",
     }
 
     def __init__(self, urdf_path: Optional[str] = None):
@@ -126,13 +128,15 @@ class AiderPinkSolver:
         self.arm_joints: Dict[str, List[str]] = {"left": [], "right": []}
         self.body_joints: List[str] = ["lift_Link", "waist_Link", "head_Link", "head_Link2"]
 
+        # IK 运动关节白名单 = settings 的 8 个臂关节。
+        # 新 URDF 的 arm12 是夹爪右指（无舵机），随 arm8 反向联动，不参与 IK。
+        arm_joint_whitelist = set(ARM_JOINT_NAMES_LEFT) | set(ARM_JOINT_NAMES_RIGHT)
+
         for i in range(1, self.robot.model.njoints):
             name = self.robot.model.names[i]
             self.joint_names.append(name)
-            if name.startswith("left_arm"):
-                self.arm_joints["left"].append(name)
-            elif name.startswith("right_arm"):
-                self.arm_joints["right"].append(name)
+            if name in arm_joint_whitelist:
+                self.arm_joints["left" if name in ARM_JOINT_NAMES_LEFT else "right"].append(name)
 
         print(f"  [AiderPinkSolver] 发现 {len(self.joint_names)} 个关节: "
               f"左臂 {len(self.arm_joints['left'])} + "
@@ -184,16 +188,23 @@ class AiderPinkSolver:
         """将 settings 中的关节限位同步写入 URDF XML，Pinocchio 加载时原生生效。
 
         使用 XML parser 而非 regex，确保每次替换精确针对目标 joint 的 limit 标签。
+        角度关节（arm/waist/head）单位度→弧度；lift_Link 为 prismatic 米制，值直接用。
         """
         root = ET.fromstring(urdf_xml)
         for joint_elem in root.iter("joint"):
             jname = joint_elem.get("name")
+            limit = joint_elem.find("limit")
+            if limit is None:
+                continue
             if jname and jname in JOINT_LIMIT_OVERRIDES:
-                lo_deg, hi_deg = JOINT_LIMIT_OVERRIDES[jname]
-                limit = joint_elem.find("limit")
-                if limit is not None:
-                    limit.set("lower", f"{np.radians(lo_deg):.8f}")
-                    limit.set("upper", f"{np.radians(hi_deg):.8f}")
+                lo, hi = JOINT_LIMIT_OVERRIDES[jname]
+                if jname == "lift_Link":
+                    # prismatic 关节，限位单位为米，不转弧度
+                    limit.set("lower", f"{float(lo):.8f}")
+                    limit.set("upper", f"{float(hi):.8f}")
+                else:
+                    limit.set("lower", f"{np.radians(lo):.8f}")
+                    limit.set("upper", f"{np.radians(hi):.8f}")
         return ET.tostring(root, encoding="unicode")
 
     def get_posture(self, arm: str) -> np.ndarray:
@@ -204,6 +215,19 @@ class AiderPinkSolver:
         """返回关节在配置向量 q 中的起始索引。"""
         jid = self.robot.model.getJointId(joint_name)
         return self.robot.model.idx_qs[jid]
+
+    def _apply_gripper_link_coupling(self, q: np.ndarray) -> np.ndarray:
+        """夹爪两指联动: arm12（右指）随 arm8（左指）反向转动。
+
+        arm12 无独立舵机，URDF 限位 (-1°, 59°) 与 arm8 (-59°, 1°) 镜像。
+        arm12 是 arm7 下的独立分支，不影响 TCP 位姿，仅在 FK/仿真中跟随。
+        """
+        for arm in ("left", "right"):
+            try:
+                q[self._q_idx(f"{arm}_arm12")] = -q[self._q_idx(f"{arm}_arm8")]
+            except Exception:
+                pass
+        return q
 
     def _update_current_q(self, arm: str, current_angles_deg: np.ndarray,
                           body_state: Optional[dict] = None) -> np.ndarray:
@@ -230,7 +254,7 @@ class AiderPinkSolver:
             if qi >= 0 and i < len(current_angles_deg):
                 q[qi] = np.radians(current_angles_deg[i])
 
-        return q
+        return self._apply_gripper_link_coupling(q)
 
     def forward_kinematics(self, arm: str, angles_deg: np.ndarray,
                            body_state: Optional[dict] = None) -> Optional[np.ndarray]:
@@ -302,7 +326,8 @@ class AiderPinkSolver:
               position_cost: float = 1.0,
               orientation_cost: float = 0.5,
               posture_cost: float = 0.05,
-              enable_elbow_avoidance: bool = True) -> Optional[np.ndarray]:
+              enable_elbow_avoidance: bool = True,
+              lock_wrist: bool = True) -> Optional[np.ndarray]:
         """单臂 IK 求解。
 
         Args:
@@ -314,6 +339,9 @@ class AiderPinkSolver:
             dt: 积分时间步长
             position_cost: 位置任务权重（提高可减小位置稳态误差，旋转更锁 TCP 圆心）
             orientation_cost: 姿态任务权重（仅 target_orientation 提供时生效）
+            lock_wrist: True 时手腕(arm5/6/7)不进入 IK 求解范围，由直控值决定
+                （与 aloha 一致：位置 IK + 手腕直控）。此时 orientation_cost 强制为 0，
+                姿态完全由直控手腕角决定，IK 只约束 TCP 位置。
 
         Returns:
             8 个关节角度（度），失败返回 None
@@ -327,6 +355,12 @@ class AiderPinkSolver:
 
         # ---- 创建任务 ----
         tasks = []
+
+        # 锁手腕模式（对齐 aloha）：只约束 TCP 位置，不约束姿态。
+        # IK 不再解手腕姿态，arm5/6/7 由直控值决定（见下方手腕锁任务）。
+        if lock_wrist:
+            target_orientation = None
+            orientation_cost = 0.0
 
         # 1. 末端执行器位置任务
         ee_task = FrameTask(
@@ -430,6 +464,9 @@ class AiderPinkSolver:
                                      m.lowerPositionLimit[qi],
                                      m.upperPositionLimit[qi])
 
+        # 夹爪两指联动（arm12 = -arm8），保持 _current_q 一致
+        new_q = self._apply_gripper_link_coupling(new_q)
+
         # 保存并检查位置误差
         self._current_q = new_q
         # 更新 configuration 的 q，使位置读取准确
@@ -441,4 +478,14 @@ class AiderPinkSolver:
             return None
 
         # 提取结果
-        return self._extract_arm_angles(new_q, arm)
+        angles = self._extract_arm_angles(new_q, arm)
+
+        # 对齐 aloha：手腕(arm5/6/7)不在 IK 求解范围内，用直控值覆盖
+        # （等价 aloha 的 update_arm_angles: IK 解出手腕被输入值丢弃）。
+        # IK 只决定 arm1-4 位置链，arm5/6/7 严格等于传入的 current_angles。
+        if lock_wrist and current_angles is not None and len(current_angles) >= 7:
+            angles[4] = current_angles[4]
+            angles[5] = current_angles[5]
+            angles[6] = current_angles[6]
+
+        return angles
