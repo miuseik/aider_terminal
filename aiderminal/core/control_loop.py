@@ -51,9 +51,10 @@ class ArmState:
         # 全位姿 TCP IK: 握把激活时的 TCP 姿态(旋转矩阵) 与 目标姿态四元数[x,y,z,w]
         self.origin_orientation = None
         self.target_orientation = None
-        # 腰部参考系: 握把激活时的腰部位姿(位置+旋转)，目标点跟随腰部
-        self.grip_waist_pos = None
-        self.grip_waist_rot = None
+        # 肩部参考系: 握把激活时的肩安装座(waist_Link)位姿(位置+旋转)，记录一次。
+        # IK 在肩部系 8-DOF 裁剪模型上求解，与升降/腰/头完全解耦。
+        self.grip_shoulder_pos = None
+        self.grip_shoulder_rot = None
 
     def reset(self):
         """重置机械臂状态为空闲。"""
@@ -66,8 +67,8 @@ class ArmState:
         self.origin_wrist_yaw_angle = 0.0
         self.origin_orientation = None
         self.target_orientation = None
-        self.grip_waist_pos = None
-        self.grip_waist_rot = None
+        self.grip_shoulder_pos = None
+        self.grip_shoulder_rot = None
 
 
 class ControlLoop:
@@ -428,14 +429,14 @@ class ControlLoop:
                         arm_state.origin_orientation = None
                         arm_state.target_orientation = None
 
-                    # 腰部参考系: 记录握把激活时的腰部位姿
+                    # 肩部参考系: 记录握把激活时的肩安装座位姿(仅一次)
                     try:
-                        _wpos, _wrot = self.robot_interface.adapter.compute_waist_pose()
-                        arm_state.grip_waist_pos = _wpos.copy()
-                        arm_state.grip_waist_rot = _wrot.copy()
+                        _spos, _srot = self.robot_interface.adapter.compute_waist_pose()
+                        arm_state.grip_shoulder_pos = _spos.copy()
+                        arm_state.grip_shoulder_rot = _srot.copy()
                     except Exception:
-                        arm_state.grip_waist_pos = None
-                        arm_state.grip_waist_rot = None
+                        arm_state.grip_shoulder_pos = None
+                        arm_state.grip_shoulder_rot = None
 
                 print(f"🔒 {goal.arm.upper()}握把激活 - 控制{goal.arm}臂（目标重置为当前位置）")
                 
@@ -638,24 +639,16 @@ class ControlLoop:
                 # IK 只约束 TCP 位置、不约束姿态；手腕(arm5/6/7)锁到直控值，
                 # 由 update_arm_angles 的 wrist_* 参数决定（与 aloha 一致）。
                 _target_pos = arm_state.target_position
-                _target_ori = arm_state.target_orientation
-                # 腰部参考系: 目标点跟随腰部（lift/waist 变化时保持臂可达）
-                if arm_state.grip_waist_pos is not None and self.robot_interface.adapter:
-                    try:
-                        _wpos, _wrot = self.robot_interface.adapter.compute_waist_pose()
-                        # 腰部自握把以来的增量旋转
-                        _R_delta = _wrot @ arm_state.grip_waist_rot.T
-                        _target_pos = _R_delta @ (arm_state.target_position - arm_state.grip_waist_pos) + _wpos
-                        if _target_ori is not None:
-                            from scipy.spatial.transform import Rotation as _R
-                            _Rt = _R.from_quat(_target_ori).as_matrix()
-                            _target_ori = _R.from_matrix(_R_delta @ _Rt).as_quat()
-                    except Exception:
-                        pass
-                # 手腕锁模式 IK 不依赖 orientation 约束，但保留传入（被 solver 忽略）。
-                ik_solution = self.robot_interface.solve_ik(
-                    arm_name, _target_pos,
-                    target_orientation=_target_ori)
+                # 肩部系 IK: 目标点用握把时记录的肩安装座位姿转肩部系，
+                # 在 8-DOF 裁剪模型上求解——升降/腰/头不在模型内，
+                # 身体任何运动都不会改变解出的臂角，且无每帧腰部补偿 FK。
+                if arm_state.grip_shoulder_pos is not None:
+                    ik_solution = self.robot_interface.solve_ik_shoulder(
+                        arm_name, _target_pos,
+                        arm_state.grip_shoulder_pos, arm_state.grip_shoulder_rot)
+                else:
+                    # 无肩部基准（compute_waist_pose 异常）保持当前姿态
+                    ik_solution = self.robot_interface.get_arm_angles(arm_name)
                 current_gripper = self.robot_interface.get_arm_angles(arm_name)[_settings.GRIPPER_INDEX]
                 # 手腕由直控值决定（键盘 R/T/F/G/Z/X 键 + VR 手柄均写入 current_wrist_*），
                 # override_wrist=True 确保 IK 锁定的手腕值被直控值覆盖。

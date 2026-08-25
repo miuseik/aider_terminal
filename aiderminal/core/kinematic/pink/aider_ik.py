@@ -165,6 +165,33 @@ class AiderPinkSolver:
         # ---- 初始配置（直接设为姿态偏好，启动就在舒适位） ----
         self._current_q = self._make_posture_config()
 
+        # ---- 肩部系裁剪模型（每臂独立 8-DOF，基座 = 肩安装座 waist_Link）----
+        # 锁定除本臂 8 关节外的全部关节（freeflyer 基座/升降/腰/头/另一臂/轮/夹爪右指），
+        # IK 在 8 自由度小模型上求解：升降/腰/头不在模型内 → 与臂零耦合，
+        # QP 维度从 27 降到 8，求解更快；也无需每帧腰部补偿 FK。
+        # 注意: arm1 关节坐标系随 arm1 旋转，不能当固定基座；
+        # 真正的肩基座是肩安装座 waist_Link（只随升降/腰动，与臂关节无关）。
+        self._reduced: Dict[str, Tuple[object, object]] = {}
+        self._S0: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+        self._reduced_arm_qidx: Dict[str, List[int]] = {}
+        for arm in ("left", "right"):
+            arm_set = set(self.arm_joints[arm])
+            lock_ids = [j for j in range(1, self.robot.model.njoints)
+                        if self.robot.model.names[j] not in arm_set]
+            rmodel = pin.buildReducedModel(self.robot.model, lock_ids, self._posture_q)
+            rdata = rmodel.createData()
+            q0 = pin.neutral(rmodel)
+            pin.forwardKinematics(rmodel, rdata, q0)
+            pin.updateFramePlacements(rmodel, rdata)
+            tf = rdata.oMf[rmodel.getFrameId("waist_Link")]
+            # S0: 肩安装座在裁剪模型世界系的固定位姿（常量，预计算一次）
+            self._S0[arm] = (tf.translation.copy(), tf.rotation.copy())
+            self._reduced_arm_qidx[arm] = [
+                rmodel.idx_qs[rmodel.getJointId(n)] for n in self.arm_joints[arm]]
+            self._reduced[arm] = (rmodel, rdata)
+        print(f"  [AiderPinkSolver] 肩部系裁剪模型就绪: "
+              f"左/右各 8-DOF (基座=waist_Link)")
+
     def _make_zero_config(self) -> np.ndarray:
         """构建初始配置（free flyer 基座在原点，所有关节在零位）。"""
         q = np.zeros(self.robot.model.nq)
@@ -393,21 +420,6 @@ class AiderPinkSolver:
         base_task.transform_target_to_world = pin.SE3.Identity()
         tasks.append(base_task)
 
-        # 2.5 身体关节锁定任务: lift/waist/head 由 body_state 外部指定，
-        # 不允许 QP 把 TCP 修正分摊到这些关节上（分摊的部分会被丢弃，
-        # 且造成"升降值不同 → 臂解不同"的耦合）。
-        # 锁 waist_Link 位姿即锁住其上游 lift+waist；锁 head_Link2 即锁 head 两关节。
-        for lock_frame in ("waist_Link", "head_Link2"):
-            lock_task = FrameTask(
-                lock_frame,
-                position_cost=50.0,
-                orientation_cost=50.0,
-                lm_damping=1.0,
-            )
-            lock_task.transform_target_to_world = \
-                configuration.get_transform_frame_to_world(lock_frame)
-            tasks.append(lock_task)
-
         # 3. 姿态偏好任务
         posture_target = q.copy()
         other = "right" if arm == "left" else "left"
@@ -502,6 +514,142 @@ class AiderPinkSolver:
         # 对齐 aloha：手腕(arm5/6/7)不在 IK 求解范围内，用直控值覆盖
         # （等价 aloha 的 update_arm_angles: IK 解出手腕被输入值丢弃）。
         # IK 只决定 arm1-4 位置链，arm5/6/7 严格等于传入的 current_angles。
+        if lock_wrist and current_angles is not None and len(current_angles) >= 7:
+            angles[4] = current_angles[4]
+            angles[5] = current_angles[5]
+            angles[6] = current_angles[6]
+
+        return angles
+
+    def solve_local(self, arm: str, target_shoulder: np.ndarray,
+                    current_angles: np.ndarray,
+                    dt: float = 0.05,
+                    position_cost: float = 1.0,
+                    posture_cost: float = 0.05,
+                    enable_elbow_avoidance: bool = True,
+                    lock_wrist: bool = True) -> Optional[np.ndarray]:
+        """肩部系 IK：在裁剪的 8-DOF 手臂模型上求解（基座 = 肩安装座 waist_Link）。
+
+        Args:
+            arm: 'left' 或 'right'
+            target_shoulder: TCP 目标在肩安装座局部系的坐标 [x, y, z] (米)。
+                该坐标系与升降/腰/头完全无关——同一组坐标永远解出同一组臂角，
+                身体任何部位运动都不会影响手臂。
+            current_angles: 该臂当前角度（8 个，度）
+            dt: 积分时间步长
+            position_cost: 位置任务权重
+            posture_cost: 姿态偏好任务权重
+            enable_elbow_avoidance: 肘部避碰（肩系坐标下推离躯干中心）
+            lock_wrist: True 时手腕(arm5/6/7)不进 IK，由直控值决定
+
+        Returns:
+            8 个关节角度（度），失败返回 None
+        """
+        if arm not in self._reduced:
+            return None
+        rmodel, rdata = self._reduced[arm]
+        qidx = self._reduced_arm_qidx[arm]
+
+        q = pin.neutral(rmodel)
+        for i, qi in enumerate(qidx):
+            if i < len(current_angles):
+                q[qi] = np.radians(current_angles[i])
+        configuration = pink.Configuration(rmodel, rdata, q)
+
+        # 目标: 肩部系坐标 → 裁剪模型世界系（常量变换 S0，预计算一次）
+        s0_pos, s0_rot = self._S0[arm]
+        target_se3 = pin.SE3.Identity()
+        target_se3.translation = \
+            s0_rot @ np.asarray(target_shoulder, dtype=float) + s0_pos
+
+        tasks = []
+
+        # 1. 末端位置任务（锁手腕模式只约束位置，与 solve() 一致）
+        ee_task = FrameTask(
+            self.ARM_LINKS[arm],
+            position_cost=position_cost,
+            orientation_cost=0.0,
+            lm_damping=1.0,
+        )
+        ee_task.transform_target_to_world = target_se3
+        tasks.append(ee_task)
+
+        # 2. 姿态偏好任务（弱拉回当前位形，8 维小向量）
+        posture_task = PostureTask(cost=posture_cost)
+        posture_task.set_target(q)
+        tasks.append(posture_task)
+
+        # 3. 肘部避碰（裁剪模型世界系 = 肩安装座系，推离躯干中心语义不变）
+        elbow_frame = f"{arm}_arm4"
+        if enable_elbow_avoidance:
+            elbow_pos = configuration.get_transform_frame_to_world(
+                elbow_frame).translation
+            elbow_y = elbow_pos[1]
+            elbow_x = elbow_pos[0]
+
+            min_clearance = 0.07
+            safe_clearance = 0.16
+
+            if abs(elbow_y) < safe_clearance or abs(elbow_x) < safe_clearance:
+                danger = np.clip(
+                    1.0 - (min(abs(elbow_y), abs(elbow_x)) - min_clearance) /
+                    (safe_clearance - min_clearance), 0.0, 1.0)
+
+                elbow_target = elbow_pos.copy()
+                if abs(elbow_y) < safe_clearance:
+                    push_dir_y = 1.0 if elbow_y >= 0 else -1.0
+                    elbow_target[1] = push_dir_y * safe_clearance
+                if abs(elbow_x) < safe_clearance:
+                    push_dir_x = 1.0 if elbow_x >= 0 else -1.0
+                    elbow_target[0] = push_dir_x * safe_clearance
+
+                elbow_task = FrameTask(
+                    elbow_frame,
+                    position_cost=0.05 + danger * 0.80,
+                    orientation_cost=0.0,
+                    lm_damping=1.0,
+                )
+                elbow_se3 = pin.SE3.Identity()
+                elbow_se3.translation = elbow_target
+                elbow_task.transform_target_to_world = elbow_se3
+                tasks.append(elbow_task)
+
+        # ---- 求解（8-DOF QP，比全身 27-DOF 快） ----
+        try:
+            velocity = solve_ik(
+                configuration, tasks, dt,
+                solver=self.solver, safety_break=False)
+            configuration.integrate_inplace(velocity, dt)
+        except Exception as e:
+            print(f"  [PinkIK] {arm} 肩系 IK 求解失败: {e}")
+            return None
+
+        # 钳制到限位
+        new_q = configuration.q.copy()
+        for jid in range(1, rmodel.njoints):
+            qi = rmodel.idx_qs[jid]
+            if rmodel.nqs[jid] == 1:
+                new_q[qi] = np.clip(new_q[qi],
+                                    rmodel.lowerPositionLimit[qi],
+                                    rmodel.upperPositionLimit[qi])
+
+        # 位置误差检查
+        configuration = pink.Configuration(rmodel, rdata, new_q)
+        current_pos = configuration.get_transform_frame_to_world(
+            self.ARM_LINKS[arm]).translation
+        error = np.linalg.norm(current_pos - target_se3.translation)
+        if error > 1.0:
+            return None
+
+        angles = np.array([np.degrees(new_q[qi]) for qi in qidx])
+
+        # 同步全模型 _current_q 的本臂关节，保证全身 FK（含身体状态）一致
+        for i, jname in enumerate(self.arm_joints[arm]):
+            qi_full = self._q_idx(jname)
+            if qi_full >= 0:
+                self._current_q[qi_full] = np.radians(angles[i])
+
+        # 手腕直控覆盖（与 solve() 一致）
         if lock_wrist and current_angles is not None and len(current_angles) >= 7:
             angles[4] = current_angles[4]
             angles[5] = current_angles[5]

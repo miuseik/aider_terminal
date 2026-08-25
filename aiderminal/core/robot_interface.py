@@ -655,12 +655,13 @@ class RobotInterface:
         angles = self.get_arm_angles(arm)
         return self.adapter.compute_fk_pose(arm, angles)
 
-    def solve_ik(self, arm: str, target_position: np.ndarray,
-                 target_orientation: Optional[np.ndarray] = None) -> np.ndarray:
-        """逆运动学求解。委托给适配器。"""
+    def solve_ik_shoulder(self, arm: str, target_world: np.ndarray,
+                          shoulder_pos: np.ndarray, shoulder_rot: np.ndarray) -> np.ndarray:
+        """肩部系 IK（以肩安装座为基座的 8-DOF 模型）。委托给适配器。"""
         current_angles = self.get_arm_angles(arm)
-        return self.adapter.solve_ik(arm, target_position, current_angles,
-                                     target_orientation=target_orientation)
+        return self.adapter.solve_ik_shoulder(arm, target_world,
+                                              shoulder_pos, shoulder_rot,
+                                              current_angles)
 
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float, wrist_yaw: float = 0.0, override_wrist: bool = True):
         """更新关节角度（含限位钳制）。委托给适配器。"""

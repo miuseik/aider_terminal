@@ -183,11 +183,10 @@ class AiderAdapter:
         return pos, rot
 
     def compute_waist_pose(self):
-        """腰部 (waist_Link) 在 base_link 系的位姿 (位置, 旋转矩阵)。
+        """肩安装座 (waist_Link) 在 base_link 系的位姿 (位置, 旋转矩阵)。
 
         waist_Link 是双臂的共同父节点，其位姿仅由 lift/waist 关节决定（与臂无关）。
-        用作 TCP 目标点的参考坐标系：目标点表示在腰部系下，
-        waist/lift 变化时目标点跟随腰部，避免超出臂可达范围。
+        仅用于肩部系 IK 握把激活时记录一次肩部基准位姿，不参与每帧控制。
         """
         if self.ik_solver is None:
             return np.zeros(3), np.eye(3)
@@ -199,35 +198,23 @@ class AiderAdapter:
         }
         return self.ik_solver.frame_pose("waist_Link", body)
 
-    def solve_ik(self, arm: str, target_position: np.ndarray,
-                 current_angles: Optional[np.ndarray] = None,
-                 target_orientation: Optional[np.ndarray] = None) -> np.ndarray:
-        """逆运动学: 末端位置(+姿态) → 8 关节角度 (度)。
+    def solve_ik_shoulder(self, arm: str, target_world: np.ndarray,
+                          shoulder_pos: np.ndarray, shoulder_rot: np.ndarray,
+                          current_angles: Optional[np.ndarray] = None) -> np.ndarray:
+        """肩部系 IK（推荐控制路径）：以肩安装座为基座的 8-DOF 裁剪模型求解。
 
-        target_orientation: 目标 TCP 姿态四元数 [x,y,z,w]（可选）。
-        传入后 IK 同时解算 TCP 姿态，旋转以 TCP 为圆心。
+        target_world 为 base_link 系目标点；shoulder_pos/rot 为握把激活时记录的
+        肩安装座(waist_Link)位姿（记录一次即可，无需每帧更新）。
+        升降/腰/头不在 IK 模型内：身体任何运动都不会改变解出的臂角，
+        且无每帧腰部补偿 FK，QP 从 27 维降到 8 维，更快。
         """
         if current_angles is None:
             current_angles = self._get_angles(arm)
-
         if self.ik_solver is None:
             return current_angles
-
-        body = {
-            "lift_Link": self.lift_height_mm / 1000.0,
-            "waist_Link": self.waist_angle,
-            "head_Link": self.head_yaw,
-            "head_Link2": self.head_pitch,
-        }
-
-        sol = self.ik_solver.solve(
-            arm=arm,
-            target_position=np.array(target_position),
-            current_angles=current_angles,
-            body_state=body,
-            target_orientation=target_orientation,
-        )
-
+        local = np.asarray(shoulder_rot).T @ (
+            np.asarray(target_world, dtype=float) - np.asarray(shoulder_pos))
+        sol = self.ik_solver.solve_local(arm, local, current_angles)
         if sol is None:
             return current_angles
         return sol
