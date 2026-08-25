@@ -4,6 +4,7 @@
 前端只发指令（start/stop/play/rename）并通过 status 拿到动作列表。
 
 录制数据每帧包含（左右臂都记）：
+- position: 手柄原始位置 (VR 房间系, WebXR local-floor)
 - target_position: TCP 位置 [x,y,z]
 - target_orientation: TCP 姿态四元数 [x,y,z,w]
 - joints: 8 个 arm 关节角 [deg]
@@ -108,7 +109,9 @@ class Recording:
             vr_raw = getattr(robot_interface, "vr_raw_data", {}) or {}
             trigger = vr_raw.get(trigger_key, {}).get("trigger", None)
             joystick = vr_raw.get(trigger_key, {}).get("joystick", None)
+            vr_pos = vr_raw.get(trigger_key, {}).get("position", None)
             return {
+                "position": [float(vr_pos[k]) for k in ('x', 'y', 'z')] if vr_pos else None,
                 "target_position": [float(v) for v in tp] if tp is not None else None,
                 "target_orientation": [float(v) for v in to] if to is not None else None,
                 "joints": joints,

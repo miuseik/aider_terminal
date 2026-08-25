@@ -6,14 +6,20 @@ import numpy as np
 def vr_to_robot_coordinates(vr_pos: dict, scale: float = 1.0) -> np.ndarray:
     """
     将 VR 控制器位置转换为机器人坐标系。
-    
-    VR 坐标系：X=右，Y=上，Z=后（朝向用户）
-    机器人坐标系：X=前，Y=左，Z=上
+
+    VR 坐标系 (WebXR local-floor)：X=右，Y=上，Z=后（-Z=前）
+    Aider base_link 坐标系 (URDF 实测)：+X=左，-Y=前，+Z=上
+
+    操作假设：用户面朝机器人（face-to-face）。
+    映射:
+      VR 右(+X) → 机器人右(-X)   (真机实测: arm1-4 direction=-1 已镜像, 逻辑角需取反 X)
+      VR 前(-Z) → 机器人前(-Y)
+      VR 上(+Y) → 机器人上(+Z)
     """
     return np.array([
-        -vr_pos['x'] * scale,   # VR +Z（后）-> 机器人 +X（前）
-        vr_pos['z'] * scale,    # VR +X（右）-> 机器人 -Y（右）
-        vr_pos['y'] * scale     # VR +Y（上）-> 机器人 +Z（上）
+        -vr_pos['x'] * scale,   # VR 右(+X) → 机器人右(-X)
+        vr_pos['z'] * scale,    # VR 前(-Z) → 机器人前(-Y)
+        vr_pos['y'] * scale     # VR 上(+Y) → 机器人上(+Z)
     ])
 
 

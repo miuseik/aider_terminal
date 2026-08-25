@@ -280,7 +280,7 @@
     <origin xyz="-0.00146589510162229 0.10038929799312 0.0289999999998398" rpy="1.55619525917765 -1.5707963267949 0" />
     <parent link="right_arm4" />
     <child link="right_arm5" />
-    <axis xyz="0 0 -1" />
+    <axis xyz="-0.000000 -0.014601 0.999893" />
     <limit lower="0" upper="0" effort="0" velocity="0" />
   </joint>
   <link name="right_arm6">
@@ -309,7 +309,7 @@
     <origin xyz="0 -0.00550000000000189 -0.121999999999996" rpy="1.57079632679491 0 0" />
     <parent link="right_arm5" />
     <child link="right_arm6" />
-    <axis xyz="0 0 -1" />
+    <axis xyz="1.000000 0.000000 0.000000" />
     <limit lower="0" upper="0" effort="0" velocity="0" />
   </joint>
   <link name="right_arm7">
@@ -338,7 +338,7 @@
     <origin xyz="-0.0258999999999558 0 0" rpy="-1.57079632679505 1.55619525917764 -1.57079632679502" />
     <parent link="right_arm6" />
     <child link="right_arm7" />
-    <axis xyz="0 0 -1" />
+    <axis xyz="0.999574 0.029198 0.000000" />
     <limit lower="0" upper="0" effort="0" velocity="0" />
   </joint>
   <link name="right_arm8">
@@ -568,7 +568,7 @@
     <origin xyz="-0.00146589510149292 -0.100389297993122 0.0289999999999995" rpy="1.58539739441215 -1.5707963267949 0" />
     <parent link="left_arm4" />
     <child link="left_arm5" />
-    <axis xyz="0 0 1" />
+    <axis xyz="0.000000 -0.014601 -0.999893" />
     <limit lower="0" upper="0" effort="0" velocity="0" />
   </joint>
   <link name="left_arm6">
@@ -597,7 +597,7 @@
     <origin xyz="0 -0.00550000000001608 0.121999999999962" rpy="-1.5707963267949 0 -3.14159265358979" />
     <parent link="left_arm5" />
     <child link="left_arm6" />
-    <axis xyz="0 0 -1" />
+    <axis xyz="1.000000 0.000000 0.000000" />
     <limit lower="0" upper="0" effort="0" velocity="0" />
   </joint>
   <link name="left_arm7">
@@ -626,7 +626,7 @@
     <origin xyz="0.0259000000000001 0 0" rpy="-1.57079632679492 -1.55619525917765 1.57079632679492" />
     <parent link="left_arm6" />
     <child link="left_arm7" />
-    <axis xyz="0 0 -1" />
+    <axis xyz="-0.999574 0.029198 -0.000000" />
     <limit lower="0" upper="0" effort="0" velocity="0" />
   </joint>
   <link name="left_arm8">

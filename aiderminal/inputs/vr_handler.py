@@ -151,12 +151,13 @@ class VRHandler(BaseInputProvider):
         
         controller = self.left_controller if hand == 'left' else self.right_controller
         
-        # 存储摇杆和扳机原始数据(供 control_loop 的 _update_mobile_base() 使用)
+        # 存储摇杆/扳机/手柄原始位置(供 control_loop 的 _update_mobile_base() 与动作录制使用)
         # 注意: 不通过 ControlGoal 传递,避免干扰机械臂的 POSITION_CONTROL 模式
         controller_key = f"{hand}Controller"
         if controller_key in self.control_loop.vr_raw_data:
             self.control_loop.vr_raw_data[controller_key]['joystick'] = joystick
             self.control_loop.vr_raw_data[controller_key]['trigger'] = trigger
+            self.control_loop.vr_raw_data[controller_key]['position'] = position
 
         # Handle trigger for gripper control (线性控制)
         # 每帧都发送 trigger_value,实现 0-1 连续映射到夹爪角度 90°-0°
@@ -211,7 +212,7 @@ class VRHandler(BaseInputProvider):
                     controller.origin_position, 
                     self.config.vr_to_robot_scale
                 )
-                
+
                 # 计算 Z 轴旋转用于 wrist_roll 控制
                 # 计算 X 轴旋转用于 wrist_flex 控制
                 if controller.origin_quaternion is not None:
@@ -245,9 +246,11 @@ class VRHandler(BaseInputProvider):
                     arm=hand,
                     mode=ControlMode.POSITION_CONTROL,
                     target_position=relative_delta,
+                    # 符号约定: roll 经 extract_roll(negate=True)+外部负号双重取反为净正;
+                    # flex/yaw 原只有外部负号导致方向反(仿真实测), 故去掉负号使净正。
                     wrist_roll_deg=-controller.z_axis_rotation,
-                    wrist_flex_deg=-controller.x_axis_rotation,
-                    wrist_yaw_deg=-controller.y_axis_rotation,
+                    wrist_flex_deg=controller.x_axis_rotation,
+                    wrist_yaw_deg=controller.y_axis_rotation,
                     metadata={
                         "source": "vr_grip",
                         "relative_position": True,
