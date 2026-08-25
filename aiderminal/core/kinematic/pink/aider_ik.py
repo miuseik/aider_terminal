@@ -300,10 +300,14 @@ class AiderPinkSolver:
         """
         q = self._make_zero_config()
         if body_state:
+            m = self.robot.model
             for jname, val in body_state.items():
                 qi = self._q_idx(jname)
                 if qi >= 0:
-                    q[qi] = val
+                    # 与 _update_current_q 统一钳制，保证腰部补偿与 IK 内部
+                    # 看到的肩基座一致（不一致会导致臂追不可达目标）
+                    q[qi] = np.clip(val, m.lowerPositionLimit[qi],
+                                    m.upperPositionLimit[qi])
         pin.forwardKinematics(self.robot.model, self.robot.data, q)
         pin.updateFramePlacements(self.robot.model, self.robot.data)
         tf = self.robot.data.oMf[self.robot.model.getFrameId(frame_name)]
@@ -388,6 +392,21 @@ class AiderPinkSolver:
         )
         base_task.transform_target_to_world = pin.SE3.Identity()
         tasks.append(base_task)
+
+        # 2.5 身体关节锁定任务: lift/waist/head 由 body_state 外部指定，
+        # 不允许 QP 把 TCP 修正分摊到这些关节上（分摊的部分会被丢弃，
+        # 且造成"升降值不同 → 臂解不同"的耦合）。
+        # 锁 waist_Link 位姿即锁住其上游 lift+waist；锁 head_Link2 即锁 head 两关节。
+        for lock_frame in ("waist_Link", "head_Link2"):
+            lock_task = FrameTask(
+                lock_frame,
+                position_cost=50.0,
+                orientation_cost=50.0,
+                lm_damping=1.0,
+            )
+            lock_task.transform_target_to_world = \
+                configuration.get_transform_frame_to_world(lock_frame)
+            tasks.append(lock_task)
 
         # 3. 姿态偏好任务
         posture_target = q.copy()

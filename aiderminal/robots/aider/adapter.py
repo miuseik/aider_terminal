@@ -469,6 +469,9 @@ class AiderAdapter:
         speed_mps = self.lift_velocity / 10000.0  # raw 值直接映射，电机能跑多快跑多快
         delta_m = speed_mps * dt
         old_m = self.lift_height_mm / 1000.0
+        # 不做限位钳制：真实升降行程未知，由人肉眼/硬限位兜底。
+        # 模型值超程不影响臂：frame_pose 与 IK 内部统一按 URDF 限位钳制，
+        # 腰部补偿与肩基座永远一致。
         new_m = old_m + delta_m
         self.lift_height_mm = new_m * 1000.0
         return new_m
