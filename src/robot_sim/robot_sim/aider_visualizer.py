@@ -25,6 +25,65 @@ ARM_JOINT_NAMES_RIGHT = [
     "right_arm5", "right_arm6", "right_arm7", "right_arm8",
 ]
 
+# ── 关节限位（度，内联自 aiderminal/robots/aider/settings.py 运行时值，
+#   源头为 aider_server/sql/servo_ids.yaml）。PyBullet 加载 URDF 时若
+#   lower==upper 会当 fixed，必须写真实限位让关节可动。──
+JOINT_LIMIT_OVERRIDES = {
+    # -- 左臂 --
+    "left_arm1": (-136.0, 60.0),
+    "left_arm2": (-3.0, 90.0),
+    "left_arm3": (-54.0, 91.0),
+    "left_arm4": (-1.0, 136.0),
+    "left_arm5": (-90.0, 90.0),
+    "left_arm6": (-30.0, 30.0),
+    "left_arm7": (-30.0, 30.0),
+    "left_arm8": (-59.0, 1.0),
+    "left_arm12": (-59.0, 1.0),
+    # -- 右臂 --
+    "right_arm1": (-60.0, 136.0),
+    "right_arm2": (-90.0, 3.0),
+    "right_arm3": (-90.0, 54.0),
+    "right_arm4": (-136.0, 1.0),
+    "right_arm5": (-90.0, 90.0),
+    "right_arm6": (-30.0, 30.0),
+    "right_arm7": (-30.0, 30.0),
+    "right_arm8": (-59.0, 1.0),
+    "right_arm12": (-59.0, 1.0),
+    # -- 身体关节 --
+    "waist_Link": (-90.0, 30.0),
+    "head_Link": (-60.0, 60.0),
+    "head_Link2": (-30.0, 45.0),
+    "lift_Link": (-0.1, 0.1),  # prismatic 升降关节，单位米
+}
+
+
+def _patch_urdf_limits(urdf_xml: str,
+                       limit_overrides=None) -> str:
+    """将限位表同步写入 URDF XML，PyBullet 加载时原生生效。
+
+    角度关节（arm/waist/head）单位度→弧度；lift_Link 为 prismatic 米制。
+    内联自 aiderminal/core/kinematic/pink/aider_ik.py::_patch_urdf_limits。
+    """
+    import xml.etree.ElementTree as ET
+    import numpy as np
+
+    _limits = limit_overrides if limit_overrides is not None else JOINT_LIMIT_OVERRIDES
+    root = ET.fromstring(urdf_xml)
+    for joint_elem in root.iter("joint"):
+        jname = joint_elem.get("name")
+        limit = joint_elem.find("limit")
+        if limit is None:
+            continue
+        if jname and jname in _limits:
+            lo, hi = _limits[jname]
+            if jname == "lift_Link":
+                limit.set("lower", f"{float(lo):.8f}")
+                limit.set("upper", f"{float(hi):.8f}")
+            else:
+                limit.set("lower", f"{float(np.radians(lo)):.8f}")
+                limit.set("upper", f"{float(np.radians(hi)):.8f}")
+    return ET.tostring(root, encoding="unicode")
+
 class AiderVisualizer:
     """Aider 机器人 PyBullet 仿真可视化器。
 
@@ -140,47 +199,40 @@ class AiderVisualizer:
 
         import re, tempfile
 
-        urdf_dir = os.path.dirname(self.urdf_path)          # .../URDF/aider/urdf/
-        aider_pkg_dir = os.path.dirname(urdf_dir)           # .../URDF/aider/
-        mesh_dir = os.path.join(aider_pkg_dir, "meshes")    # .../URDF/aider/meshes/
+        # ---- 解析 mesh 目录（package:// 机制）----
+        # 新家 URDF 在 robot_description/urdf/aider/，mesh 在
+        # robot_description/meshes/aider/。从 URDF 内容提取 package:// 前缀
+        # 映射到实际安装路径（get_package_share_directory）。
+        from ament_index_python.packages import get_package_share_directory
 
-        # ---- 自动压缩大 STL（缺失依赖会自动安装） ----
-        from aiderminal.utils.mesh_compressor import compress_directory
-        saved, msg = compress_directory(mesh_dir, max_single_mb=2.0, total_budget_mb=150.0)
-        if saved > 0:
-            print(f"  [网格压缩] {msg}")
-
-        # ---- 构建压缩后的 mesh 路径映射 ----
-        compressed_dir = os.path.join(mesh_dir, "compressed")
-        def _resolve_mesh(filename: str) -> str:
-            """优先使用压缩版，不存在则回退到原始文件。"""
-            compressed = os.path.join(compressed_dir, filename)
-            if os.path.exists(compressed):
-                return compressed
-            return os.path.join(mesh_dir, filename)
-
-        # ---- 重写 URDF mesh 路径 ----
+        mesh_dir = None
         with open(self.urdf_path, 'r', encoding='utf-8') as f:
             urdf_content = f.read()
 
         def _replace_mesh_uri(match):
-            filename = match.group(1)
-            return f'filename="{_resolve_mesh(filename)}"'
+            nonlocal mesh_dir
+            pkg = match.group(1)
+            rel_path = match.group(2)
+            # 解析 package:// 为实际安装路径
+            pkg_base = get_package_share_directory(pkg)
+            abs_path = os.path.join(pkg_base, rel_path)
+            if mesh_dir is None:
+                # 记录 mesh 目录（package 后第一个目录层级）
+                parts = rel_path.split('/')
+                mesh_dir = os.path.join(pkg_base, parts[0])
+            return f'filename="{abs_path}"'
 
-        # 把 package://xxx/meshes/yyy.STL → 实际文件路径
+        # 匹配 package://<pkg>/<path>，把 URI 换成绝对路径
         urdf_content = re.sub(
-            r'filename="package://[^"]*/([^/"]+)"',
+            r'filename="package://([^/"]+)/([^"]+)"',
             _replace_mesh_uri,
             urdf_content
         )
 
-        # ---- 同步 settings 关节限位到 URDF ----
+        # ---- 同步关节限位到 URDF（内联实现，见本文件 _patch_urdf_limits）----
         # 新 URDF 所有关节 limit 为 0/0（导出未设限位），PyBullet 会把 lower==upper 的
-        # revolute 关节当 fixed，导致所有关节不可动。复用 IK 的限位 patch（settings 为唯一数据源）。
-        from aiderminal.core.kinematic.pink.aider_ik import AiderPinkSolver
-        from aiderminal.robots.aider import settings as _s
-        # 传入真实 settings 模块当前限位（已被 servo_ids.yaml 覆盖），而非 aider_ik 的 import 快照
-        urdf_content = AiderPinkSolver._patch_urdf_limits(urdf_content, _s.JOINT_LIMIT_OVERRIDES)
+        # revolute 关节当 fixed，导致所有关节不可动。
+        urdf_content = _patch_urdf_limits(urdf_content, JOINT_LIMIT_OVERRIDES)
 
         # 写入临时文件加载
         tmp_urdf = tempfile.NamedTemporaryFile(
@@ -190,8 +242,6 @@ class AiderVisualizer:
 
         try:
             p.setAdditionalSearchPath(mesh_dir)
-            if os.path.isdir(compressed_dir):
-                p.setAdditionalSearchPath(compressed_dir)
             self.aider_id = p.loadURDF(tmp_urdf.name, [0, 0, 0], [0, 0, 0, 1], useFixedBase=False)
             print(f"Aider robot loaded successfully (ID={self.aider_id})")
         except p.error as e:

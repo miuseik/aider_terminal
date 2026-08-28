@@ -11,9 +11,9 @@
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -36,6 +36,7 @@ def generate_launch_description():
         ),
 
         # PyBullet 仿真节点
+        # self_drive 用参数: with_wave=false 时自行摆动（joint_wave 未启动）
         Node(
             package='robot_sim',
             executable='pybullet_node',
@@ -43,9 +44,6 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'use_gui': LaunchConfiguration('use_gui'),
-                'self_drive': PythonExpression([
-                    'not ', LaunchConfiguration('with_wave')
-                ]),
                 'step_rate': 60.0,
             }],
         ),

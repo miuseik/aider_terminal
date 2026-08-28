@@ -55,6 +55,7 @@ RUN sh -c 'echo "deb [trusted=yes] http://packages.osrfoundation.org/gazebo/ubun
     gz-harmonic \
     && rm -rf /var/lib/apt/lists/*
 
+# pybullet_data 不是独立 pip 包（PyBullet 自带资源目录），不能装
 RUN pip3 install --break-system-packages --ignore-installed \
     setuptools \
     colcon-common-extensions \
@@ -62,7 +63,6 @@ RUN pip3 install --break-system-packages --ignore-installed \
     pytest \
     pyserial \
     pybullet \
-    pybullet_data \
     scipy
 
 # ── 可视化与调试工具（单独一层，便于复用上面缓存）──
