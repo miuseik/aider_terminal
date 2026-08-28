@@ -47,6 +47,33 @@ RUN pip3 install --break-system-packages --ignore-installed \
     "numpy<2" \
     pytest
 
+# ── 可视化与调试工具（单独一层，便于复用上面缓存）──
+# 注意: 使用 apt-get install 而非 rosdep，因为 ros2.list 已配置 [trusted=yes]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-rviz2 \
+    ros-jazzy-joint-state-publisher \
+    ros-jazzy-joint-state-publisher-gui \
+    ros-jazzy-rqt \
+    ros-jazzy-rqt-graph \
+    ros-jazzy-plotjuggler-ros \
+    ros-jazzy-tf2-tools \
+    ros-jazzy-urdf-tutorial \
+    libgl1 \
+    libglx-mesa0 \
+    libglu1-mesa \
+    libqt5core5a \
+    libqt5gui5 \
+    libqt5widgets5 \
+    libxkbcommon-x11-0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libxcb-xinerama0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── 工作空间骨架（源码运行时挂载）──
 WORKDIR /ws
 

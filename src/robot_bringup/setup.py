@@ -1,3 +1,5 @@
+import os
+
 from setuptools import setup
 
 package_name = 'robot_bringup'
@@ -10,6 +12,13 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        # launch 与 rviz 配置（供 ros2 launch 查找）
+        ('share/' + package_name + '/launch',
+            ['launch/' + f for f in os.listdir('launch')
+             if f.endswith('.launch.py')]),
+        ('share/' + package_name + '/rviz',
+            ['rviz/' + f for f in os.listdir('rviz')
+             if f.endswith('.rviz')]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

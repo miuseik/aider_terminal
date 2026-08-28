@@ -19,6 +19,9 @@ services:
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
+      # 与老系统隔离：老系统用默认 DOMAIN_ID=0，新家用 42
+      # 否则 host 网络下两边 ROS 节点会互相发现，干扰演示
+      - ROS_DOMAIN_ID=42
 
     # 只挂载 src/，不挂载老业务代码
     volumes:
