@@ -1,11 +1,17 @@
 # ============================================================
 # 新家 (src/) 独立容器 —— 与老业务 aiderminal 完全隔离
 #
-# 启动:  ./start-ros.sh           或
-#        docker compose -f docker-compose.ros.yml up -d
-# 进入:  ./start-ros.sh shell     或
-#        docker exec -it aider_ros2 bash
+# 三个命令（与老系统完全对应）:
+#   新电脑没 Docker:  ./scripts/setup_ros.sh
+#   有 Docker 首次:   docker compose -f docker-compose.ros.yml up --build -d
+#   之后每次启动:     ./start-ros.sh
+#
+# 进入容器: docker exec -it aider_ros2 bash
 # ============================================================
+# 独立 project name：避免 Docker 把老业务的 aiderminal 容器
+# 误判为本项目"孤儿容器"（否则启动时会告警，且易误操作老系统）
+name: aider_ros2
+
 services:
   ros:
     build:
