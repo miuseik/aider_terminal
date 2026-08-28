@@ -75,6 +75,11 @@ class VRWebSocketClient:
                 if self.exo_handler:
                     await self.exo_handler.load_calibration_from_server()
                     print("🔄 [Terminal] 外骨骼校准已热更新")
+            elif data.get('type') == 'servo_config_reload':
+                # Server 通知 servo_ids.yaml 已更新（限位等），热更新钳制层
+                if self.control_loop and self.control_loop.robot_interface:
+                    await self.control_loop.robot_interface.reload_servo_config()
+                    print("🔄 [Terminal] 舵机配置/限位已热更新")
             else:
                 # 转发到 VR 处理器进行处理
                 await self.vr_handler.process_message(raw_message)
@@ -154,6 +159,14 @@ class VRWebSocketClient:
                     cl.web_keyboard_handler.on_key_press(key)
                 elif event == 'release':
                     cl.web_keyboard_handler.on_key_release(key)
+        elif action == 'set_joint_angle':
+            # 关节级单关节控制（经 adapter → 软限位钳制 → 仿真+硬件随控制循环同步）
+            joint_name = command.get('joint_name')
+            angle = command.get('angle')
+            if joint_name and angle is not None and cl and cl.robot_interface:
+                ok = cl.robot_interface.set_joint_angle(joint_name, float(angle))
+                if not ok:
+                    print(f"⚠️ 未知关节: {joint_name}")
         elif action == 'robot_connect':
             if cl and cl.robot_interface:
                 ri = cl.robot_interface

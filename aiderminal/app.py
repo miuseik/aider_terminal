@@ -426,6 +426,17 @@ async def main():
 
     config = create_config_from_args(args)
 
+    # ✅ 启动时从 Server 预加载 servo_ids.yaml 限位到全局 JOINT_LIMIT_OVERRIDES，
+    # 使其在任何 URDF 加载（visualizer / IK）之前即作为真源生效。
+    if config.robot_type != "aloha":
+        try:
+            from aiderminal.robots.aider.settings import preload_servo_limits
+            _n = preload_servo_limits()
+            if _n:
+                print(f"✅ 关节限位已从 servo_ids.yaml 预加载 ({_n} 条)")
+        except Exception as e:
+            print(f"⚠️ 预加载舵机限位失败，使用 settings.py 内置限位: {e}")
+
     # SSL 证书检查已删除 - HTTPS 服务器已禁用（UI 已迁移到外部 Vue 项目）
 
     # 记录配置（仅在 INFO 级别或更详细时）

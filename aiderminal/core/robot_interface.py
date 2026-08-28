@@ -157,8 +157,36 @@ class RobotInterface:
         """
         if self.adapter is None:
             return
+
         urdf_name = self._BODY_JOINT_MAP.get(name, name)
         self.adapter.set_body_joint_absolute(urdf_name, float(angle_rad))
+
+    def set_joint_angle(self, joint_name: str, angle_deg: float) -> bool:
+        """按关节名设置单关节角度（度），经 adapter 软限位钳制。
+
+        写入 adapter 关节状态后，由控制循环统一同步到仿真与硬件。
+        """
+        if self.adapter is None or not hasattr(self.adapter, 'set_joint_angle'):
+            return False
+        return self.adapter.set_joint_angle(joint_name, angle_deg)
+
+    async def reload_servo_config(self) -> bool:
+        """从 Server 重新拉取 servo_ids.yaml 并热更新限位。
+
+        控制层钳制立即生效；IK 模型内部限位需重启重建。
+        """
+        try:
+            from aiderminal.comm.api.client import ServerAPIClient
+            cfg = await asyncio.to_thread(ServerAPIClient().get_servo_ids_config)
+            if not cfg:
+                return False
+            self.set_servo_ids_config(cfg)
+            if self.robot_type != "aloha" and hasattr(self.adapter, 'refresh_limits_from_servo'):
+                self.adapter.refresh_limits_from_servo(cfg)
+            return True
+        except Exception as e:
+            print(f"⚠️ reload_servo_config 失败: {e}")
+            return False
 
     def set_servo_ids_config(self, config: dict):
         """设置舵机 ID 配置（从 Server 获取，扁平结构，无 bus 包装）"""
@@ -641,6 +669,22 @@ class RobotInterface:
         """设置运动学解算器。委托给对应的适配器。"""
         self.joint_limits_min_deg = joint_limits_min_deg.copy()
         self.joint_limits_max_deg = joint_limits_max_deg.copy()
+
+        # 限位真源 = Server 端 servo_ids.yaml（min/max_angle）。
+        # 必须在 adapter.setup() 构建 IK 模型前灌入 settings，IK/软限位/钳制才全链路一致。
+        if self.robot_type != "aloha":
+            if not self.servo_ids:
+                try:
+                    from aiderminal.comm.api.client import ServerAPIClient
+                    cfg = await asyncio.to_thread(ServerAPIClient().get_servo_ids_config)
+                    if cfg:
+                        self.set_servo_ids_config(cfg)
+                except Exception as e:
+                    print(f"⚠️ 拉取舵机配置失败，使用 settings.py 内置限位: {e}")
+            if self.servo_ids:
+                from aiderminal.robots.aider.settings import apply_joint_limits_from_servo
+                n = apply_joint_limits_from_servo(self.servo_ids)
+                print(f"✅ 关节限位已从 servo_ids.yaml 加载 ({n} 条)")
 
         await self.adapter.setup(self.visualizer, self.config)
         print(f"[RobotInterface] 适配器已初始化 ({self.robot_type}, {NUM_JOINTS}-DOF)")

@@ -65,11 +65,16 @@ class AiderPinkSolver:
         "right": "right_TCP",
     }
 
-    def __init__(self, urdf_path: Optional[str] = None):
+    def __init__(self, urdf_path: Optional[str] = None,
+                 joint_limit_overrides: Optional[Dict[str, Tuple[float, float]]] = None):
         if not _PINK_AVAILABLE:
             raise ImportError(
                 f"Pink/Pinocchio 未安装 ({_pink_import_error})。"
                 f"请先执行: conda install -c conda-forge pinocchio -y && pip install -e \".[pink]\"")
+        # 限位表：优先用调用方传入的（已被 servo_ids.yaml 覆盖的 settings 模块字典），
+        # 缺省回退到本模块文件加载时的 JOINT_LIMIT_OVERRIDES（settings.py 兜底值）。
+        self._limit_overrides = joint_limit_overrides if joint_limit_overrides is not None \
+            else JOINT_LIMIT_OVERRIDES
         if urdf_path is None:
             # _PROJ_ROOT = aiderminal/ 包目录，URDF 在项目根（上一级）
             urdf_path = os.path.join(
@@ -90,7 +95,8 @@ class AiderPinkSolver:
         )
 
         # 将 settings 的关节限位同步写入 URDF XML，Pinocchio 加载时原生生效
-        urdf_content = self._patch_urdf_limits(urdf_content)
+        # 显式传入 self._limit_overrides（构造时由 settings 注入的运行时 servo 真值）
+        urdf_content = self._patch_urdf_limits(urdf_content, self._limit_overrides)
 
         # 写入临时文件
         tmp_urdf = tempfile.NamedTemporaryFile(
@@ -211,20 +217,30 @@ class AiderPinkSolver:
         return q
 
     @staticmethod
-    def _patch_urdf_limits(urdf_xml: str) -> str:
-        """将 settings 中的关节限位同步写入 URDF XML，Pinocchio 加载时原生生效。
+    def _patch_urdf_limits(urdf_xml: str,
+                           limit_overrides: Optional[Dict[str, Tuple[float, float]]] = None) -> str:
+        """将限位表同步写入 URDF XML，Pinocchio/PyBullet 加载时原生生效。
 
         使用 XML parser 而非 regex，确保每次替换精确针对目标 joint 的 limit 标签。
         角度关节（arm/waist/head）单位度→弧度；lift_Link 为 prismatic 米制，值直接用。
+
+        限位来源优先级:
+          1) 调用方显式传入的 limit_overrides（实例构造时由 settings 注入,
+             已被 servo_ids.yaml 覆盖的运行时真值）
+          2) 模块级 JOINT_LIMIT_OVERRIDES（import 时快照，仅兜底）
+        注意: aider_ik 用 SourceFileLoader 独立加载 settings.py, 其模块级
+        JOINT_LIMIT_OVERRIDES 是 import 时的快照, 不随 settings 模块原地更新,
+        因此 IK 构建必须显式传入 self._limit_overrides 才能拿到 servo 真值。
         """
+        _limits = limit_overrides if limit_overrides is not None else JOINT_LIMIT_OVERRIDES
         root = ET.fromstring(urdf_xml)
         for joint_elem in root.iter("joint"):
             jname = joint_elem.get("name")
             limit = joint_elem.find("limit")
             if limit is None:
                 continue
-            if jname and jname in JOINT_LIMIT_OVERRIDES:
-                lo, hi = JOINT_LIMIT_OVERRIDES[jname]
+            if jname and jname in _limits:
+                lo, hi = _limits[jname]
                 if jname == "lift_Link":
                     # prismatic 关节，限位单位为米，不转弧度
                     limit.set("lower", f"{float(lo):.8f}")

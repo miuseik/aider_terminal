@@ -125,10 +125,13 @@ class AiderAdapter:
 
         # 初始化 Pink IK 求解器（自含 Pinocchio URDF 模型，限位来自 URDF）
         # BuildFromURDF 会阻塞 10s，丢进线程池避免卡死事件循环
-        self.ik_solver = await asyncio.to_thread(AiderPinkSolver)
+        # 传入 settings 模块的限位字典（启动时已被 servo_ids.yaml 覆盖，见
+        # robot_interface.setup_kinematics），保证 IK 模型限位与 yaml 真源一致。
+        self.ik_solver = await asyncio.to_thread(
+            AiderPinkSolver, joint_limit_overrides=JOINT_LIMIT_OVERRIDES)
 
         # 从 IK 模型提取每个臂的关节限位（度），用于 update_arm_angles 钳制
-        # 限位与 settings.py 同步，是唯一数据源
+        # 限位真源 = Server 端 servo_ids.yaml（启动时灌入 settings.py）
         m = self.ik_solver.robot.model
         self._arm_limits_deg: Dict[str, np.ndarray] = {}
         for arm in ("left", "right"):
@@ -280,6 +283,45 @@ class AiderAdapter:
         for i in range(min(len(angles), len(limits))):
             angles[i] = np.clip(angles[i], limits[i, 0], limits[i, 1])
         return angles
+
+    def set_joint_angle(self, joint_name: str, angle_deg: float) -> bool:
+        """按关节名设置单个关节角度（度），经软限位钳制。
+
+        臂关节写入臂角度数组，身体关节（腰/头）走 set_body_joint_absolute。
+        写入后由控制循环统一同步到仿真与硬件（与 exo 直接关节控制同路径）。
+        返回是否识别该关节。
+        """
+        for arm, names in (("left", ARM_JOINT_NAMES_LEFT), ("right", ARM_JOINT_NAMES_RIGHT)):
+            if joint_name in names:
+                idx = names.index(joint_name)
+                angles = self.left_angles if arm == "left" else self.right_angles
+                val = float(angle_deg)
+                limits = self._soft_arm_limits(arm)
+                if limits is not None and idx < len(limits):
+                    val = float(np.clip(val, limits[idx, 0], limits[idx, 1]))
+                angles[idx] = val
+                return True
+        if joint_name in ("waist_Link", "head_Link", "head_Link2"):
+            self.set_body_joint_absolute(joint_name, float(np.radians(angle_deg)))
+            return True
+        return False
+
+    def refresh_limits_from_servo(self, servo_config: dict) -> None:
+        """热更新限位：servo_ids.yaml 变更后重建 JOINT_LIMIT_OVERRIDES 与臂软限位。
+
+        控制层钳制（_clamp_arm_angles / _soft_body_limit）立即生效；
+        IK 模型内部限位需重启重建（构造时一次性写入 URDF）。
+        """
+        from aiderminal.robots.aider import settings as _st
+        n = _st.apply_joint_limits_from_servo(servo_config)
+        if self.ik_solver is not None:
+            for arm in ("left", "right"):
+                limb = []
+                for jname in self.ik_solver.arm_joints[arm]:
+                    lo, hi = _st.JOINT_LIMIT_OVERRIDES.get(jname, (-180.0, 180.0))
+                    limb.append([float(lo), float(hi)])
+                self._arm_limits_deg[arm] = np.array(limb)
+        print(f"🔄 [Adapter] 限位已热更新 ({n} 条来自 servo_ids.yaml)")
 
     def apply_gripper_from_trigger(self, arm: str, trigger_value: float) -> None:
         """根据 VR 扳机值 (0~1) 设置夹爪角度，钳制到软限位。"""

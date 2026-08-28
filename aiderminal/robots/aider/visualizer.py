@@ -170,7 +170,9 @@ class AiderVisualizer:
         # 新 URDF 所有关节 limit 为 0/0（导出未设限位），PyBullet 会把 lower==upper 的
         # revolute 关节当 fixed，导致所有关节不可动。复用 IK 的限位 patch（settings 为唯一数据源）。
         from aiderminal.core.kinematic.pink.aider_ik import AiderPinkSolver
-        urdf_content = AiderPinkSolver._patch_urdf_limits(urdf_content)
+        from aiderminal.robots.aider import settings as _s
+        # 传入真实 settings 模块当前限位（已被 servo_ids.yaml 覆盖），而非 aider_ik 的 import 快照
+        urdf_content = AiderPinkSolver._patch_urdf_limits(urdf_content, _s.JOINT_LIMIT_OVERRIDES)
 
         # 写入临时文件加载
         tmp_urdf = tempfile.NamedTemporaryFile(
