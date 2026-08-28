@@ -8,6 +8,7 @@ setup(
     name=package_name,
     version='0.1.0',
     packages=[package_name],
+    py_modules=['test_box_node'],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -28,6 +29,8 @@ setup(
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'test_box_node = test_box_node:main',
+        ],
     },
 )

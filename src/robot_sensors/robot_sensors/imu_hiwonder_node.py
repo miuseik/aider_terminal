@@ -27,13 +27,19 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from tf2_ros import TransformBroadcaster
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, Quaternion
 
 from .imu_hiwonder import HiwonderImu, euler_to_quat
 
 
 class ImuHiwonderNode(Node):
-    """真实 IMU 驱动节点。"""
+    """真实 IMU 驱动节点。
+
+    姿态来源（按优先级）:
+        1. 设备输出 0x53 姿态角帧 → 直接用欧拉角转四元数（无漂移）
+        2. 设备只输出 0x52 角速度帧 → 对角速度数值积分得到四元数
+           （会有零偏累积漂移，但足以直观验证陀螺仪方向映射）
+    """
 
     def __init__(self):
         super().__init__('imu_hiwonder_node')
@@ -57,6 +63,10 @@ class ImuHiwonderNode(Node):
         self._publisher = self.create_publisher(Imu, 'sensor/imu', 10)
         self._tf_broadcaster = TransformBroadcaster(self)
 
+        # 角速度积分得到的姿态四元数（仅当设备无 0x53 帧时使用）
+        self._integ_quat = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w
+        self._last_integ_time = None
+
         # 连接硬件
         self._imu = HiwonderImu(port, baud)
         try:
@@ -70,6 +80,42 @@ class ImuHiwonderNode(Node):
         self._timer = self.create_timer(1.0 / rate, self._on_timer)
         self._count = 0
         self._no_data_warned = False
+
+    def _integrate_gyro(self, gx, gy, gz, now):
+        """对角速度(rad/s)数值积分更新 self._integ_quat。
+
+        采用一阶近似: q_{k+1} = q_k + 0.5 * (Ω ⊗ q_k) * dt，
+        其中 Ω = (gx,gy,gz,0)。积分后归一化。
+        """
+        if self._last_integ_time is None:
+            self._last_integ_time = now
+            return
+        dt = (now - self._last_integ_time).nanoseconds * 1e-9
+        self._last_integ_time = now
+        if dt <= 0.0:
+            return
+
+        qx, qy, qz, qw = self._integ_quat
+        # Ω ⊗ q = (wx,qw 形式)
+        # Ω = (gx, gy, gz, 0)
+        ox = gx
+        oy = gy
+        oz = gz
+        ow = 0.0
+        # 四元数乘法 Ω * q
+        nx = ow * qx + ox * qw + oy * qz - oz * qy
+        ny = ow * qy - ox * qz + oy * qw + oz * qx
+        nz = ow * qz + ox * qy - oy * qx + oz * qw
+        nw = ow * qw - ox * qx - oy * qy - oz * qz
+        # 半角增量
+        self._integ_quat[0] = qx + 0.5 * nx * dt
+        self._integ_quat[1] = qy + 0.5 * ny * dt
+        self._integ_quat[2] = qz + 0.5 * nz * dt
+        self._integ_quat[3] = qw + 0.5 * nw * dt
+        # 归一化
+        n = math.sqrt(sum(c * c for c in self._integ_quat))
+        if n > 0.0:
+            self._integ_quat = [c / n for c in self._integ_quat]
 
     def _on_timer(self):
         data = self._imu.read()
@@ -86,23 +132,37 @@ class ImuHiwonderNode(Node):
         msg.header.stamp = now.to_msg()
         msg.header.frame_id = self._frame_id
 
+        # 角速度 (°/s -> rad/s)
+        gx = gy = gz = 0.0
+        if data['gyro']:
+            k = math.pi / 180.0
+            gx = data['gyro']['x'] * k
+            gy = data['gyro']['y'] * k
+            gz = data['gyro']['z'] * k
+        msg.angular_velocity.x = gx
+        msg.angular_velocity.y = gy
+        msg.angular_velocity.z = gz
+
+        # 姿态四元数: 优先用 0x53 帧；无则用角速度积分
         if data['angle']:
-            q = euler_to_quat(
-                data['angle']['roll'],
-                data['angle']['pitch'],
-                data['angle']['yaw'],
-            )
+            a = data['angle']
+            # 诊断: 打印原始角度，确认是否稳定
+            if self._count % 50 == 0:
+                self.get_logger().info(
+                    f"[diag] angle= R={a['roll']:.2f} P={a['pitch']:.2f} Y={a['yaw']:.2f}")
+            q = euler_to_quat(a['roll'], a['pitch'], a['yaw'])
             msg.orientation.x, msg.orientation.y = q[0], q[1]
             msg.orientation.z, msg.orientation.w = q[2], q[3]
+            # 有绝对姿态时，重置积分器基准，避免漂移累积
+            self._integ_quat = [q[0], q[1], q[2], q[3]]
+            self._last_integ_time = None
         else:
-            msg.orientation.w = 1.0
-
-        if data['gyro']:
-            # °/s -> rad/s
-            k = math.pi / 180.0
-            msg.angular_velocity.x = data['gyro']['x'] * k
-            msg.angular_velocity.y = data['gyro']['y'] * k
-            msg.angular_velocity.z = data['gyro']['z'] * k
+            # 仅角速度：积分得到姿态
+            self._integrate_gyro(gx, gy, gz, now)
+            msg.orientation.x = self._integ_quat[0]
+            msg.orientation.y = self._integ_quat[1]
+            msg.orientation.z = self._integ_quat[2]
+            msg.orientation.w = self._integ_quat[3]
 
         if data['accel']:
             # g -> m/s²
@@ -121,9 +181,8 @@ class ImuHiwonderNode(Node):
         self._publisher.publish(msg)
 
         # ── 发布 TF（让 RViz 中机器人跟随陀螺仪姿态）──
-        # 注意: 发布 <parent> -> <child_frame(默认 base_link)>，
-        # 使整个机器人跟随陀螺仪旋转。Imu 消息本身仍标记 imu_link。
-        if self._pub_tf and data['angle']:
+        # 发布 <parent> -> <child_frame(默认 base_link)>，使方块/机器人跟随姿态。
+        if self._pub_tf:
             t = TransformStamped()
             t.header.stamp = now.to_msg()
             t.header.frame_id = self._parent
@@ -139,12 +198,11 @@ class ImuHiwonderNode(Node):
 
         # 降频日志
         self._count += 1
-        if self._count % 200 == 0 and data['angle']:
-            a = data['angle']
-            tag = ' (加速度由姿态反推)' if data.get('accel_derived') else ''
+        if self._count % 200 == 0:
+            tag = ' (角速度积分)' if not data['angle'] else ''
             self.get_logger().info(
                 f"已发布 {self._count} 条 | "
-                f"R={a['roll']:7.2f}° P={a['pitch']:7.2f}° Y={a['yaw']:7.2f}°"
+                f"陀螺仪 ω=({gx:.3f},{gy:.3f},{gz:.3f}) rad/s"
                 f"{tag}"
             )
 

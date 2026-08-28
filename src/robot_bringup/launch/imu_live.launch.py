@@ -36,14 +36,32 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'port', default_value='/dev/ttyUSB0',
-            description='IMU 串口设备'),
+            'port',
+            default_value='/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
+            description='IMU 串口设备（默认 by-id 稳定路径，插拔不变）'),
         DeclareLaunchArgument(
             'baud', default_value='460800',
             description='IMU 波特率 (实测 460800)'),
         DeclareLaunchArgument(
             'use_rviz', default_value='true',
             description='是否启动 RViz'),
+        DeclareLaunchArgument(
+            'wave_amplitude', default_value='0.3',
+            description='关节摆动幅度 (rad)，0 则关节静止'),
+
+        # 关节角源 —— robot_state_publisher 缺少 joint_states 时
+        # 不会发布 URDF 关节 TF，RViz 中将只剩空的 base_link（黑屏）。
+        # 本节点按 URDF 关节名持续发布，使完整模型可见。
+        Node(
+            package='robot_control',
+            executable='joint_wave',
+            name='joint_wave',
+            output='screen',
+            parameters=[{
+                'wave_amplitude': LaunchConfiguration('wave_amplitude'),
+                'publish_rate': 30.0,
+            }],
+        ),
 
         # 真实 IMU 驱动（含 TF 发布，使机器人跟随姿态）
         Node(
@@ -62,7 +80,7 @@ def generate_launch_description():
             }],
         ),
 
-        # URDF 其余关节 → TF
+        # URDF 其余关节 → TF（依赖上面的 joint_wave 提供 joint_states）
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
