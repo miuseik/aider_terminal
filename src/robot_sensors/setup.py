@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'imu_publisher = robot_sensors.imu_publisher:main',
+            'imu_hiwonder_node = robot_sensors.imu_hiwonder_node:main',
         ],
     },
 )

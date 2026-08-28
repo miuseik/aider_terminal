@@ -45,7 +45,8 @@ RUN pip3 install --break-system-packages --ignore-installed \
     setuptools \
     colcon-common-extensions \
     "numpy<2" \
-    pytest
+    pytest \
+    pyserial
 
 # ── 可视化与调试工具（单独一层，便于复用上面缓存）──
 # 注意: 使用 apt-get install 而非 rosdep，因为 ros2.list 已配置 [trusted=yes]

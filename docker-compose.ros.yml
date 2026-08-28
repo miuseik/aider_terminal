@@ -32,6 +32,11 @@ services:
       - ros_log:/ws/log                    # 构建/运行日志
       - /tmp/.X11-unix:/tmp/.X11-unix:ro   # X11 转发（RViz/Gazebo 需要）
 
+    # 串口设备直通（IMU: Hiwonder 十轴 AHRS / CH340）
+    # IMU_PORT 可指定设备，默认 /dev/ttyUSB0
+    devices:
+      - "${IMU_PORT:-/dev/ttyUSB0}:${IMU_PORT:-/dev/ttyUSB0}"
+
     # entrypoint 已固化在镜像内（docker/entrypoint_newros.sh），无需挂载
     command: ["sleep", "infinity"]         # 构建后保持容器运行，便于 exec 进入
 
