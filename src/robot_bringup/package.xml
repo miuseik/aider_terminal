@@ -2,8 +2,17 @@
 <package format="3">
   <name>robot_bringup</name>
   <version>0.1.0</version>
-  <description>启动管理: 组合所有 launch 的唯一入口</description>
+  <description>启动编排：系统 launch 入口</description>
   <maintainer email="dev@example.com">dev</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>robot_msgs</exec_depend>
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>

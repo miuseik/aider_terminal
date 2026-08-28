@@ -1,0 +1,41 @@
+# ============================================================
+# 新家 (src/) 独立容器 —— 与老业务 aiderminal 完全隔离
+#
+# 启动:  ./start-ros.sh           或
+#        docker compose -f docker-compose.ros.yml up -d
+# 进入:  ./start-ros.sh shell     或
+#        docker exec -it aider_ros2 bash
+# ============================================================
+services:
+  ros:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.newros
+    image: aider_ros2:latest
+    container_name: aider_ros2
+    network_mode: host
+    ipc: host
+
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+
+    # 只挂载 src/，不挂载老业务代码
+    volumes:
+      - ./src:/ws/src                      # 新家源码（读写，colcon 需要）
+      - ./data:/ws/data                    # 数据目录（地图/模型/日志等）
+      - ros_build:/ws/build                # 构建产物放卷内，避免污染主机
+      - ros_install:/ws/install            # 安装产物
+      - ros_log:/ws/log                    # 构建/运行日志
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro   # X11 转发（RViz/Gazebo 需要）
+
+    # entrypoint 已固化在镜像内（docker/entrypoint_newros.sh），无需挂载
+    command: ["sleep", "infinity"]         # 构建后保持容器运行，便于 exec 进入
+
+    stdin_open: true
+    tty: true
+
+volumes:
+  ros_build:
+  ros_install:
+  ros_log:

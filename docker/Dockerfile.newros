@@ -1,0 +1,58 @@
+# ============================================================
+# 新家 (src/) 专用镜像 —— 与老业务 aiderminal 完全隔离
+# 仅提供 ROS 2 运行时 + 构建依赖，不含任何业务代码
+# ============================================================
+FROM ubuntu:noble
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# ── 清华 apt 源 ──
+RUN sed -i 's@//.*archive.ubuntu.com@//mirrors.tuna.tsinghua.edu.cn@g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || \
+    sed -i 's@//.*archive.ubuntu.com@//mirrors.tuna.tsinghua.edu.cn@g' /etc/apt/sources.list
+
+# ── 系统依赖 ──
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates gnupg \
+    python3-pip build-essential cmake pkg-config \
+    libeigen3-dev \
+    iproute2 sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── ROS 2 Jazzy ──
+RUN echo "deb [trusted=yes] https://mirrors.tuna.tsinghua.edu.cn/ros2/ubuntu noble main" > /etc/apt/sources.list.d/ros2.list
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-ros-base \
+    ros-jazzy-launch \
+    ros-jazzy-launch-ros \
+    ros-jazzy-ros2-control \
+    ros-jazzy-ros2-controllers \
+    ros-jazzy-hardware-interface \
+    ros-jazzy-controller-manager \
+    ros-jazzy-joint-state-broadcaster \
+    ros-jazzy-joint-state-publisher \
+    ros-jazzy-xacro \
+    ros-jazzy-robot-state-publisher \
+    ros-jazzy-tf2-tools \
+    ros-jazzy-rosbag2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── pip 清华源 ──
+RUN pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# ── Python 构建/测试依赖 ──
+RUN pip3 install --break-system-packages --ignore-installed \
+    setuptools \
+    colcon-common-extensions \
+    "numpy<2" \
+    pytest
+
+# ── 工作空间骨架（源码运行时挂载）──
+WORKDIR /ws
+
+# ── 入口（固化进镜像，不依赖运行时挂载）──
+COPY docker/entrypoint_newros.sh /entrypoint_newros.sh
+RUN chmod +x /entrypoint_newros.sh
+
+ENTRYPOINT ["/entrypoint_newros.sh"]
+CMD ["sleep", "infinity"]

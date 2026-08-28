@@ -2,8 +2,17 @@
 <package format="3">
   <name>robot_manipulation</name>
   <version>0.1.0</version>
-  <description>机械臂操作 (MoveIt 2, 可选)</description>
+  <description>机械臂操作：抓取规划与轨迹执行</description>
   <maintainer email="dev@example.com">dev</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>robot_msgs</exec_depend>
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>

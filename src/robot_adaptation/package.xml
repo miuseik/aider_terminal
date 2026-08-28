@@ -5,7 +5,13 @@
   <description>在线适应 (轻量学习: 自适应控制/校准/调参)</description>
   <maintainer email="dev@example.com">dev</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_cmake</buildtool_depend>
-  <depend>rclcpp</depend>
-  <depend>robot_msgs</depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>robot_msgs</exec_depend>
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>
