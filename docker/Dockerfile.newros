@@ -1,11 +1,25 @@
 # ============================================================
 # 新家 (src/) 专用镜像 —— 与老业务 aiderminal 完全隔离
-# 仅提供 ROS 2 运行时 + 构建依赖，不含任何业务代码
+#
+# 用 ARG DEPLOY_TARGET 控制装不装仿真组件（一个文件两种镜像）:
+#   DEPLOY_TARGET=sim      开发机: ROS2 + Gazebo + PyBullet + RViz   (~6.9GB)
+#   DEPLOY_TARGET=runtime  树莓派: ROS2 + ros2_control 最小运行      (~1.5GB)
+#
+# 由 scripts/setup_ros.sh 自动判断并传入（依据 uname -m + 设备树）。
+# 手动构建:
+#   docker build --build-arg DEPLOY_TARGET=runtime -f docker/Dockerfile.newros -t aider_ros2:runtime .
+#
+# 注意: 不使用多阶段 --target —— 传统 builder (DOCKER_BUILDKIT=0) 下
+#       --target 不生效，而我们必须禁用 BuildKit 以绕开 Docker Hub 校验。
 # ============================================================
 FROM ubuntu:noble
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+
+# 部署目标: sim(开发机,全量) | runtime(真机/树莓派,精简)
+ARG DEPLOY_TARGET=sim
+ENV DEPLOY_TARGET=$DEPLOY_TARGET
 
 # ── 清华 apt 源 ──
 RUN sed -i 's@//.*archive.ubuntu.com@//mirrors.tuna.tsinghua.edu.cn@g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || \
@@ -19,14 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iproute2 sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# ── ROS 2 Jazzy ──
+# ── ROS 2 Jazzy 核心（真机与仿真共用，始终安装）──
 RUN echo "deb [trusted=yes] https://mirrors.tuna.tsinghua.edu.cn/ros2/ubuntu noble main" > /etc/apt/sources.list.d/ros2.list
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-ros-base \
     ros-jazzy-launch \
     ros-jazzy-launch-ros \
     ros-jazzy-ros2-control \
-    ros-jazzy-ros2-controllers \
     ros-jazzy-hardware-interface \
     ros-jazzy-controller-manager \
     ros-jazzy-joint-state-broadcaster \
@@ -40,57 +53,63 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── pip 清华源 ──
 RUN pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
-# ── Python 构建/测试依赖 ──
-# ── Gazebo Harmonic (ROS 2 Jazzy 配套)，用于仿真与强化学习 ──
-# 注意: 使用 apt-get install 而非 rosdep（ros2.list 已配置 [trusted=yes]）
-RUN sh -c 'echo "deb [trusted=yes] http://packages.osrfoundation.org/gazebo/ubuntu-stable noble main" > /etc/apt/sources.list.d/gazebo-stable.list' && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    ros-jazzy-ros-gz \
-    ros-jazzy-ros-gz-sim \
-    ros-jazzy-ros-gz-bridge \
-    ros-jazzy-gz-ros2-control \
-    ros-jazzy-ros2-control \
-    ros-jazzy-ros2-controllers \
-    ros-jazzy-ros2controlcli \
-    gz-harmonic \
-    && rm -rf /var/lib/apt/lists/*
-
-# pybullet_data 不是独立 pip 包（PyBullet 自带资源目录），不能装
+# ── Python 基础依赖（真机必需）──
 RUN pip3 install --break-system-packages --ignore-installed \
     setuptools \
     colcon-common-extensions \
     "numpy<2" \
-    pytest \
-    pyserial \
-    pybullet \
-    scipy
+    pyserial
 
-# ── 可视化与调试工具（单独一层，便于复用上面缓存）──
-# 注意: 使用 apt-get install 而非 rosdep，因为 ros2.list 已配置 [trusted=yes]
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-jazzy-rviz2 \
-    ros-jazzy-joint-state-publisher \
-    ros-jazzy-joint-state-publisher-gui \
-    ros-jazzy-rqt \
-    ros-jazzy-rqt-graph \
-    ros-jazzy-plotjuggler-ros \
-    ros-jazzy-tf2-tools \
-    ros-jazzy-urdf-tutorial \
-    libgl1 \
-    libglx-mesa0 \
-    libglu1-mesa \
-    libqt5core5a \
-    libqt5gui5 \
-    libqt5widgets5 \
-    libxkbcommon-x11-0 \
-    libxcb-icccm4 \
-    libxcb-image0 \
-    libxcb-keysyms1 \
-    libxcb-randr0 \
-    libxcb-render-util0 \
-    libxcb-shape0 \
-    libxcb-xinerama0 \
-    && rm -rf /var/lib/apt/lists/*
+# ══════════════════════════════════════════════════════════
+# 仿真组件 —— 仅 DEPLOY_TARGET=sim 时安装（树莓派跳过）
+# 条件写在 RUN 内用 shell if，传统 builder 完全支持
+# ══════════════════════════════════════════════════════════
+RUN if [ "$DEPLOY_TARGET" = "sim" ]; then \
+        echo "deb [trusted=yes] http://packages.osrfoundation.org/gazebo/ubuntu-stable noble main" > /etc/apt/sources.list.d/gazebo-stable.list && \
+        apt-get update && apt-get install -y --no-install-recommends \
+            ros-jazzy-ros-gz \
+            ros-jazzy-ros-gz-sim \
+            ros-jazzy-ros-gz-bridge \
+            ros-jazzy-gz-ros2-control \
+            ros-jazzy-ros2-controllers \
+            ros-jazzy-ros2controlcli \
+            gz-harmonic \
+            ros-jazzy-rviz2 \
+            ros-jazzy-joint-state-publisher-gui \
+            ros-jazzy-rqt \
+            ros-jazzy-rqt-graph \
+            ros-jazzy-plotjuggler-ros \
+            ros-jazzy-urdf-tutorial \
+            libgl1 \
+            libglx-mesa0 \
+            libglu1-mesa \
+            libqt5core5a \
+            libqt5gui5 \
+            libqt5widgets5 \
+            libxkbcommon-x11-0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+        && rm -rf /var/lib/apt/lists/* \
+        && echo ">>> [sim] Gazebo + RViz 已安装"; \
+    else \
+        apt-get update && apt-get install -y --no-install-recommends \
+            python3-serial \
+            udev \
+        && rm -rf /var/lib/apt/lists/* \
+        && echo ">>> [runtime] 精简镜像，已跳过 Gazebo/RViz/PyBullet"; \
+    fi
+
+# ── Python 仿真依赖（仅 sim）──
+# 注意: pybullet_data 不是独立 pip 包（PyBullet 自带资源目录），不能装
+RUN if [ "$DEPLOY_TARGET" = "sim" ]; then \
+        pip3 install --break-system-packages --ignore-installed \
+            pytest pybullet scipy; \
+    fi
 
 # ── 工作空间骨架（源码运行时挂载）──
 WORKDIR /ws

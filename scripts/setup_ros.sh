@@ -39,6 +39,29 @@ cd "$SCRIPT_DIR"
 
 ARCH=$(uname -m)
 
+# ── 0. 部署环境判断（决定装不装 Gazebo / PyBullet）──
+# 依据 1: CPU 架构（x86_64 开发机 / aarch64 树莓派）
+# 依据 2: 设备型号（/proc/device-tree/model 含 Raspberry）
+# 可用环境变量 DEPLOY_TARGET=sim|runtime 强制指定
+detect_deploy_target() {
+    if [ -n "${DEPLOY_TARGET:-}" ]; then
+        echo "$DEPLOY_TARGET"; return
+    fi
+    if [ "$ARCH" = "aarch64" ]; then
+        echo "runtime"; return          # 树莓派/Jetson 等 ARM 设备均按真机处理
+    fi
+    echo "sim"
+}
+
+DEPLOY_TARGET=$(detect_deploy_target)
+info "部署目标: $DEPLOY_TARGET (架构: $ARCH)"
+
+if [ "$DEPLOY_TARGET" = "runtime" ]; then
+    info "真机模式 —— 跳过 Gazebo/PyBullet/RViz（约节省 5.4GB）"
+else
+    info "开发机模式 —— 将安装 Gazebo + PyBullet + RViz"
+fi
+
 # ── 1. 克隆离线包到临时目录 ──
 if [ ! -d "$OFFLINE_DIR" ]; then
     warn "克隆 Docker 离线包..."
@@ -145,12 +168,20 @@ if docker image inspect "$IMAGE_NAME" &>/dev/null; then
     info "新家镜像 $IMAGE_NAME 已存在，跳过构建（如需重建先 docker rmi $IMAGE_NAME）"
 else
     echo ""
-    echo ">>> 构建新家镜像（安装 ROS 2 Jazzy + ros2_control 等，约需 10-20 分钟）..."
+    if [ "$DEPLOY_TARGET" = "runtime" ]; then
+        echo ">>> 构建真机镜像 [runtime]（ROS2 + ros2_control，约 5-10 分钟）..."
+    else
+        echo ">>> 构建开发镜像 [sim]（ROS2 + Gazebo + PyBullet + RViz，约 20-40 分钟）..."
+    fi
     echo "    基础镜像已就绪，系统包走清华源。后续启动无需重复构建。"
     echo ""
+    # --build-arg DEPLOY_TARGET 控制装不装仿真组件。
+    # 不用多阶段 --target：传统 builder(DOCKER_BUILDKIT=0) 下不生效，
+    # 而我们必须禁用 BuildKit 以绕开 Docker Hub manifest 校验。
     DOCKER_BUILDKIT=0 docker build --pull=false \
+        --build-arg DEPLOY_TARGET="$DEPLOY_TARGET" \
         -f docker/Dockerfile.newros -t "$IMAGE_NAME" .
-    info "新家镜像构建完成"
+    info "新家镜像构建完成 (DEPLOY_TARGET=$DEPLOY_TARGET)"
 fi
 
 # ── 8. 启动 ──
