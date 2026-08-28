@@ -2,11 +2,25 @@
 <package format="3">
   <name>robot_sim</name>
   <version>0.1.0</version>
-  <description>仿真 (Gazebo/Ignition, 可选, 用于测试)</description>
+  <description>仿真：PyBullet 可视化器 + Gazebo 集成</description>
   <maintainer email="dev@example.com">dev</maintainer>
   <license>Apache-2.0</license>
+
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>robot_msgs</exec_depend>
+  <exec_depend>robot_description</exec_depend>
+
+  <!-- PyBullet 仿真（从 aiderminal 移植） -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-pybullet</exec_depend>
+
+  <!-- Gazebo Harmonic (Jazzy 配套)，用于强化学习训练 -->
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros2_control</exec_depend>
+
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
