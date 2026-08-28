@@ -26,6 +26,8 @@ setup(
         'pybullet',
         'pyserial',
         'trimesh',
+        'pyorbbecsdk2',  # Astra RGB-D 相机 (Orbbec SDK v2 开源分支)
+        'pyserial',      # Hiwonder IMU 串口
         'aiortc>=1.7.0',
         'av>=11.0.0',
         'pin-pink',

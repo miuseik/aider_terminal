@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robot_agent</name>
+  <version>0.1.0</version>
+  <description>智能体 (执行层: 任务分解+调度+记忆+纠错)</description>
+  <maintainer email="dev@example.com">dev</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>robot_msgs</depend>
+  <depend>robot_inference</depend>
+</package>

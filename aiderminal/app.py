@@ -75,7 +75,7 @@ class TelegripSystem:
         self.actuator_router = ActuatorRouter(control_loop=self.control_loop)
         
         self.ws_client = VRWebSocketClient(config, self.vr_handler, self.actuator_router, self.control_loop, self.exo_handler)
-        
+
         self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
 
         # WebRTC 推流器（按需启动）

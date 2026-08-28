@@ -1,0 +1,13 @@
+# 开发环境覆盖层
+# 用法: docker compose -f docker-compose.yml -f docker/docker-compose.dev.yml up -d
+
+services:
+  aiderminal:
+    environment:
+      - ENV=dev
+      - NO_SIM=false          # 开发期开启 PyBullet 仿真
+      - NO_VIZ=false
+      - DISPLAY=${DISPLAY}
+    # 开发期用交互式入口，方便进入容器调试
+    stdin_open: true
+    tty: true

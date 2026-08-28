@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<!-- 总装 URDF (include 各肢体)。占位。 -->
+<robot name="robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+</robot>

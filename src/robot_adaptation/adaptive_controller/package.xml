@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>adaptive_controller</name>
+  <version>0.1.0</version>
+  <description>自适应控制: 在线调整控制器以适应扰动/磨损</description>
+  <maintainer email="dev@example.com">dev</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>robot_adaptation</depend>
+</package>

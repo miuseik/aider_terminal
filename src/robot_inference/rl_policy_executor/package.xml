@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rl_policy_executor</name>
+  <version>0.1.0</version>
+  <description>RL 策略执行: 加载训练权重 (.onnx/.pt) → 实时输出动作</description>
+  <maintainer email="dev@example.com">dev</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>robot_inference</depend>
+</package>

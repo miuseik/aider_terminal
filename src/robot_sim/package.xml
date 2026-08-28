@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robot_sim</name>
+  <version>0.1.0</version>
+  <description>仿真 (Gazebo/Ignition, 可选, 用于测试)</description>
+  <maintainer email="dev@example.com">dev</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+</package>

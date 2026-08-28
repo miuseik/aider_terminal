@@ -1,0 +1,5 @@
+JointCommand[] trajectory
+---
+bool success
+---
+float32 progress

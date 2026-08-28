@@ -1,0 +1,15 @@
+# 机器人全局配置（占位）
+robot:
+  name: aider
+  type: wheeled_dual_arm   # biped / wheeled / quadruped
+  dof: 12
+  base_frame: base_link
+  urdf_package: robot_description
+
+sensors:
+  camera: astra_mini_pro
+  imu: hiwonder_10dof
+
+control:
+  mode: pure_vr            # pure_vr / exo_vr_mixed
+  control_rate_hz: 50

@@ -1,0 +1,12 @@
+# 生产环境覆盖层
+# 用法: docker compose -f docker-compose.yml -f docker/docker-compose.prod.yml up -d
+
+services:
+  aiderminal:
+    environment:
+      - ENV=pro
+      - NO_SIM=true           # 真机运行，禁用仿真可视化
+      - NO_VIZ=true
+    restart: unless-stopped   # 异常退出自动拉起（配合 os._exit(1) 重启机制）
+    stdin_open: false
+    tty: false
