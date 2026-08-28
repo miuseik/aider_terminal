@@ -1,3 +1,21 @@
 <?xml version="1.0"?>
-<robot name="robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+<!--
+通用机器人入口 xacro —— 通过 robot_type 参数选择具体机型。
+
+采用「路径拼接」而非 xacro:if：xacro 的条件表达式只接受布尔值，
+不支持字符串比较，因此按约定命名直接拼路径是更可靠的多机型做法。
+
+约定: urdf/<robot_type>/<robot_type>.urdf.xacro
+
+用法:
+    xacro robot.urdf.xacro robot_type:=aider
+    ros2 launch robot_description display.launch.py robot_type:=aider
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot">
+
+  <xacro:arg name="robot_type" default="aider"/>
+
+  <!-- 按机型名拼路径引入（aider / aloha / so100） -->
+  <xacro:include filename="$(find robot_description)/urdf/$(arg robot_type)/$(arg robot_type).urdf.xacro"/>
+
 </robot>
