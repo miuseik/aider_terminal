@@ -1,0 +1,54 @@
+# 本地开发测试配置 - 无摄像头、无机器人硬件
+control:
+  keyboard:
+    angle_step: 5
+    enabled: true
+    gripper_step: 10.0
+    pos_step: 0.01
+  pybullet:
+    enabled: false
+  vr:
+    enabled: true
+gripper:
+  closed_angle: 45.0
+  open_angle: 0.0
+ik:
+  use_reference_poses: true
+  reference_poses_file: src/config/reference_poses.json
+  position_error_threshold: 0.001
+  hysteresis_threshold: 0.05
+  movement_penalty_weight: 0.01
+network:
+  host_ip: 0.0.0.0
+  websocket_port: 8442
+  enable_webrtc: true
+  webrtc_room_id: robot-camera
+  # ICE 服务器（兜底）
+  ice_servers:
+    - urls: ["stun:121.40.151.10:3478"]
+    - urls: ["turn:121.40.151.10:3478"]
+      username: "aider"
+      credential: "aider123456"
+  # 摄像头 - 使用 none 跳过
+  video_source: none
+  camera_width: 640
+  camera_height: 480
+  camera_fps: 25
+  camera_fourcc: MJPG
+paths:
+  urdf_path: URDF/aider/urdf/aider_pro.SLDASM.urdf
+robot:
+  type: aider
+  left_arm:
+    enabled: false
+    name: Left Arm
+    port: /dev/null
+  right_arm:
+    enabled: false
+    name: Right Arm
+    port: /dev/null
+  send_interval: 0.02
+  vr_to_robot_scale: 1
+aloha:
+  enabled: false
+  initial_height: 0.3

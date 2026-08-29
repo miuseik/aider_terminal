@@ -1,5 +1,5 @@
 """
-aider_camera — 独立摄像头驱动包 (零 ROS 依赖)
+aider_camera — 独立摄像头驱动包 (无框架依赖)
 
 用法:
     from aider_camera import OpenCVCameraDriver

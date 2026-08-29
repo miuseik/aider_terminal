@@ -10,11 +10,11 @@
 #   ROBOT_TYPE=aloha docker compose up --build -d
 
 services:
-  aiderminal:
+  src:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: aiderminal
+    container_name: src
     network_mode: host
     ipc: host
     privileged: true
@@ -28,10 +28,10 @@ services:
       - QT_X11_NO_MITSHM=1
 
     # 使用 volume 挂载的入口脚本，改脚本无需重建镜像
-    entrypoint: ["/bin/bash", "/ws/src/aiderminal/scripts/docker_entrypoint.sh"]
+    entrypoint: ["/bin/bash", "/app/scripts/docker_entrypoint.sh"]
     volumes:
-      - .:/ws/src/aiderminal             # 项目根目录（源码 + URDF）读写挂载，colcon 需要
-      - ./log:/ws/log                     # 日志持久化
+      - .:/app                     # 项目根目录（源码 + URDF）读写挂载
+      - ./log:/app/log             # 日志持久化
       - /tmp/.X11-unix:/tmp/.X11-unix:ro  # X11 转发（仿真窗口）
       - /dev:/dev:rw                      # 让容器能看见主机设备，具体使用时机由业务代码决定
 
