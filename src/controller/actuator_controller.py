@@ -318,6 +318,31 @@ class ActuatorController:
             return False
         return driver.set_position_mode(device_id)
 
+    async def set_turns_mode(self, port: str, device_id: int) -> bool:
+        """将执行器切换到圈数模式（RobStride CSP 连续位置，丝杆夹爪多圈用）。
+
+        CSP 的 LOC_REF 是 float32 多圈位置，不受 MOTION 帧 16bit（±2 圈）限制。
+        """
+        driver = self._get_or_create_driver(port)
+        if driver is None or not hasattr(driver, 'set_csp_mode'):
+            return False
+        return driver.set_csp_mode(device_id)
+
+    async def set_servo_turns(self, port: str, device_id: int, turns: float,
+                              speed_rads: Optional[float] = None) -> bool:
+        """圈数模式：相对当前位置转动 N 圈（RobStride CSP 连续位置模式）。
+
+        speed_rads: 最大速度 (rad/s)，None 用驱动默认 20 rad/s。
+        """
+        driver = self._get_or_create_driver(port)
+        if driver is None or not hasattr(driver, 'set_servo_turns'):
+            return False
+        try:
+            return driver.set_servo_turns(device_id, turns, speed_rads)
+        except Exception as e:
+            logger.warning("set_servo_turns %d failed: %s", device_id, e)
+            return False
+
     # ── ID 管理 ────────────────────────────────────────
 
     async def change_id(self, port: str, old_id: int, new_id: int) -> bool:

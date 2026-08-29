@@ -6,6 +6,7 @@ RobStride 官方驱动适配器 — 实现 JointActuatorInterface 契约
 """
 
 import os
+import math
 import time
 import logging
 from typing import Dict, List, Optional
@@ -88,6 +89,7 @@ class RobStrideOfficialDriver:
         # 速度模式(VELOCITY)下的目标位置（电机坐标系弧度），供位置闭环每帧计算速度指令。
         self._vel_target_rad: Dict[int, float] = {}
         self._csp_speed_limit: float = 1.0  # CSP 最大速度 (rad/s)，openArmX 默认 1 rad/s ≈ 57°/s
+        self._turns_speed_limit: float = 20.0  # 圈数模式默认最大速度 (rad/s)，RS05 v_max=33；丝杆导程 0.8mm/转 ≈ 2.5mm/s
         self._last_stale_warn: Dict[int, float] = {}  # motor_id → 上次 stale 日志时间戳（防刷屏）
         # 掉电判定阈值：已使能电机反馈停滞超过该秒数 → 判定掉电/掉线 → 自动重启系统
         self._power_loss_stale: float = 3.0
@@ -294,10 +296,17 @@ class RobStrideOfficialDriver:
             return False
         time.sleep(0.01)
 
+        # 4) 设置 CSP 加速度 (acc_rad)——必须！否则梯形规划到不了限速，实测会非常慢
+        #    速度模式显式设 20 rad/s²；CSP 默认固件值可能极小，这里给 50 保证能提速
+        if not self._can.write_parameter(device_id, ParamIndex.ACC_RAD, 50.0):
+            logger.warning("Motor %d: failed to set CSP acc_rad", device_id)
+        time.sleep(0.01)
+
         self._csp_initialized.add(device_id)
         if device_id in self._motors:
             self._motors[device_id].enabled = True
-        logger.info("Motor %d initialized (CSP mode, speed_limit=%.1f rad/s)", device_id, self._csp_speed_limit)
+        logger.info("Motor %d initialized (CSP mode, speed_limit=%.1f rad/s, acc=50 rad/s²)",
+                    device_id, self._csp_speed_limit)
         return True
 
     def set_position(self, device_id: int, position: float, time_ms: int = 500,
@@ -490,6 +499,54 @@ class RobStrideOfficialDriver:
         self._initialized.add(device_id)
         logger.info("Motor %d switched back to MIT position mode", device_id)
         return True
+
+    def set_csp_mode(self, device_id: int) -> bool:
+        """切换到 CSP 连续位置模式（供 ActuatorController 通过 hasattr 调用）。
+
+        圈数模式（丝杆夹爪）专用：CSP 的 LOC_REF 是 float32 写入的多圈位置，
+        不受 MOTION 帧 16bit（±2 圈）回绕限制，可表达丝杆全程（如 M5×25cm ≈ 31 圈）。
+        """
+        return self._ensure_csp_ready(device_id)
+
+    def set_servo_turns(self, device_id: int, turns: float,
+                        speed_rads: Optional[float] = None) -> bool:
+        """圈数模式：相对当前位置转动 N 圈（CSP 连续位置模式）。
+
+        Args:
+            device_id: 电机 ID
+            turns: 圈数，正=正转，负=反转（相对当前 MECH_POS 机械位置累加）
+            speed_rads: 最大速度 (rad/s)，None 用默认 _turns_speed_limit (20 rad/s)。
+                RS05 v_max=33 rad/s；丝杆导程 0.8mm/转，20 rad/s ≈ 2.5 mm/s
+
+        Returns:
+            bool: 是否成功下发
+        """
+        if not self._ensure_csp_ready(device_id):
+            logger.warning("[%s] motor %d CSP not ready for turns",
+                           self._can_name, device_id)
+            return False
+        speed = self._turns_speed_limit if speed_rads is None else float(speed_rads)
+        self.set_csp_speed(device_id, speed)
+        # 提高 CSP 加速度：梯形规划没有足够加速度就到不了限速（CSP 默认 ACC 极小）
+        self._can.write_parameter(device_id, ParamIndex.ACC_RAD, 100.0)
+        # 回读验证：LIMIT_SPD / ACC_RAD 固件实际解析值（float32 写入可能被钳制）
+        v = self._can.read_parameter(device_id, ParamIndex.LIMIT_SPD, timeout=0.5)
+        a = self._can.read_parameter(device_id, ParamIndex.ACC_RAD, timeout=0.5)
+        logger.info("[%s] motor %d CSP readback → limit_spd=%s acc_rad=%s",
+                    self._can_name, device_id,
+                    f"{v.value:.2f}" if v is not None and v.success else "NO-READ",
+                    f"{a.value:.2f}" if a is not None and a.success else "NO-READ")
+        res = self._can.read_parameter(device_id, ParamIndex.MECH_POS, timeout=0.6)
+        if res is None or not res.success:
+            logger.warning("[%s] motor %d read MECH_POS failed for turns",
+                           self._can_name, device_id)
+            return False
+        target_rad = res.value + float(turns) * 2 * math.pi
+        ok = self._can.set_position_csp(device_id, target_rad)
+        logger.info("[%s] motor %d turns=%.2f @%.1f rad/s → LOC_REF=%.3f rad (%.2f 圈)",
+                    self._can_name, device_id, turns, speed, target_rad,
+                    target_rad / (2 * math.pi))
+        return ok
 
     def set_csp_speed(self, device_id: int, speed_rads: float) -> bool:
         """动态调整 CSP 模式最大速度 (rad/s)。

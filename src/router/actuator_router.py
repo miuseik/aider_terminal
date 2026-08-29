@@ -341,6 +341,8 @@ class ActuatorRouter:
             "set_servo_id":      self._route_change_id,
             "set_speed_mode":    self._route_speed_mode,
             "set_position_mode": self._route_position_mode,
+            "set_turns_mode":    self._route_turns_mode,
+            "set_servo_turns":   self._route_set_turns,
             "scan_servos":       self._route_scan,
             "list_ports":        self._route_list_ports,
             "get_network_info":  self._route_network_info,
@@ -472,6 +474,35 @@ class ActuatorRouter:
             return {"success": False, "message": "Missing servo_id"}
         online = await ctrl.ping_actuator(port, device_id)
         return {"success": online, "data": {"servo_id": device_id, "online": online}}
+
+    async def _route_turns_mode(self, ctrl, cmd: Dict) -> Dict:
+        """切换执行器到圈数模式（RobStride CSP 连续位置，丝杆夹爪多圈）。
+
+        cmd 参数: port, servo_id
+        """
+        port = cmd.get("port", "/dev/ttyACM0")
+        device_id = cmd.get("servo_id")
+        if device_id is None:
+            return {"success": False, "message": "Missing servo_id"}
+        ok = await ctrl.set_turns_mode(port, device_id)
+        return {"success": ok,
+                "message": f"actuator {device_id} → turns mode" if ok else "turns mode failed"}
+
+    async def _route_set_turns(self, ctrl, cmd: Dict) -> Dict:
+        """圈数模式：相对当前位置转动 N 圈（CSP 连续位置模式）。
+
+        cmd 参数: port, servo_id, turns, speed(可选, rad/s)
+        """
+        port = cmd.get("port", "/dev/ttyACM0")
+        device_id = cmd.get("servo_id")
+        turns = cmd.get("turns")
+        if device_id is None or turns is None:
+            return {"success": False, "message": "Missing servo_id or turns"}
+        speed = cmd.get("speed")
+        speed_rads = float(speed) if speed is not None else None
+        ok = await ctrl.set_servo_turns(port, device_id, float(turns), speed_rads)
+        return {"success": ok,
+                "message": f"actuator {device_id} turns={turns}" if ok else "set turns failed"}
 
     async def _route_get_info(self, ctrl, cmd: Dict) -> Dict:
         """获取执行器状态信息。不传 servo_id 则返回所有注册的执行器。

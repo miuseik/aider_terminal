@@ -210,8 +210,11 @@ def setup_can(
 
     # 4) 配置: down → bitrate → txqueuelen → up
     ok, timed_out = _config_sequence()
-    if not ok and timed_out:
-        # USB 适配器无响应 → 尝试软复位后重试一次
+    if not ok:
+        # 任何配置失败（超时 / Protocol error 等）都先尝试 USB 软复位一次。
+        # 实测 canable(gs_usb) 固件卡死时 `ip link up` 报 "RTNETLINK answers:
+        # Protocol error"（内核侧 failed to set bittiming: -EPROTO），不是超时；
+        # 若只处理超时，软件重连将永远失败、接口永久 DOWN。
         if _usb_reset_for_can(can_if):
             ok, _ = _config_sequence()
             if not ok:
@@ -219,8 +222,6 @@ def setup_can(
                 return False
         else:
             return False
-    elif not ok:
-        return False
 
     # 5) 验证最终状态
     state_r = subprocess.run(
