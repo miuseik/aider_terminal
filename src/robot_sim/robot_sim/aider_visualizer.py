@@ -5,6 +5,7 @@ Aider 机器人 PyBullet 可视化器。
 
 import os
 import math
+import struct
 import subprocess
 import numpy as np
 import pybullet as p
@@ -84,7 +85,86 @@ def _patch_urdf_limits(urdf_xml: str,
                 limit.set("upper", f"{float(np.radians(hi)):.8f}")
     return ET.tostring(root, encoding="unicode")
 
-class AiderVisualizer:
+
+def _read_stl_min_z(stl_path: str) -> float:
+    """binary STL 顶点最小 z（用于地面偏移计算）。"""
+    with open(stl_path, 'rb') as fh:
+        data = fh.read()
+    if len(data) < 84 or data[:5] == b'solid':
+        return 0.0
+    count = struct.unpack('<I', data[80:84])[0]
+    off, min_z = 84, float('inf')
+    for _ in range(count):
+        for k in range(3):
+            _, _, vz = struct.unpack('<3f', data[off + 12 + k * 12:off + 24 + k * 12])
+            if vz < min_z:
+                min_z = vz
+        off += 50
+    return min_z if min_z != float('inf') else 0.0
+
+
+def _compute_ground_offset(urdf_xml: str, mesh_dir: str) -> float:
+    """自动算整车真实最低点对应的地面抬升量（basePosition z），不依赖任何硬编码数值。"""
+    import xml.etree.ElementTree as ET
+    import numpy as np
+    from scipy.spatial.transform import Rotation as R
+    from collections import deque
+
+    root = ET.fromstring(urdf_xml)
+    # link -> [(mesh_file, visual_xyz, visual_rpy)]
+    geoms, joints = {}, {}
+    for link in root.iter('link'):
+        entries = []
+        for vis in link.findall('visual'):
+            o = vis.find('origin')
+            xyz = [float(v) for v in (o.get('xyz') if o is not None else '0 0 0').split()]
+            rpy = [float(v) for v in (o.get('rpy') if o is not None else '0 0 0').split()]
+            m = vis.find('geometry/mesh')
+            if m is not None:
+                entries.append((m.get('filename'), xyz, rpy))
+        if entries:
+            geoms[link.get('name')] = entries
+    for j in root.iter('joint'):
+        p, c = j.find('parent'), j.find('child')
+        if p is None or c is None:
+            continue
+        o = j.find('origin')
+        xyz = [float(v) for v in (o.get('xyz') if o is not None else '0 0 0').split()]
+        rpy = [float(v) for v in (o.get('rpy') if o is not None else '0 0 0').split()]
+        joints[c.get('link')] = (p.get('link'), xyz, rpy)
+
+    # 从 root link 起 BFS 累积世界变换
+    roots = [l.get('name') for l in root.iter('link') if l.get('name') not in joints]
+    world = {}
+    q = deque((r, np.zeros(3), np.eye(3)) for r in roots)
+    while q:
+        name, t, rot = q.popleft()
+        if name in world:
+            continue
+        world[name] = (t, rot)
+        for child, (par, jxyz, jrpy) in joints.items():
+            if par == name:
+                jr = R.from_euler('xyz', jrpy).as_matrix()
+                q.append((child, t + rot @ jxyz, rot @ jr))
+
+    # 求全局最低 z
+    min_z = float('inf')
+    for name, entries in geoms.items():
+        if name not in world:
+            continue
+        t, rot = world[name]
+        for fname, vxyz, vrpy in entries:
+            path = fname if os.path.isabs(fname) else os.path.join(mesh_dir or '', fname)
+            path = path.replace('file://', '').strip().strip('"')
+            if not os.path.exists(path):
+                continue
+            vr = R.from_euler('xyz', vrpy).as_matrix()
+            p = rot @ (vr @ np.array([0, 0, _read_stl_min_z(path)]) + vxyz) + t
+            if p[2] < min_z:
+                min_z = p[2]
+    return -min_z if min_z != float('inf') else 0.0
+
+
     """Aider 机器人 PyBullet 仿真可视化器。
 
     加载完整 Aider URDF（含双臂、身体关节、4 轮底盘），
@@ -242,8 +322,16 @@ class AiderVisualizer:
 
         try:
             p.setAdditionalSearchPath(mesh_dir)
-            self.aider_id = p.loadURDF(tmp_urdf.name, [0, 0, 0], [0, 0, 0, 1], useFixedBase=False)
-            print(f"Aider robot loaded successfully (ID={self.aider_id})")
+            # useFixedBase=True: 把底座钉在地面，模型立姿不飘移/穿地
+            # （仿真关重力仅用于 IK 语义，fixedBase 防止整体浮空）
+            # 自动计算地面偏移: 解析 URDF 几何 + 各 link mesh 顶点，求整机在世界系下
+            # 的真实最低 z，再把整车抬到该最低点恰好贴地。零硬编码、不依赖任何导出
+            # 数值 —— 换轮子直径/位置或改底盘形状后无需改代码，加载时自动算对。
+            ground_offset = _compute_ground_offset(urdf_content, mesh_dir)
+            self.aider_id = p.loadURDF(
+                tmp_urdf.name, [0, 0, ground_offset], [0, 0, 0, 1], useFixedBase=True)
+            print(f"Aider robot loaded successfully (ID={self.aider_id}, "
+                  f"ground_offset={ground_offset:.4f})")
         except p.error as e:
             print(f"Failed to load Aider URDF: {e}")
             return False

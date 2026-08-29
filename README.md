@@ -168,21 +168,9 @@ docker exec -d aider_ros2 bash -c 'source /opt/ros/jazzy/setup.bash && source /w
 
 ### 目录结构
 
-```
-src/                          # 标准 ROS 2 workspace（28 包）
-├── robot_description/        # URDF/xacro/meshes（aider + 多机型）
-├── robot_sensors/            # 传感器（IMU 驱动 + 发布节点）
-├── robot_control/            # 控制（关节摆动演示）
-├── robot_sim/                # 仿真（PyBullet + Gazebo）
-├── robot_bringup/            # launch 编排
-├── robot_msgs/               # 自定义消息（9 msg + 4 srv + 3 action）
-├── robot_hardware/           # ros2_control 插件
-├── docs/ config/ scripts/    # 文档、配置、脚本
-└── robot_*/                  # 其余功能包
+> `src/` 是标准 ROS 2 workspace（28 包）。完整结构树（含子目录 + 各包职责速查表 + VLA/AGENT/MCP 关系图 + 与老业务 `aiderminal/` 的映射）见 **[`src/STRUCTURE.md`](src/STRUCTURE.md)**。
 
-data/                         # 数据（bags/maps/models/... 内容不入库）
-docker/                       # 部署（Dockerfile.newros、entrypoint、compose 覆盖层）
-```
+> 仿真决策（2026-08-29 定）：aider 先用 **PyBullet**。实际路径 = control_loop 的 loop 内 `robot_interface.send_command()` 顺手 step 的 PyBullet（`robot_interface.visualizer`，由 `TelegripConfig.enable_pybullet` 开关），**仿真在 loop 里、与 WS 零耦合**（WS 是独立通信层，只把指令喂进 loop / 把 status 推回 Server）。`src/robot_sim/pybullet_node.py`（ROS 节点订阅 `/joint_states`）是另一套 ROS 世界的独立实现，非 aider 当前路径。Gazebo 仅留 RL 专用（空壳），RViz 仅显示层。
 
 ### 新家踩过的坑（改前必读）
 

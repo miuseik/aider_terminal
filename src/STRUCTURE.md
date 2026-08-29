@@ -1,8 +1,10 @@
-# 通用 ROS 2 机器人框架目录结构（树状）
+# 新家 ROS 2 工作区目录结构（树状）
 
-> 适用对象：**双足 (Biped) / 轮式 (Wheeled) / 机器狗 (Quadruped) 等多形态机器人**的通用成熟框架。
-> 构建系统：`colcon`；发行版建议 `Humble` (LTS) 或 `Jazzy` (LTS)。
+> 本文件描述 `aider_terminal/src/` 这个 **标准 ROS 2 工作区**的完整包结构蓝图。
+> 构建系统：`colcon`；发行版：`Jazzy` (LTS)。
 > 约定：`src/<pkg>/` 每个目录是一个独立 ROS 2 功能包；`install/ build/ log/` 由 `colcon build` 自动生成，不提交。
+>
+> 与 `aider_terminal` 老业务 (`aiderminal/`) 的映射见文末「与你 `aider_terminal` 的映射」表。
 
 ```
 robot_framework_ws/                         # 工作空间根 (colcon workspace)
@@ -13,13 +15,13 @@ robot_framework_ws/                         # 工作空间根 (colcon workspace)
 │   │   │   ├── robot.launch.py             #   总启动: 描述+硬件+控制+感知+导航
 │   │   │   ├── description.launch.py       #   URDF/机器人模型载入 + robot_state_publisher
 │   │   │   ├── hardware.launch.py          #   硬件接口 + 驱动
-│   │   │   ├── sensors.launch.py           #   相机/IMU/雷达/LiDAR
-│   │   │   ├── control.launch.py           #   控制器管理器 (ros2_control)
-│   │   │   ├── perception.launch.py        #   SLAM/建图/定位
-│   │   │   ├── navigation.launch.py        #   导航栈
-│   │   │   ├── manipulation.launch.py      #   机械臂 (可选)
-│   │   │   ├── agent.launch.py             #   Agent 大脑 + MCP Servers
-│   │   │   └── interaction.launch.py       #   HMI/语音/VLA
+│   │   │   ├── sensors.launch.py          #   相机/IMU/雷达/LiDAR
+│   │   │   ├── control.launch.py          #   控制器管理器 (ros2_control)
+│   │   │   ├── perception.launch.py       #   SLAM/建图/定位
+│   │   │   ├── navigation.launch.py       #   导航栈
+│   │   │   ├── manipulation.launch.py     #   机械臂 (可选)
+│   │   │   ├── agent.launch.py            #   Agent 大脑 + MCP Servers
+│   │   │   └── interaction.launch.py      #   HMI/语音/VLA
 │   │   ├── config/
 │   │   │   ├── robot_controllers.yaml      #   ros2_control 控制器参数
 │   │   │   ├── nav2_params.yaml            #   导航参数
@@ -155,9 +157,9 @@ robot_framework_ws/                         # 工作空间根 (colcon workspace)
 │   ├── 📦 robot_agent/                    # ⑪ 自主决策大脑 (VLA+AGENT+MCP 中枢)
 │   │   ├── nodes/
 │   │   │   ├── agent_node.cpp/.py          #   总控: 目标分解+任务调度+记忆+纠错监控
-│   │   │   ├── memory_node.cpp/.py         #   长期/场景记忆 (RAG, 用户偏好/历史)
-│   │   │   ├── planner_node.cpp/.py        #   任务规划 (LLM/PDDL/行为树)
-│   │   │   └── mcp_client_node.cpp/.py     #   MCP 客户端: 统一调用各 MCP Server
+│   │   │   ├── memory_node.cpp/.py          #   长期/场景记忆 (RAG, 用户偏好/历史)
+│   │   │   ├── planner_node.cpp/.py         #   任务规划 (LLM/PDDL/行为树)
+│   │   │   └── mcp_client_node.cpp/.py      #   MCP 客户端: 统一调用各 MCP Server
 │   │   ├── mcp_servers/                    #   各异构工具的 MCP 封装 (可独立部署)
 │   │   │   ├── mcp_vla/                    #   包 aider_vla (视觉-语言-动作)
 │   │   │   │   ├── server.py               #   MCP Server: tools(VLA推理/抓取/识别)
@@ -190,11 +192,13 @@ robot_framework_ws/                         # 工作空间根 (colcon workspace)
 │   │   ├── launch/
 │   │   └── package.xml
 │   │
-│   ├── 📦 robot_sim/                       # ⑬ 仿真 (Gazebo/Ignition)
+│   ├── 📦 robot_sim/                       # ⑬ 仿真 (PyBullet + Gazebo)
 │   │   ├── worlds/
 │   │   ├── models/
 │   │   ├── launch/
-│   │   │   └── sim.launch.py               #   仿真替代 hardware
+│   │   │   ├── pybullet.launch.py          #   PyBullet 仿真 (已就绪, 老系统移植)
+│   │   │   ├── gazebo.launch.py            #   Gazebo 仿真 (RL 用, 空壳待接)
+│   │   │   └── sim.launch.py               #   仿真替代 hardware (占位)
 │   │   └── package.xml
 │   │
 │   ├── 📦 robot_tests/                     # ⑭ 测试 (unittest/launch_testing)
@@ -239,7 +243,7 @@ robot_framework_ws/                         # 工作空间根 (colcon workspace)
 | `robot_interaction` | HMI+VLA执行 | `sensor/*`+状态 | 对话/视觉动作 | 共用 (VLA 经 MCP 被 Agent 调) |
 | `robot_agent` | 自主决策中枢 | 高层目标/记忆 | 任务分解→MCP工具调用 | 共用 (VLA+AGENT+MCP 核心) |
 | `robot_control` | 仲裁 | 多源指令 | 最终 `/command` | 模式管理 |
-| `robot_sim` | 仿真 | — | 虚拟硬件 | 替代 hardware 包 |
+| `robot_sim` | 仿真 | — | 虚拟硬件 | 替代 hardware 包 (PyBullet 已就绪) |
 | `robot_tests` | 验证 | — | 测试报告 | 共用 |
 | `robot_utils` | 工具 | — | 库函数 | 共用 |
 
