@@ -31,7 +31,6 @@ services:
     entrypoint: ["/bin/bash", "/app/scripts/docker_entrypoint.sh"]
     volumes:
       - .:/app                     # 项目根目录（源码 + URDF）读写挂载
-      - ./log:/app/log             # 日志持久化
       - /tmp/.X11-unix:/tmp/.X11-unix:ro  # X11 转发（仿真窗口）
       - /dev:/dev:rw                      # 让容器能看见主机设备，具体使用时机由业务代码决定
 
