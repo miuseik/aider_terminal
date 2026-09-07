@@ -239,7 +239,7 @@ def preload_servo_limits() -> int:
     失败则静默保留本文件兜底值。
     """
     try:
-        from aiderminal.comm.api.client import ServerAPIClient
+        from src.comm.api.client import ServerAPIClient
         print("🔄 preload_servo_limits: 正在从 Server 拉取 servo_ids.yaml ...")
         cfg = ServerAPIClient().get_servo_ids_config()
         if cfg:

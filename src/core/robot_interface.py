@@ -177,7 +177,7 @@ class RobotInterface:
         控制层钳制立即生效；IK 模型内部限位需重启重建。
         """
         try:
-            from aiderminal.comm.api.client import ServerAPIClient
+            from src.comm.api.client import ServerAPIClient
             cfg = await asyncio.to_thread(ServerAPIClient().get_servo_ids_config)
             if not cfg:
                 return False
@@ -704,14 +704,14 @@ class RobotInterface:
         if self.robot_type != "aloha":
             if not self.servo_ids:
                 try:
-                    from aiderminal.comm.api.client import ServerAPIClient
+                    from src.comm.api.client import ServerAPIClient
                     cfg = await asyncio.to_thread(ServerAPIClient().get_servo_ids_config)
                     if cfg:
                         self.set_servo_ids_config(cfg)
                 except Exception as e:
                     print(f"⚠️ 拉取舵机配置失败，使用 settings.py 内置限位: {e}")
             if self.servo_ids:
-                from aiderminal.robots.aider.settings import apply_joint_limits_from_servo
+                from src.robots.aider.settings import apply_joint_limits_from_servo
                 n = apply_joint_limits_from_servo(self.servo_ids)
                 print(f"✅ 关节限位已从 servo_ids.yaml 加载 ({n} 条)")
 

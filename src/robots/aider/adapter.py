@@ -312,7 +312,7 @@ class AiderAdapter:
         控制层钳制（_clamp_arm_angles / _soft_body_limit）立即生效；
         IK 模型内部限位需重启重建（构造时一次性写入 URDF）。
         """
-        from aiderminal.robots.aider import settings as _st
+        from src.robots.aider import settings as _st
         n = _st.apply_joint_limits_from_servo(servo_config)
         if self.ik_solver is not None:
             for arm in ("left", "right"):

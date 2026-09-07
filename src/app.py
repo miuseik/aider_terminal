@@ -430,7 +430,7 @@ async def main():
     # 使其在任何 URDF 加载（visualizer / IK）之前即作为真源生效。
     if config.robot_type != "aloha":
         try:
-            from aiderminal.robots.aider.settings import preload_servo_limits
+            from src.robots.aider.settings import preload_servo_limits
             _n = preload_servo_limits()
             if _n:
                 print(f"✅ 关节限位已从 servo_ids.yaml 预加载 ({_n} 条)")
