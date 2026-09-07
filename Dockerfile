@@ -25,19 +25,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip3 config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 # ── Python 依赖（核心，必须装成功）──
+# 注：不装 meshcat_shapes —— 只有 src/core/kinematic/pink/openarm_ik.py 的 IK 调试
+#     可视化（浏览器看末端目标/当前位姿）用到，且该文件无任何模块 import；
+#     树莓派真机无头运行不需要，还会连带引入 meshcat/ipython/pyngrok 一大串依赖。
 RUN pip3 install --break-system-packages --ignore-installed \
     setuptools "numpy<2" requests websockets pyyaml scipy opencv-python \
     pyserial trimesh fast-simplification "aiortc>=1.7.0" "av>=11.0.0" \
-    pin-pink "qpsolvers[quadprog]" meshcat_shapes loop_rate_limiters \
+    pin-pink "qpsolvers[quadprog]" loop_rate_limiters \
     sounddevice
 
 # ── pybullet（仅本地仿真可视化用，真机模式不依赖）──
-# 新版 Ubuntu noble (Python 3.12 + gcc 14) 下从 sdist 编译 Bullet 会把
-# -Wmaybe-uninitialized 等 warning 当 error 导致失败；用 CFLAGS="-Wno-error"
-# 降级为 warning 后通常可编译通过。失败也不阻断后续步骤。
-RUN CFLAGS="-Wno-error" CXXFLAGS="-Wno-error" \
-    pip3 install --break-system-packages --ignore-installed pybullet || \
-    echo "[warn] pybullet 编译失败，跳过（仅影响本地仿真可视化）"
+# 树莓派上从源码编译 Bullet 极慢，默认不装。
+# 需要本地仿真可视化时：docker compose build --build-arg INSTALL_PYBULLET=true
+ARG INSTALL_PYBULLET=false
+RUN if [ "$INSTALL_PYBULLET" = "true" ]; then \
+        CFLAGS="-Wno-error" CXXFLAGS="-Wno-error" \
+        pip3 install --break-system-packages --ignore-installed pybullet || \
+        echo "[warn] pybullet 编译失败，跳过（仅影响本地仿真可视化）"; \
+    else \
+        echo "[info] 跳过 pybullet（真机不需要；需仿真可视化时 --build-arg INSTALL_PYBULLET=true）"; \
+    fi
 
 # ── 工作目录（源码在运行时 volume 挂载）──
 WORKDIR /app
