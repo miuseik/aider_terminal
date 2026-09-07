@@ -51,10 +51,9 @@ docker compose down
 
 ```
 aider_terminal/
-├── aiderminal/        # Python 源码
-├── URDF/              # 机器人 URDF 模型
-├── launch/            # ROS 2 launch 文件
-├── scripts/           # 辅助脚本
+├── src/        # Python 源码
+├── URDF/       # 机器人 URDF 模型
+├── scripts/    # 辅助脚本
 ├── start-dev.sh       # 启动（localhost）
 ├── start-pro.sh       # 启动（生产）
 ├── docker-compose.yml
@@ -75,7 +74,7 @@ sudo usermod -aG docker $USER          # docker 权限不够（执行后重新�
 ## 便捷操作（勿删）
 
 ```bash
-git add ./;git commit -m "hub";git push
+git add ./;git commit -m "剔除ROS，添加限位yaml源";git push
 ```
 
 ```bash

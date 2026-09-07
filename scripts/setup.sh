@@ -143,7 +143,7 @@ fi
 # ── 8. 构建镜像 ──
 echo ""
 echo ">>> 构建 Docker 镜像..."
-echo "    基础镜像就绪，开始安装 ROS 系统包 (~500MB)，需要联网。"
+echo "    基础镜像就绪，开始安装 Python 依赖，需要联网。"
 echo "    后续启动无需重复构建，秒级完成。"
 echo ""
 
@@ -153,14 +153,14 @@ info "镜像构建完成"
 # ── 9. 启动 ──
 echo ""
 # 清理旧容器避免冲突
-docker_cmd "docker rm -f aiderminal 2>/dev/null || true"
+docker_cmd "docker rm -f src 2>/dev/null || true"
 docker_cmd "$COMPOSE_CMD up -d"
 
 # ── 10. 等待启动 ──
 sleep 3
 RUNNING=$(docker_cmd "docker ps --format '{{.Names}}'" 2>/dev/null)
 
-if echo "$RUNNING" | grep -q aiderminal; then
+if echo "$RUNNING" | grep -q src; then
     info "项目已启动！"
     echo ""
     echo "  查看日志:  $COMPOSE_CMD logs -f"

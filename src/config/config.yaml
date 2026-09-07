@@ -1,0 +1,65 @@
+control:
+  keyboard:
+    angle_step: 5
+    enabled: true
+    gripper_step: 10.0
+    pos_step: 0.01
+  pybullet:
+    enabled: true
+  vr:
+    enabled: true
+gripper:
+  closed_angle: 45.0
+  open_angle: 0.0
+ik:
+  use_reference_poses: true
+  reference_poses_file: src/config/reference_poses.json
+  position_error_threshold: 0.001
+  hysteresis_threshold: 0.05
+  movement_penalty_weight: 0.01
+network:
+  host_ip: 0.0.0.0
+  websocket_port: 8442
+  # 服务器地址配置（可选,优先使用命令行参数 --env-dev 或 --env-pro）
+  # server_host: server.houqicg.com    # WebSocket Server 地址
+  # api_host: bot.houqicg.com      # API Server 地址
+  # server_port: 8442
+  enable_webrtc: true   # 启用 aiortc WebRTC 视频推流（纯 Python，全平台可用）
+  # --- 音频 ---
+  audio_enabled: true
+  audio_device: "Yundea A31-1"   # USB 音频设备 (card 2, 1 in + 2 out)
+  audio_sample_rate: 16000
+  # --- WebRTC 信令（复用 /ws/terminal 通道，无需独立 URL）---
+  webrtc_room_id: robot-camera     # 房间 ID
+  # ICE 服务器（兜底：若服务器未响应 webrtc_joined 时使用）
+  ice_servers:
+    - urls: ["stun:121.40.151.10:3478"]
+    - urls: ["turn:121.40.151.10:3478"]
+      username: "aider"
+      credential: "aider123456"
+    - urls: ["turns:server.houqicg.com:5349"]
+      username: "aider"
+      credential: "aider123456"
+  # --- 摄像头 ---
+  video_source: /dev/video0  # 摄像头设备路径
+  camera_width: 640           # 采集宽度（带宽有限时建议 640）
+  camera_height: 480          # 采集高度
+  camera_fps: 25              # 帧率
+  camera_fourcc: MJPG         # 编码格式
+paths:
+  urdf_path: URDF/SO100/so100.urdf
+robot:
+  type: aider              # 机器人类型: aider, aloha, openarmx, custom
+  left_arm:
+    enabled: true
+    name: Left Arm
+    port: /dev/ttySO100blue
+  right_arm:
+    enabled: true
+    name: Right Arm
+    port: /dev/ttySO100red
+  send_interval: 0.02
+  vr_to_robot_scale: 1
+aloha:
+  enabled: true              # 是否启用 Aloha 底盘
+  initial_height: 0.3        # 初始高度(米)
