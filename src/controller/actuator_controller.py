@@ -771,29 +771,47 @@ class ActuatorController:
         """失能所有电机（安全停机）。
 
         覆盖所有已连接端口（多端口机器人左右臂分属不同 CAN，不再写死 can0）。
-        BUS-OFF 时 _get_or_create_driver 会自动软件重连（down→up 清 BUS-OFF）后再发 DISABLE 帧。
+
+        关键修复：
+        - 不复用 _get_or_create_driver：它在 BUS-OFF 会 disconnect+重建 driver 新实例，
+          导致已注册电机映射(driver._motors)丢失 → disable_all 遍历 0 个电机禁了个寂寞；
+          且重连有冷却期，冷却内静默返回旧 down driver → 第二次点击"没反映"。
+        - 直接对池中已注册 driver 发 DISABLE 帧；若总线 BUS-OFF/DOWN，前置 setup_can
+          强制 down→up 清除 BUS-OFF（setup_can 无冷却、健康总线自动跳过），再发帧。
         """
+        from src.utils.can_setup import setup_can
+
         ports = set()
         if port:
             ports.add(port)
         ports.update(self._joint_drivers.keys())
         for (p, _sid) in getattr(self, '_registry', []):
             ports.add(p)
+
         if not ports:
-            ports.update(["can0", "can1", "can2"])
+            logger.warning("disable_all_motors: 无已连接端口，无法禁用")
+            return False
 
         overall = True
         for p in ports:
-            try:
-                driver = self._get_or_create_driver(p)
-            except Exception as e:
-                logger.warning("disable_all_motors: 端口 %s 驱动获取失败: %s", p, e)
-                driver = None
+            driver = self._joint_drivers.get(p)
             if driver is None:
-                logger.warning("disable_all_motors: 端口 %s 无可用驱动，跳过", p)
+                # 无 driver 实例（如未连接过）：仅尝试恢复总线，无法发 DISABLE 帧
+                logger.warning("disable_all_motors: 端口 %s 无 driver 实例，仅恢复总线", p)
+                try:
+                    setup_can(p)
+                except Exception as e:
+                    logger.warning("disable_all_motors: setup_can %s 失败: %s", p, e)
                 overall = False
                 continue
-            if not driver.disable_all():
+            # BUS-OFF/DOWN 时强制清 BUS-OFF，让 DISABLE 帧能真正发出（健康总线自动跳过）
+            try:
+                setup_can(p)
+            except Exception as e:
+                logger.warning("disable_all_motors: setup_can %s 失败: %s", p, e)
+            ok = driver.disable_all()
+            logger.info("disable_all_motors: 端口 %s 禁用 %s", p, "成功" if ok else "部分/失败")
+            if not ok:
                 overall = False
         return overall
 
