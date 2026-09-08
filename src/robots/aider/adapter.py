@@ -243,13 +243,16 @@ class AiderAdapter:
         angles = ik_angles.copy()
 
         if override_wrist:
-            # arm5 = wrist roll (Z轴), arm6 = wrist flex (X轴), arm7 = wrist yaw (Y轴)
+            # arm5 = wrist roll (Z轴, 前臂旋前/旋后)
+            # ⚠️ 2026-09-08 修正: arm6/arm7 此前写反（旧: arm6=flex俯仰, arm7=yaw偏航）。
+            #    实测 + servo_ids.yaml: id16/25=左右=偏航→arm6, id15/26=上下=俯仰→arm7。
+            #    左右臂一致（arm6=偏航, arm7=俯仰），两侧限位均 ±30 故互换无影响。
             if len(angles) >= 5:
                 angles[4] = wrist_roll    # arm5 (Z轴, 前臂旋前/旋后)
             if len(angles) >= 6:
-                angles[5] = wrist_flex    # arm6 (X轴)
+                angles[5] = wrist_yaw     # arm6 = 手腕偏航 (id16 / id25)
             if len(angles) >= 7:
-                angles[6] = wrist_yaw     # arm7 (Y轴, 偏航)
+                angles[6] = wrist_flex    # arm7 = 手腕俯仰 (id15 / id26)
         if len(angles) >= 8:
             angles[7] = gripper           # arm8 (夹爪)
 
