@@ -184,6 +184,25 @@ class RobotInterface:
             self.set_servo_ids_config(cfg)
             if self.robot_type != "aloha" and hasattr(self.adapter, 'refresh_limits_from_servo'):
                 self.adapter.refresh_limits_from_servo(cfg)
+            # 热更新 direction/offset/motor_type：
+            # direction 是建 driver 时传入的，故先写回 controller 供下次建 driver / 重连生效；
+            # 已建 driver 若暴露同名属性则直接同步（取反即时生效），否则需重新连接机器人。
+            try:
+                from src.config.servo_config_manager import ServoConfigManager
+                self.servo_config_manager = ServoConfigManager(cfg)
+                mc = self.motor_controller
+                if mc is not None:
+                    mc._direction_map = self.servo_config_manager.build_direction_map()
+                    mc._offset_map = self.servo_config_manager.build_offset_map()
+                    mc._motor_type_overrides = self.servo_config_manager.build_motor_type_overrides()
+                    for _drv in getattr(mc, '_joint_drivers', {}).values():
+                        if hasattr(_drv, 'directions'):
+                            _drv.directions = dict(mc._direction_map)
+                        if hasattr(_drv, 'offsets_rad'):
+                            _drv.offsets_rad = dict(mc._offset_map)
+                    print("🔄 已热更新 direction/offset/motor_type 映射")
+            except Exception as _e:
+                print(f"⚠️ 热更新 direction 映射失败: {_e}")
             return True
         except Exception as e:
             print(f"⚠️ reload_servo_config 失败: {e}")
