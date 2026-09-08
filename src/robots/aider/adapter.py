@@ -423,12 +423,14 @@ class AiderAdapter:
         """计算四轮当前角速度（rad/s），用于仿真轮子旋转。"""
         theta_scaled = self.base_vtheta * ROTATION_GAIN
         k = MECANUM_K
+        # 与 compute_wheel_speeds 保持一致：横移项同样取反（实测 y 方向相反）
+        y = -self.base_vy
         # 顺序与 WHEEL_NAMES 一致: whel_Link1=RL, Link2=RR, Link3=FR, Link4=FL
         v_linear = np.array([
-            self.base_vx + self.base_vy - k * theta_scaled,   # whel_Link1 (RL)
-            self.base_vx - self.base_vy + k * theta_scaled,   # whel_Link2 (RR)
-            self.base_vx + self.base_vy + k * theta_scaled,   # whel_Link3 (FR)
-            self.base_vx - self.base_vy - k * theta_scaled,   # whel_Link4 (FL)
+            self.base_vx + y - k * theta_scaled,   # whel_Link1 (RL)
+            self.base_vx - y + k * theta_scaled,   # whel_Link2 (RR)
+            self.base_vx + y + k * theta_scaled,   # whel_Link3 (FR)
+            self.base_vx - y - k * theta_scaled,   # whel_Link4 (FL)
         ])
         return v_linear / WHEEL_RADIUS
 
@@ -453,6 +455,11 @@ class AiderAdapter:
         x = vx if vx is not None else self.base_vx
         y = vy if vy is not None else self.base_vy
         t = vtheta if vtheta is not None else self.base_vtheta
+
+        # ⚠️ 横移方向修正（2026-09-08 实测）：键盘 7(左平移)/9(右平移) 与 VR 左手柄左摇
+        # 三者均实测反向，说明底层横移项与"y=左"约定相反（麦克纳姆滚轮布置与公式不匹配）。
+        # 在此统一取反，键盘/VR 两条链一起修正；不要在各自入口改，否则又会分叉。
+        y = -y
 
         # 车身坐标系: x=前, y=左, ω=左转正
         # 注意: URDF Y=前 (SolidWorks convention)
