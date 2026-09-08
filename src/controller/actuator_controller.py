@@ -773,12 +773,16 @@ class ActuatorController:
         覆盖所有已连接端口（多端口机器人左右臂分属不同 CAN，不再写死 can0）。
 
         关键修复：
-        - 不复用 _get_or_create_driver：它在 BUS-OFF 会 disconnect+重建 driver 新实例，
-          导致已注册电机映射(driver._motors)丢失 → disable_all 遍历 0 个电机禁了个寂寞；
-          且重连有冷却期，冷却内静默返回旧 down driver → 第二次点击"没反映"。
-        - 直接对池中已注册 driver 发 DISABLE 帧；若总线 BUS-OFF/DOWN，前置 setup_can
-          强制 down→up 清除 BUS-OFF（setup_can 无冷却、健康总线自动跳过），再发帧。
+        1) 重启后残留使能场景：terminal 重启后 _joint_drivers 为空，但电机可能仍是
+           上次启动的使能状态。DISABLE 是按电机 ID 单播的，没电机在册就禁不掉。
+           故 driver 缺失或 _motors 为空时，先 _scan_and_register_motors 扫描：
+           它除 scan_motors(1,32) 外，还会用 servo_ids.yaml 的 overrides 兜底注册
+           所有配置电机 ID，保证残留使能电机一定在册、disable_all 有目标。
+        2) 端口为空时按系统实际存在的 CAN 接口兜底（不再盲试不存在的 can1/can2）。
+        3) 禁用前 setup_can 清 BUS-OFF（健康总线自动跳过），避免帧发不出去；
+           且不走 _get_or_create_driver 的冷却重连（会丢 motors、冷却期静默吞命令）。
         """
+        import os as _os
         from src.utils.can_setup import setup_can
 
         ports = set()
@@ -789,28 +793,39 @@ class ActuatorController:
             ports.add(p)
 
         if not ports:
-            logger.warning("disable_all_motors: 无已连接端口，无法禁用")
-            return False
+            # 重启后未连接过：按系统实际存在的 CAN 接口兜底
+            try:
+                cand = [n for n in _os.listdir("/sys/class/net") if n.startswith("can")]
+            except OSError:
+                cand = []
+            if cand:
+                ports.update(cand)
+                logger.info("disable_all_motors: 未连接过，按系统 CAN 接口兜底: %s", sorted(ports))
+            else:
+                ports.add("can0")
 
         overall = True
-        for p in ports:
-            driver = self._joint_drivers.get(p)
-            if driver is None:
-                # 无 driver 实例（如未连接过）：仅尝试恢复总线，无法发 DISABLE 帧
-                logger.warning("disable_all_motors: 端口 %s 无 driver 实例，仅恢复总线", p)
-                try:
-                    setup_can(p)
-                except Exception as e:
-                    logger.warning("disable_all_motors: setup_can %s 失败: %s", p, e)
-                overall = False
-                continue
-            # BUS-OFF/DOWN 时强制清 BUS-OFF，让 DISABLE 帧能真正发出（健康总线自动跳过）
+        for p in sorted(ports):
+            # 1) 先确保总线 UP（BUS-OFF 时强制 down→up 清除），否则 DISABLE 帧发不出
             try:
                 setup_can(p)
             except Exception as e:
                 logger.warning("disable_all_motors: setup_can %s 失败: %s", p, e)
+            # 2) driver 缺失或没注册任何电机（重启后）→ 扫描 + overrides 兜底注册
+            driver = self._joint_drivers.get(p)
+            if driver is None or not getattr(driver, "_motors", None):
+                logger.info("disable_all_motors: 端口 %s 无已注册电机，先扫描发现...", p)
+                driver = self._scan_and_register_motors(p)
+            if driver is None:
+                logger.warning("disable_all_motors: 端口 %s 无可用驱动，跳过", p)
+                overall = False
+                continue
             ok = driver.disable_all()
-            logger.info("disable_all_motors: 端口 %s 禁用 %s", p, "成功" if ok else "部分/失败")
+            logger.info(
+                "disable_all_motors: 端口 %s 禁用 %s（在册电机 %d 个）",
+                p, "成功" if ok else "部分/失败",
+                len(getattr(driver, "_motors", None) or []),
+            )
             if not ok:
                 overall = False
         return overall
