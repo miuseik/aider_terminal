@@ -74,7 +74,7 @@ sudo usermod -aG docker $USER          # docker 权限不够（执行后重新�
 ## 便捷操作（勿删）
 
 ```bash
-git add ./;git commit -m "剔除ROS，添加限位yaml源";git push
+git add ./;git commit -m "hot";git push
 ```
 
 ```bash
@@ -82,7 +82,7 @@ git pull
 ```
 
 ```bash
-ssh gaoda@192.168.0.113
+ssh gaoda@192.168.0.114
 
 cd www/aider_terminal
 密码：gaoda
@@ -91,7 +91,7 @@ cd www/aider_terminal
 ```bash
 ssh gaoda@192.168.0.113
 #cd /www/aider/aider_terminal ;sudo git pull ; ./start-pro.sh
-cd /www/aider/aider_terminal ;sudo git pull ; docker compose restart
+cd www/aider/aider_terminal ;sudo git pull ; docker compose restart
 密码：gaoda123
 ```
 
