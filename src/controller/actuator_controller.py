@@ -749,15 +749,53 @@ class ActuatorController:
             driver.add_motor(mid, motor_type)
         return driver
 
-    def enable_all_motors(self, port: str = "can0") -> bool:
-        """使能总线上所有电机（自动扫描 + 注册 + 使能）."""
-        driver = self._scan_and_register_motors(port)
-        return driver is not None and driver.enable_all()
+    def enable_all_motors(self, port: str = None) -> bool:
+        """使能所有已连接端口的电机（多端口覆盖，不再写死 can0）。"""
+        ports = set()
+        if port:
+            ports.add(port)
+        ports.update(self._joint_drivers.keys())
+        for (p, _sid) in getattr(self, '_registry', []):
+            ports.add(p)
+        if not ports:
+            ports.update(["can0", "can1", "can2"])
 
-    def disable_all_motors(self, port: str = "can0") -> bool:
-        """失能总线上所有电机（安全停机）."""
-        driver = self._scan_and_register_motors(port)
-        return driver is not None and driver.disable_all()
+        overall = True
+        for p in ports:
+            driver = self._scan_and_register_motors(p)
+            if driver is None or not driver.enable_all():
+                overall = False
+        return overall
+
+    def disable_all_motors(self, port: str = None) -> bool:
+        """失能所有电机（安全停机）。
+
+        覆盖所有已连接端口（多端口机器人左右臂分属不同 CAN，不再写死 can0）。
+        BUS-OFF 时 _get_or_create_driver 会自动软件重连（down→up 清 BUS-OFF）后再发 DISABLE 帧。
+        """
+        ports = set()
+        if port:
+            ports.add(port)
+        ports.update(self._joint_drivers.keys())
+        for (p, _sid) in getattr(self, '_registry', []):
+            ports.add(p)
+        if not ports:
+            ports.update(["can0", "can1", "can2"])
+
+        overall = True
+        for p in ports:
+            try:
+                driver = self._get_or_create_driver(p)
+            except Exception as e:
+                logger.warning("disable_all_motors: 端口 %s 驱动获取失败: %s", p, e)
+                driver = None
+            if driver is None:
+                logger.warning("disable_all_motors: 端口 %s 无可用驱动，跳过", p)
+                overall = False
+                continue
+            if not driver.disable_all():
+                overall = False
+        return overall
 
     def show_motor_status(self, port: str = "can0") -> None:
         """打印总线上所有电机状态."""
