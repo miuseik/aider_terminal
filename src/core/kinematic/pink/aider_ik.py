@@ -670,3 +670,77 @@ class AiderPinkSolver:
             angles[6] = current_angles[6]
 
         return angles
+
+    # ======================== 手腕姿态雅可比解耦 ========================
+
+    def wrist_jacobian_shoulder(self, arm: str, angles_deg: np.ndarray) -> np.ndarray:
+        """TCP 旋转雅可比的手腕三列（3x3），参考系=肩安装座（裁剪模型世界）系。
+
+        TCP 角速度(肩系) = J · [θ5,θ6,θ7]（rad/s）。该雅可比依赖**当前臂位形**
+        （arm1~arm4 也参与 FK），这正是"臂姿态会改变手腕轴朝向、必须用 FK"的原因——
+        不能只看 arm5(roll)。
+        """
+        rmodel, rdata = self._reduced[arm]
+        qidx = self._reduced_arm_qidx[arm]
+        q = pin.neutral(rmodel)
+        for i, qi in enumerate(qidx):
+            if i < len(angles_deg):
+                q[qi] = np.radians(angles_deg[i])
+        pin.forwardKinematics(rmodel, rdata, q)
+        pin.updateFramePlacements(rmodel, rdata)
+        fid = rmodel.getFrameId(self.ARM_LINKS[arm])
+        # 6 x nv，WORLD 参考系 = 裁剪模型世界系 = 肩安装座系
+        J = pin.computeFrameJacobian(rmodel, rdata, q, fid,
+                                     pin.ReferenceFrame.WORLD)
+        vcols = [rmodel.idx_vs[rmodel.getJointId(n)]
+                 for n in self.arm_joints[arm][4:7]]  # arm5/6/7 速度列
+        return J[3:6, :][:, vcols]  # 旋转部分取手腕三列 → 3x3
+
+    def wrist_orientation_step(self, arm: str, target_rot_shoulder: np.ndarray,
+                               current_angles: np.ndarray,
+                               gain: float = 1.0, damping: float = 0.05) -> np.ndarray:
+        """手腕姿态解耦（单步）：只动 arm5/6/7，使 TCP 姿态(肩系)朝 target_rot_shoulder 收敛。
+
+        臂 arm1~arm4 与夹爪 arm8 保持 current_angles 原值（位置由位置 IK 管）。
+        用手腕雅可比（依赖当前臂位形 FK）把旋转误差解到 arm5/6/7：
+        roll 之后 pitch/yaw 自动由 arm6/arm7 耦合分摊，不再是"欧拉角直塞单个电机"。
+
+        target_rot_shoulder: TCP 目标姿态（肩安装座系，3x3 旋转矩阵）。
+        返回新 8 关节角（度）。
+        """
+        rmodel, rdata = self._reduced[arm]
+        qidx = self._reduced_arm_qidx[arm]
+        q = pin.neutral(rmodel)
+        for i, qi in enumerate(qidx):
+            if i < len(current_angles):
+                q[qi] = np.radians(current_angles[i])
+        pin.forwardKinematics(rmodel, rdata, q)
+        pin.updateFramePlacements(rmodel, rdata)
+        fid = rmodel.getFrameId(self.ARM_LINKS[arm])
+        R_cur = rdata.oMf[fid].rotation  # TCP 当前姿态（肩系）
+        # 旋转误差（肩系）：e = log(R_target · R_curᵀ)，so(3) 向量
+        R_err = np.asarray(target_rot_shoulder, dtype=float) @ R_cur.T
+        e = pin.log3(R_err)
+        # 手腕雅可比（3x3，肩系），阻尼最小二乘(DLS)伪逆解 Δθ，避免腕对齐奇异
+        J = self.wrist_jacobian_shoulder(arm, current_angles)
+        JJt = J @ J.T + (damping ** 2) * np.eye(3)
+        dtheta = J.T @ np.linalg.solve(JJt, e)  # 3 (rad)
+        new = np.asarray(current_angles, dtype=float).copy()
+        new[4:7] += np.degrees(dtheta) * gain
+        return new
+
+    def wrist_orientation_step_world(self, arm: str, target_rot_world: np.ndarray,
+                                     shoulder_rot: np.ndarray,
+                                     current_angles: np.ndarray,
+                                     gain: float = 1.0, damping: float = 0.05) -> np.ndarray:
+        """base_link 系版手腕姿态解算（控制链入口）。
+
+        target_rot_world: base_link 系 TCP 目标姿态（3x3）。
+        shoulder_rot: 肩安装座(waist_Link)在 base_link 系的旋转（握把时记录）。
+        内部按与 solve_ik_shoulder 位置相同的变换链（世界→肩系→裁剪模型世界系）
+        转换后调用 wrist_orientation_step。
+        """
+        s0_pos, s0_rot = self._S0[arm]
+        R_cw = s0_rot @ np.asarray(shoulder_rot).T @ np.asarray(
+            target_rot_world, dtype=float)
+        return self.wrist_orientation_step(arm, R_cw, current_angles, gain, damping)

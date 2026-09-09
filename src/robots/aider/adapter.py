@@ -222,6 +222,23 @@ class AiderAdapter:
             return current_angles
         return sol
 
+    def solve_wrist_orientation(self, arm: str, target_orientation,
+                                shoulder_rot: np.ndarray,
+                                current_angles: Optional[np.ndarray] = None) -> np.ndarray:
+        """手腕姿态雅可比解算：base_link 系 TCP 目标姿态 → arm5/6/7（臂 arm1-4 不动）。
+
+        target_orientation: base_link 系 TCP 目标姿态四元数 [x,y,z,w]（scipy）。
+        替换"欧拉角直塞手腕"：roll 后 pitch/yaw 由雅可比按当前臂位形 FK 耦合分摊。
+        """
+        if current_angles is None:
+            current_angles = self._get_angles(arm)
+        if self.ik_solver is None:
+            return current_angles
+        from scipy.spatial.transform import Rotation as _R
+        R_world = _R.from_quat(np.asarray(target_orientation, dtype=float)).as_matrix()
+        return self.ik_solver.wrist_orientation_step_world(
+            arm, R_world, shoulder_rot, current_angles)
+
     # ======================== 关节管理 ========================
 
     def _get_angles(self, arm: str) -> np.ndarray:

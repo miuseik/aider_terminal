@@ -656,13 +656,21 @@ class ControlLoop:
                     # 无肩部基准（compute_waist_pose 异常）保持当前姿态
                     ik_solution = self.robot_interface.get_arm_angles(arm_name)
                 current_gripper = self.robot_interface.get_arm_angles(arm_name)[_settings.GRIPPER_INDEX]
-                # 手腕由直控值决定（键盘 R/T/F/G/Z/X 键 + VR 手柄均写入 current_wrist_*），
-                # override_wrist=True 确保 IK 锁定的手腕值被直控值覆盖。
+                # 手腕：VR 有姿态目标(target_orientation) → 手腕雅可比解算
+                #   （臂 arm1-4 不动，roll 后 pitch/yaw 由雅可比按当前臂位形耦合）；
+                #   否则（键盘等无姿态目标）→ 旧的欧拉角直控。
+                _tori = arm_state.target_orientation
+                if _tori is not None and arm_state.grip_shoulder_rot is not None:
+                    _w = self.robot_interface.solve_wrist_orientation(
+                        arm_name, _tori, arm_state.grip_shoulder_rot)
+                    _wroll, _wflex, _wyaw = float(_w[4]), float(_w[5]), float(_w[6])
+                else:
+                    _wroll = arm_state.current_wrist_roll
+                    _wflex = arm_state.current_wrist_flex
+                    _wyaw = arm_state.current_wrist_yaw
                 self.robot_interface.update_arm_angles(arm_name, ik_solution,
-                                                      arm_state.current_wrist_flex,
-                                                      arm_state.current_wrist_roll,
-                                                      current_gripper,
-                                                      arm_state.current_wrist_yaw,
+                                                      _wflex, _wroll,
+                                                      current_gripper, _wyaw,
                                                       override_wrist=True)
 
             # VR 扳机 → 夹爪

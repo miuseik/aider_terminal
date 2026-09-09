@@ -755,6 +755,12 @@ class RobotInterface:
                                               shoulder_pos, shoulder_rot,
                                               current_angles)
 
+    def solve_wrist_orientation(self, arm: str, target_orientation, shoulder_rot):
+        """手腕姿态雅可比解算（臂 arm1-4 不动）。委托给适配器。"""
+        current_angles = self.get_arm_angles(arm)
+        return self.adapter.solve_wrist_orientation(arm, target_orientation,
+                                                    shoulder_rot, current_angles)
+
     def update_arm_angles(self, arm: str, ik_angles: np.ndarray, wrist_flex: float, wrist_roll: float, gripper: float, wrist_yaw: float = 0.0, override_wrist: bool = True):
         """更新关节角度（含限位钳制）。委托给适配器。"""
         self.adapter.update_arm_angles(arm, ik_angles, wrist_flex, wrist_roll, gripper, wrist_yaw, override_wrist)
