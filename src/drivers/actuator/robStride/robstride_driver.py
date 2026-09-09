@@ -989,6 +989,24 @@ class RobStrideOfficialDriver:
         motor_rad = self._logical_rad_to_motor_rad(motor_id, position)
         return self._can.send_motion_control(motor_id, motor_rad, 0.0, _kp, _kd, 0.0)
 
+    def set_joint_torque(self, device_id: int, torque: float) -> bool:
+        """力矩控制（力控夹爪）：MIT 运控模式 kp=kd=0，电机输出 = 前馈力矩(Nm)。
+
+        与位置模式的本质区别：位置模式顶不到目标就一直加力 → 堵转过载(STALL_OVERLOAD)
+        → 过流失能；力矩模式的输出由指令直接限定，抓到物体后就是"保持这个力"，
+        电流不会无限上升 → 无论物体尺寸/软硬都不会失能。
+        """
+        if device_id not in self._initialized:
+            if not self._ensure_ready(device_id):
+                return False
+        motor_type = self._can.motor_type_map.get(device_id, MotorType.RS00)
+        params = MOTOR_PARAMS[motor_type]
+        t = float(max(params.t_min, min(params.t_max, float(torque))))
+        # kp=kd=0 时 position/velocity 不参与输出，仅力矩前馈生效
+        return self._can.send_motion_control(
+            motor_id=device_id, position=0.0, velocity=0.0,
+            kp=0.0, kd=0.0, torque=t)
+
     def move_one_joint_csp(self, motor_id: int, position: float) -> bool:
         """单电机 CSP 运动 (position=逻辑弧度) — 自动应用 direction/offset"""
         if motor_id not in self._csp_initialized:

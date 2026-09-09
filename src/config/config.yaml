@@ -11,6 +11,13 @@ control:
 gripper:
   closed_angle: 45.0
   open_angle: 0.0
+  # 力控夹爪（Aider arm8，robstride_05 / RS05，力矩量程±17Nm）：
+  #   扳机深浅 = 抓力大小(Nm)。用 MIT 运控模式 kp=kd=0 + 前馈力矩实现，
+  #   力矩由指令限定，抓任何尺寸/软硬的物体都不会堵转过流 → 不会失能。
+  force_control: true
+  max_torque: 1.5               # 最大抓力(Nm)，安全上限（远低于 17Nm 过载阈值，可调）
+  open_torque: 0.3              # 松开时的主动张开力矩(Nm)
+  open_trigger_threshold: 0.05  # 扳机小于此值视为松开 → 主动张开
 ik:
   use_reference_poses: true
   reference_poses_file: src/config/reference_poses.json

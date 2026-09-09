@@ -310,6 +310,13 @@ URDF_TO_INTERNAL_NAME_MAP = {
 GRIPPER_OPEN_ANGLE = _config_data["gripper"]["open_angle"]
 GRIPPER_CLOSED_ANGLE = _config_data["gripper"]["closed_angle"]
 
+# 力控夹爪：扳机=抓力(Nm)，力矩封顶保证不过流失能（见 config.yaml gripper 段）
+GRIPPER_FORCE_CONTROL = _config_data["gripper"].get("force_control", False)
+GRIPPER_MAX_TORQUE = float(_config_data["gripper"].get("max_torque", 1.5))
+GRIPPER_OPEN_TORQUE = float(_config_data["gripper"].get("open_torque", 0.3))
+GRIPPER_OPEN_TRIGGER_THRESHOLD = float(
+    _config_data["gripper"].get("open_trigger_threshold", 0.05))
+
 # IK 通用配置
 USE_REFERENCE_POSES = _config_data["ik"]["use_reference_poses"]
 REFERENCE_POSES_FILE = _config_data["ik"]["reference_poses_file"]

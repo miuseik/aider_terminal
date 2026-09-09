@@ -1022,6 +1022,7 @@ class RobotInterface:
 
             pos_cmds = actions.get("position_commands", [])
             spd_cmds = actions.get("speed_commands", [])
+            tq_cmds = actions.get("torque_commands", [])
 
             loop = asyncio.get_event_loop()
             executor = self.motor_controller._executor
@@ -1050,6 +1051,29 @@ class RobotInterface:
                         print(f"[HW] position port={port} 超时，跳过")
                     except Exception as e:
                         print(f"[HW] position port={port} 异常: {e}")
+
+            # 派发力矩命令（力控夹爪 arm8）
+            # 同样的线程 + 超时保护：避免 CAN 重连时阻塞事件循环导致 WS 心跳超时掉线
+            for cmd in tq_cmds:
+                if not cmd.get("targets"):
+                    continue
+                port = cmd["port"]
+                driver = await asyncio.to_thread(self.motor_controller._get_or_create_driver, port)
+                if driver and hasattr(driver, 'set_joint_torque'):
+                    for servo_id, torque in cmd["targets"].items():
+                        try:
+                            await asyncio.wait_for(
+                                loop.run_in_executor(
+                                    executor,
+                                    driver.set_joint_torque,
+                                    servo_id, torque
+                                ),
+                                timeout=_HW_TIMEOUT,
+                            )
+                        except asyncio.TimeoutError:
+                            print(f"[HW] torque port={port} id={servo_id} 超时，跳过")
+                        except Exception as e:
+                            print(f"[HW] torque port={port} id={servo_id} 异常: {e}")
 
             # 派发速度命令（底盘轮子 + 升降轴）
             for cmd in spd_cmds:

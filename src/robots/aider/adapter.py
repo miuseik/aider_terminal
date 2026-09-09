@@ -36,6 +36,8 @@ from src.core.kinematic.pink.aider_ik import AiderPinkSolver
 from src.config.settings import (
     TelegripConfig, NUM_JOINTS, NUM_IK_JOINTS,
     GRIPPER_INDEX, ARM_JOINT_NAMES_LEFT, ARM_JOINT_NAMES_RIGHT,
+    GRIPPER_FORCE_CONTROL, GRIPPER_MAX_TORQUE,
+    GRIPPER_OPEN_TORQUE, GRIPPER_OPEN_TRIGGER_THRESHOLD,
 )
 from src.robots.aider.settings import JOINT_LIMIT_OVERRIDES, SOFT_LIMIT_MARGIN_DEG
 
@@ -84,6 +86,9 @@ class AiderAdapter:
         # ---- 8-DOF 关节状态 ----
         self.left_angles = np.zeros(NUM_JOINTS)
         self.right_angles = np.zeros(NUM_JOINTS)
+
+        # ---- 力控夹爪：arm8 的目标力矩(Nm)，由扳机映射（正=张开/负=闭合）----
+        self.gripper_torque: Dict[str, float] = {"left": 0.0, "right": 0.0}
 
         # ---- 身体关节 ----
         self.waist_angle: float = 0.0     # 腰部旋转 (rad)
@@ -345,7 +350,37 @@ class AiderAdapter:
         print(f"🔄 [Adapter] 限位已热更新 ({n} 条来自 servo_ids.yaml)")
 
     def apply_gripper_from_trigger(self, arm: str, trigger_value: float) -> None:
-        """根据 VR 扳机值 (0~1) 设置夹爪角度，钳制到软限位。"""
+        """根据 VR 扳机值 (0~1) 设置夹爪。
+
+        力控模式（gripper.force_control=true，推荐）：
+            扳机深浅 = 抓力大小(Nm)。力矩由指令限定，抓到物体后就是"保持这个力"，
+            电流不会随堵转无限上升 → 无论物体尺寸/软硬都不会过流失能。
+            松开（扳机 < open_trigger_threshold）给反向的张开力矩主动张开。
+        位置模式（回退）：
+            扳机 → 目标角度。会顶到机械限位堵转，可能触发堵转过载失能。
+        """
+        if GRIPPER_FORCE_CONTROL:
+            trig = float(np.clip(trigger_value, 0.0, 1.0))
+            if trig < GRIPPER_OPEN_TRIGGER_THRESHOLD:
+                # 松开 → 主动张开（正方向小力矩，顶到限位也不会过流）
+                torque = GRIPPER_OPEN_TORQUE
+            else:
+                # 闭合 → 抓力随扳机线性增大（负方向），封顶在安全值
+                torque = -trig * GRIPPER_MAX_TORQUE
+            self.gripper_torque[arm] = float(
+                max(-GRIPPER_MAX_TORQUE, min(GRIPPER_OPEN_TORQUE, torque)))
+            # 仿真/可视化仍按角度表现（仿真没有真实接触，力矩无意义）：
+            # 真机下发的角度已被 build_hardware_actions 剔除，改走上面的力矩。
+            gripper_angle = -trig * 90.0
+            limits = self._soft_arm_limits(arm)
+            if limits is not None and len(limits) > GRIPPER_INDEX:
+                gripper_angle = np.clip(gripper_angle, limits[GRIPPER_INDEX, 0], limits[GRIPPER_INDEX, 1])
+            if arm == "left" and len(self.left_angles) > GRIPPER_INDEX:
+                self.left_angles[GRIPPER_INDEX] = gripper_angle
+            elif arm == "right" and len(self.right_angles) > GRIPPER_INDEX:
+                self.right_angles[GRIPPER_INDEX] = gripper_angle
+            return
+
         gripper_angle = -trigger_value * 90.0
         limits = self._soft_arm_limits(arm)
         if limits is not None and len(limits) > GRIPPER_INDEX:
@@ -582,12 +617,26 @@ class AiderAdapter:
         """
         if online_servos is None:
             online_servos = {}
-        actions = {"position_commands": [], "speed_commands": []}
+        actions = {"position_commands": [], "speed_commands": [], "torque_commands": []}
 
         # --- 收集所有位置目标 {motor_id: angle}（双臂 + 头 + 腰） ---
         all_pos = {}
         all_pos.update(self._build_arm_targets(servo_ids, "left_arm", self.left_angles))
         all_pos.update(self._build_arm_targets(servo_ids, "right_arm", self.right_angles))
+
+        # --- 力控夹爪：arm8 不走位置命令，改走力矩命令 ---
+        #     位置模式顶到机械限位会堵转过载(STALL_OVERLOAD)失能；
+        #     力矩命令的输出由指令本身限定，抓任何物体都不会过流。
+        gripper_torques = {}
+        if GRIPPER_FORCE_CONTROL:
+            for _cfg_name, _arm in (("left_arm", "left"), ("right_arm", "right")):
+                for _jname, _jinfo in (servo_ids.get(_cfg_name) or {}).items():
+                    if isinstance(_jinfo, dict) and _jname.endswith("arm8"):
+                        _gid = _jinfo.get("id")
+                        if _gid is None:
+                            continue
+                        gripper_torques[_gid] = float(self.gripper_torque.get(_arm, 0.0))
+                        all_pos.pop(_gid, None)
 
         # 头/头俯仰 (neck)
         neck_config = servo_ids.get("neck", {})
@@ -609,6 +658,11 @@ class AiderAdapter:
         for port, targets in self._group_by_port(all_pos, online_servos).items():
             if targets:
                 actions["position_commands"].append({"port": port, "targets": targets})
+
+        # 力控夹爪力矩目标，同样按真实端口分组
+        for port, targets in self._group_by_port(gripper_torques, online_servos).items():
+            if targets:
+                actions["torque_commands"].append({"port": port, "targets": targets})
 
         # --- 速度目标（底盘四轮 + 升降轴），同样按真实端口分组 ---
         all_speed = {}
