@@ -86,6 +86,11 @@ class AiderAdapter:
         self.left_angles = np.zeros(NUM_JOINTS)
         self.right_angles = np.zeros(NUM_JOINTS)
 
+        # 臂软限位缓存：setup() 里按 URDF / servo_ids.yaml 填充。
+        # 这里先初始化为空，避免 setup 尚未完成时（如 VR 扳机提前触发夹爪）
+        # 访问该属性直接 AttributeError 崩掉整个控制循环。
+        self._arm_limits_deg: Dict[str, np.ndarray] = {}
+
         # ---- 身体关节 ----
         self.waist_angle: float = 0.0     # 腰部旋转 (rad)
         self.head_yaw: float = 0.0        # 头 yaw (rad)
@@ -284,7 +289,7 @@ class AiderAdapter:
     def _soft_arm_limits(self, arm: str) -> Optional[np.ndarray]:
         """带安全余量的软限位 (Nx2)。在物理限位基础上各留 SOFT_LIMIT_MARGIN_DEG，
         让指令角度永远到不了物理死区，避免电机顶死硬限位失能。"""
-        limits = self._arm_limits_deg.get(arm)
+        limits = getattr(self, "_arm_limits_deg", {}).get(arm)
         if limits is None:
             return None
         m = SOFT_LIMIT_MARGIN_DEG
