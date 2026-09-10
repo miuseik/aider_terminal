@@ -20,16 +20,19 @@ gripper:
   force_control: true
   # --- 扭矩 (Nm) ---
   hold_torque: 0.4              # 默认保持力矩：能跟上目标时用这个（轻握）
-  max_torque: 17.0              # 峰值扭矩上限：RS05 量程 ±17Nm（想保守可往下调）
-  sustained_torque: 4.0         # 长时间顶住时回落的持续安全力矩
-  peak_hold_seconds: 2.0        # 峰值最多持续这么久，超时回落到 sustained_torque
+  max_torque: 8.0               # 峰值扭矩上限：17 是满量程、会顶到过流，先压到 8 试
+  sustained_torque: 2.0         # 长时间顶住时回落的持续安全力矩（持续过流失能主要看它）
+  peak_hold_seconds: 1.0        # 峰值最多持续这么久，超时回落到 sustained_torque
   # --- 自适应速率 ---
-  torque_ramp_step: 0.25        # 每控制周期增加的扭矩(Nm)，位置跟不上时累加
+  torque_ramp_step: 0.15        # 每控制周期增加的扭矩(Nm)，位置跟不上时累加
   torque_decay_step: 0.5        # 每控制周期回落的扭矩(Nm)，跟得上时回落
   hold_tolerance_deg: 2.0       # 位置误差小于此值视为"能保持"(°)
-  # --- 位置环增益（0 = 沿用驱动默认，与其他关节一致） ---
-  gripper_kp: 0.0
-  gripper_kd: 0.0
+  # --- 位置环增益 ---
+  # 夹爪必须用小 kp：位置环输出 = kp × 角度误差，堵转误差可达 ~90°(1.57rad)，
+  # kp=30 会瞬间指令 ~47Nm 顶死 → 过流失能。小 kp 让位置环只"指方向"，
+  # 力气不够时由上面的 ramp_step 逐周期补，二者是配套的。
+  gripper_kp: 3.0
+  gripper_kd: 0.2
 ik:
   use_reference_poses: true
   reference_poses_file: src/config/reference_poses.json
