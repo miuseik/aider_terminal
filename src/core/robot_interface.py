@@ -24,6 +24,7 @@ from src.config.settings import (
     GRIPPER_HOLD_TORQUE, GRIPPER_MAX_TORQUE, GRIPPER_SUSTAINED_TORQUE,
     GRIPPER_PEAK_HOLD_SECONDS, GRIPPER_TORQUE_RAMP_STEP,
     GRIPPER_TORQUE_DECAY_STEP, GRIPPER_HOLD_TOLERANCE_DEG,
+    GRIPPER_GRIP_TORQUE, GRIPPER_STALL_SPEED_DEG_S,
     GRIPPER_KP, GRIPPER_KD,
     WRIST_FLEX_INDEX, URDF_TO_INTERNAL_NAME_MAP,
     get_robot_type,
@@ -1070,7 +1071,8 @@ class RobotInterface:
                                 _sid, GRIPPER_HOLD_TORQUE, GRIPPER_MAX_TORQUE,
                                 GRIPPER_SUSTAINED_TORQUE, GRIPPER_PEAK_HOLD_SECONDS,
                                 GRIPPER_TORQUE_RAMP_STEP, GRIPPER_TORQUE_DECAY_STEP,
-                                GRIPPER_HOLD_TOLERANCE_DEG, GRIPPER_KP, GRIPPER_KD)
+                                GRIPPER_HOLD_TOLERANCE_DEG, GRIPPER_GRIP_TORQUE,
+                                GRIPPER_STALL_SPEED_DEG_S, GRIPPER_KP, GRIPPER_KD)
                             return _d.set_gripper_adaptive(_sid, _ang)
 
                         try:

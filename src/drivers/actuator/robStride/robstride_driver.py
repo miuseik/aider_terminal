@@ -105,6 +105,7 @@ class RobStrideOfficialDriver:
         self._gripper_ff: Dict[int, float] = {}                  # motor_id → 当前前馈扭矩(Nm)
         self._gripper_peak_since: Dict[int, float] = {}          # motor_id → 进入"跟不上"状态的时刻
         self._gripper_limit_applied: Dict[int, float] = {}       # motor_id → 已写入的 LIMIT_TORQUE
+        self._gripper_prev: Dict[int, tuple] = {}                # motor_id → (上次角度°, 时间戳)，用于估速度判夹紧
 
     # ── 生命周期 ──
 
@@ -1038,10 +1039,13 @@ class RobStrideOfficialDriver:
                                    hold_torque: float, max_torque: float,
                                    sustained_torque: float, peak_hold_seconds: float,
                                    ramp_step: float, decay_step: float,
-                                   tol_deg: float,
+                                   tol_deg: float, grip_torque: float = 1.0,
+                                   stall_speed_deg_s: float = 1.0,
                                    kp: float = 0.0, kd: float = 0.0) -> None:
         """登记夹爪的自适应扭矩参数（每帧调用即可，内部为幂等赋值）。"""
         self._gripper_cfg[device_id] = {
+            "grip_torque": float(grip_torque),
+            "stall_speed": float(stall_speed_deg_s),
             "hold_torque": float(hold_torque),
             "max_torque": float(max_torque),
             "sustained_torque": float(sustained_torque),
@@ -1082,9 +1086,29 @@ class RobStrideOfficialDriver:
         actual_deg = self.get_position(device_id)
         if actual_deg is not None:
             err_deg = float(angle_deg) - actual_deg
+            # 估速度，用于判断"是否已经夹紧/顶住"
+            _now = time.time()
+            _prev = self._gripper_prev.get(device_id)
+            speed_deg_s = 0.0
+            if _prev:
+                _dt = _now - _prev[1]
+                if _dt > 1e-3:
+                    speed_deg_s = (actual_deg - _prev[0]) / _dt
+            self._gripper_prev[device_id] = (actual_deg, _now)
+
             if abs(err_deg) > cfg["tol_deg"]:
-                # 位置跟不上（抓到东西 / 被挡住）→ 朝目标方向逐步加扭矩
-                ff += math.copysign(cfg["ramp_step"], err_deg)
+                if abs(speed_deg_s) < cfg["stall_speed"]:
+                    # ★ 已经夹紧/顶住（位置几乎不动）→ 停止加力，并把扭矩收敛到
+                    #   抓握保持力 grip_torque。这是"抓住后电流持续上升 → 过流失能"
+                    #   的根治点：抓住了只需维持一个小的保持力，继续顶只会白白发热。
+                    #   若物体滑落 → 速度变大 → 自动重新加力补偿。
+                    if abs(ff) > cfg["grip_torque"]:
+                        ff -= math.copysign(cfg["decay_step"] * 0.5, ff)
+                        if abs(ff) < cfg["grip_torque"]:
+                            ff = math.copysign(cfg["grip_torque"], ff)
+                else:
+                    # 还在动 → 说明力不够，继续加
+                    ff += math.copysign(cfg["ramp_step"], err_deg)
                 self._gripper_peak_since.setdefault(device_id, time.time())
             else:
                 # 能跟上 → 回落到默认小扭矩（保留方向作为保持力）

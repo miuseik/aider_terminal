@@ -320,6 +320,8 @@ GRIPPER_PEAK_HOLD_SECONDS = float(_gripper_cfg.get("peak_hold_seconds", 2.0))
 GRIPPER_TORQUE_RAMP_STEP = float(_gripper_cfg.get("torque_ramp_step", 0.25))
 GRIPPER_TORQUE_DECAY_STEP = float(_gripper_cfg.get("torque_decay_step", 0.5))
 GRIPPER_HOLD_TOLERANCE_DEG = float(_gripper_cfg.get("hold_tolerance_deg", 2.0))
+GRIPPER_GRIP_TORQUE = float(_gripper_cfg.get("grip_torque", 1.0))
+GRIPPER_STALL_SPEED_DEG_S = float(_gripper_cfg.get("stall_speed_deg_s", 1.0))
 GRIPPER_KP = float(_gripper_cfg.get("gripper_kp", 0.0))
 GRIPPER_KD = float(_gripper_cfg.get("gripper_kd", 0.0))
 
