@@ -21,6 +21,10 @@ from typing import Optional, Dict, Tuple
 from src.config.settings import (
     TelegripConfig, NUM_JOINTS, JOINT_NAMES,
     GRIPPER_OPEN_ANGLE, GRIPPER_CLOSED_ANGLE,
+    GRIPPER_HOLD_TORQUE, GRIPPER_MAX_TORQUE, GRIPPER_SUSTAINED_TORQUE,
+    GRIPPER_PEAK_HOLD_SECONDS, GRIPPER_TORQUE_RAMP_STEP,
+    GRIPPER_TORQUE_DECAY_STEP, GRIPPER_HOLD_TOLERANCE_DEG,
+    GRIPPER_KP, GRIPPER_KD,
     WRIST_FLEX_INDEX, URDF_TO_INTERNAL_NAME_MAP,
     get_robot_type,
 )
@@ -1022,7 +1026,7 @@ class RobotInterface:
 
             pos_cmds = actions.get("position_commands", [])
             spd_cmds = actions.get("speed_commands", [])
-            tq_cmds = actions.get("torque_commands", [])
+            g_cmds = actions.get("gripper_commands", [])
 
             loop = asyncio.get_event_loop()
             executor = self.motor_controller._executor
@@ -1052,28 +1056,32 @@ class RobotInterface:
                     except Exception as e:
                         print(f"[HW] position port={port} 异常: {e}")
 
-            # 派发力矩命令（力控夹爪 arm8）
+            # 派发夹爪命令（自适应扭矩：完整位置环 + 按需扭矩）
             # 同样的线程 + 超时保护：避免 CAN 重连时阻塞事件循环导致 WS 心跳超时掉线
-            for cmd in tq_cmds:
+            for cmd in g_cmds:
                 if not cmd.get("targets"):
                     continue
                 port = cmd["port"]
                 driver = await asyncio.to_thread(self.motor_controller._get_or_create_driver, port)
-                if driver and hasattr(driver, 'set_joint_torque'):
-                    for servo_id, torque in cmd["targets"].items():
+                if driver and hasattr(driver, 'set_gripper_adaptive'):
+                    for servo_id, angle_deg in cmd["targets"].items():
+                        def _gripper_send(_d=driver, _sid=servo_id, _ang=angle_deg):
+                            _d.configure_gripper_adaptive(
+                                _sid, GRIPPER_HOLD_TORQUE, GRIPPER_MAX_TORQUE,
+                                GRIPPER_SUSTAINED_TORQUE, GRIPPER_PEAK_HOLD_SECONDS,
+                                GRIPPER_TORQUE_RAMP_STEP, GRIPPER_TORQUE_DECAY_STEP,
+                                GRIPPER_HOLD_TOLERANCE_DEG, GRIPPER_KP, GRIPPER_KD)
+                            return _d.set_gripper_adaptive(_sid, _ang)
+
                         try:
                             await asyncio.wait_for(
-                                loop.run_in_executor(
-                                    executor,
-                                    driver.set_joint_torque,
-                                    servo_id, torque
-                                ),
+                                loop.run_in_executor(executor, _gripper_send),
                                 timeout=_HW_TIMEOUT,
                             )
                         except asyncio.TimeoutError:
-                            print(f"[HW] torque port={port} id={servo_id} 超时，跳过")
+                            print(f"[HW] gripper port={port} id={servo_id} 超时，跳过")
                         except Exception as e:
-                            print(f"[HW] torque port={port} id={servo_id} 异常: {e}")
+                            print(f"[HW] gripper port={port} id={servo_id} 异常: {e}")
 
             # 派发速度命令（底盘轮子 + 升降轴）
             for cmd in spd_cmds:

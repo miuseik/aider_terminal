@@ -310,12 +310,18 @@ URDF_TO_INTERNAL_NAME_MAP = {
 GRIPPER_OPEN_ANGLE = _config_data["gripper"]["open_angle"]
 GRIPPER_CLOSED_ANGLE = _config_data["gripper"]["closed_angle"]
 
-# 力控夹爪：扳机=抓力(Nm)，力矩封顶保证不过流失能（见 config.yaml gripper 段）
-GRIPPER_FORCE_CONTROL = _config_data["gripper"].get("force_control", False)
-GRIPPER_MAX_TORQUE = float(_config_data["gripper"].get("max_torque", 1.5))
-GRIPPER_OPEN_TORQUE = float(_config_data["gripper"].get("open_torque", 0.3))
-GRIPPER_OPEN_TRIGGER_THRESHOLD = float(
-    _config_data["gripper"].get("open_trigger_threshold", 0.05))
+# 自适应扭矩夹爪：扳机=目标角度，扭矩随"能否保持位置"自适应（见 config.yaml gripper 段）
+_gripper_cfg = _config_data["gripper"]
+GRIPPER_FORCE_CONTROL = _gripper_cfg.get("force_control", False)
+GRIPPER_HOLD_TORQUE = float(_gripper_cfg.get("hold_torque", 0.4))
+GRIPPER_MAX_TORQUE = float(_gripper_cfg.get("max_torque", 17.0))
+GRIPPER_SUSTAINED_TORQUE = float(_gripper_cfg.get("sustained_torque", 4.0))
+GRIPPER_PEAK_HOLD_SECONDS = float(_gripper_cfg.get("peak_hold_seconds", 2.0))
+GRIPPER_TORQUE_RAMP_STEP = float(_gripper_cfg.get("torque_ramp_step", 0.25))
+GRIPPER_TORQUE_DECAY_STEP = float(_gripper_cfg.get("torque_decay_step", 0.5))
+GRIPPER_HOLD_TOLERANCE_DEG = float(_gripper_cfg.get("hold_tolerance_deg", 2.0))
+GRIPPER_KP = float(_gripper_cfg.get("gripper_kp", 0.0))
+GRIPPER_KD = float(_gripper_cfg.get("gripper_kd", 0.0))
 
 # IK 通用配置
 USE_REFERENCE_POSES = _config_data["ik"]["use_reference_poses"]

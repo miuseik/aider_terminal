@@ -11,13 +11,25 @@ control:
 gripper:
   closed_angle: 45.0
   open_angle: 0.0
-  # 力控夹爪（Aider arm8，robstride_05 / RS05，力矩量程±17Nm）：
-  #   扳机深浅 = 抓力大小(Nm)。用 MIT 运控模式 kp=kd=0 + 前馈力矩实现，
-  #   力矩由指令限定，抓任何尺寸/软硬的物体都不会堵转过流 → 不会失能。
+  # 自适应扭矩夹爪（Aider arm8，robstride_05 / RS05，力矩量程 ±17Nm）：
+  #   扳机 = 目标角度（保留完整位置环，角度可控）；
+  #   平时只用默认小扭矩 hold_torque 轻握；
+  #   位置跟不上（抓到物体/被挡住）时逐步提高扭矩，最高到 max_torque（峰值）；
+  #   一旦能跟上目标角度就回落到小扭矩 → 不较劲、不过流。
+  #   硬件侧再写 LIMIT_TORQUE(0x700B) 兜底，输出永不超过上限 → 不会失能。
   force_control: true
-  max_torque: 1.5               # 最大抓力(Nm)，安全上限（远低于 17Nm 过载阈值，可调）
-  open_torque: 0.3              # 松开时的主动张开力矩(Nm)
-  open_trigger_threshold: 0.05  # 扳机小于此值视为松开 → 主动张开
+  # --- 扭矩 (Nm) ---
+  hold_torque: 0.4              # 默认保持力矩：能跟上目标时用这个（轻握）
+  max_torque: 17.0              # 峰值扭矩上限：RS05 量程 ±17Nm（想保守可往下调）
+  sustained_torque: 4.0         # 长时间顶住时回落的持续安全力矩
+  peak_hold_seconds: 2.0        # 峰值最多持续这么久，超时回落到 sustained_torque
+  # --- 自适应速率 ---
+  torque_ramp_step: 0.25        # 每控制周期增加的扭矩(Nm)，位置跟不上时累加
+  torque_decay_step: 0.5        # 每控制周期回落的扭矩(Nm)，跟得上时回落
+  hold_tolerance_deg: 2.0       # 位置误差小于此值视为"能保持"(°)
+  # --- 位置环增益（0 = 沿用驱动默认，与其他关节一致） ---
+  gripper_kp: 0.0
+  gripper_kd: 0.0
 ik:
   use_reference_poses: true
   reference_poses_file: src/config/reference_poses.json

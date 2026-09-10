@@ -100,6 +100,12 @@ class RobStrideOfficialDriver:
         self._directions: Dict[int, float] = dict(directions) if directions else {}
         self._offsets_rad: Dict[int, float] = dict(offsets_rad) if offsets_rad else {}
 
+        # ---- 自适应扭矩夹爪状态（见 configure_gripper_adaptive / set_gripper_adaptive）----
+        self._gripper_cfg: Dict[int, Dict[str, float]] = {}      # motor_id → 参数
+        self._gripper_ff: Dict[int, float] = {}                  # motor_id → 当前前馈扭矩(Nm)
+        self._gripper_peak_since: Dict[int, float] = {}          # motor_id → 进入"跟不上"状态的时刻
+        self._gripper_limit_applied: Dict[int, float] = {}       # motor_id → 已写入的 LIMIT_TORQUE
+
     # ── 生命周期 ──
 
     def _warn_stale(self, device_id: int, age: float, context: str = "get_position") -> None:
@@ -1006,6 +1012,105 @@ class RobStrideOfficialDriver:
         return self._can.send_motion_control(
             motor_id=device_id, position=0.0, velocity=0.0,
             kp=0.0, kd=0.0, torque=t)
+
+    # ── 自适应扭矩夹爪：位置环(完整角度) + 按需扭矩 ──
+
+    def set_torque_limit(self, device_id: int, limit: float) -> bool:
+        """写电机内部输出力矩上限 LIMIT_TORQUE(0x700B)，作为不过流失能的硬件兜底。
+
+        该参数掉电丢失，且每次重新使能后需重写；这里用 _gripper_limit_applied
+        缓存已写入的值，只在变化时真正下发，避免每帧占用 CAN 带宽。
+        """
+        limit = float(limit)
+        if self._gripper_limit_applied.get(device_id) == limit:
+            return True
+        ok = self._can.write_parameter(device_id, ParamIndex.LIMIT_TORQUE, limit)
+        if ok:
+            self._gripper_limit_applied[device_id] = limit
+            logger.info("[%s] motor %d LIMIT_TORQUE 已写 %.2f Nm",
+                        self._can_name, device_id, limit)
+        else:
+            logger.warning("[%s] motor %d 写 LIMIT_TORQUE=%.2f 失败",
+                           self._can_name, device_id, limit)
+        return ok
+
+    def configure_gripper_adaptive(self, device_id: int,
+                                   hold_torque: float, max_torque: float,
+                                   sustained_torque: float, peak_hold_seconds: float,
+                                   ramp_step: float, decay_step: float,
+                                   tol_deg: float,
+                                   kp: float = 0.0, kd: float = 0.0) -> None:
+        """登记夹爪的自适应扭矩参数（每帧调用即可，内部为幂等赋值）。"""
+        self._gripper_cfg[device_id] = {
+            "hold_torque": float(hold_torque),
+            "max_torque": float(max_torque),
+            "sustained_torque": float(sustained_torque),
+            "peak_hold_seconds": float(peak_hold_seconds),
+            "ramp_step": float(ramp_step),
+            "decay_step": float(decay_step),
+            "tol_deg": float(tol_deg),
+            "kp": float(kp or 0.0),
+            "kd": float(kd or 0.0),
+        }
+
+    def set_gripper_adaptive(self, device_id: int, angle_deg: float) -> bool:
+        """夹爪控制：完整位置环 + 自适应前馈扭矩。
+
+        与纯力矩(set_joint_torque, kp=kd=0)的区别：
+            位置环保留 → 扳机决定目标角度，空手能精确到位（角度可控）；
+            扭矩按需 → 位置跟不上（抓到物体/被挡）时逐步提高前馈扭矩，
+                       最高到 max_torque（峰值）；一旦能跟上目标就回落到
+                       hold_torque（默认小扭矩），不较劲、不过流。
+
+        三重防失能：
+            1) 前馈扭矩封顶在 max_torque；
+            2) 峰值持续超过 peak_hold_seconds → 回落到 sustained_torque；
+            3) 硬件侧 LIMIT_TORQUE 兜底，电机输出永不超过上限。
+        """
+        cfg = self._gripper_cfg.get(device_id)
+        if not cfg:
+            logger.warning("motor %d 未配置夹爪自适应参数，跳过", device_id)
+            return False
+        if device_id not in self._initialized:
+            if not self._ensure_ready(device_id):
+                return False
+        # 硬件力矩上限（掉电丢失 / 重连后需重写）
+        self.set_torque_limit(device_id, cfg["max_torque"])
+
+        # 1) 自适应前馈扭矩
+        ff = self._gripper_ff.get(device_id, 0.0)
+        actual_deg = self.get_position(device_id)
+        if actual_deg is not None:
+            err_deg = float(angle_deg) - actual_deg
+            if abs(err_deg) > cfg["tol_deg"]:
+                # 位置跟不上（抓到东西 / 被挡住）→ 朝目标方向逐步加扭矩
+                ff += math.copysign(cfg["ramp_step"], err_deg)
+                self._gripper_peak_since.setdefault(device_id, time.time())
+            else:
+                # 能跟上 → 回落到默认小扭矩（保留方向作为保持力）
+                self._gripper_peak_since.pop(device_id, None)
+                if abs(ff) > cfg["hold_torque"]:
+                    ff -= math.copysign(cfg["decay_step"], ff)
+                    if abs(ff) < cfg["hold_torque"]:
+                        ff = math.copysign(cfg["hold_torque"], ff)
+                elif ff != 0.0:
+                    ff = math.copysign(cfg["hold_torque"], ff)
+
+        # 2) 峰值超时保护 → 回落到持续安全力矩
+        cap = cfg["max_torque"]
+        since = self._gripper_peak_since.get(device_id)
+        if since is not None and (time.time() - since) > cfg["peak_hold_seconds"]:
+            cap = min(cfg["sustained_torque"], cfg["max_torque"])
+        ff = max(-cap, min(cap, ff))
+        self._gripper_ff[device_id] = ff
+
+        # 3) 下发：完整位置环（角度）+ 自适应前馈扭矩
+        _kp = cfg["kp"] if cfg["kp"] else self._kp
+        _kd = cfg["kd"] if cfg["kd"] else self._kd
+        motor_rad = self._logical_rad_to_motor_rad(device_id, deg_to_rad(float(angle_deg)))
+        return self._can.send_motion_control(
+            motor_id=device_id, position=motor_rad, velocity=0.0,
+            kp=_kp, kd=_kd, torque=ff)
 
     def move_one_joint_csp(self, motor_id: int, position: float) -> bool:
         """单电机 CSP 运动 (position=逻辑弧度) — 自动应用 direction/offset"""
