@@ -1060,8 +1060,13 @@ class RobStrideOfficialDriver:
     def set_gripper_adaptive(self, device_id: int, angle_deg: float) -> bool:
         """夹爪控制：完整位置环 + 自适应前馈扭矩。
 
+        三态行为：
+            1) 正常跟随：完整位置环（扳机=目标角度）+ 自适应前馈 → 角度可控；
+            2) 夹紧/顶住（角速度 < stall_speed）：**关掉位置环(kp=kd=0)**，
+               只输出恒定的 grip_torque → 力矩不再增长、电流稳定（防失能关键）；
+            3) 力不够（还在动）：每周期加 ramp_step，最高到 max_torque。
         与纯力矩(set_joint_torque, kp=kd=0)的区别：
-            位置环保留 → 扳机决定目标角度，空手能精确到位（角度可控）；
+            位置环保留（未夹紧时）→ 扳机决定目标角度，空手能精确到位（角度可控）；
             扭矩按需 → 位置跟不上（抓到物体/被挡）时逐步提高前馈扭矩，
                        最高到 max_torque（峰值）；一旦能跟上目标就回落到
                        hold_torque（默认小扭矩），不较劲、不过流。
@@ -1083,6 +1088,8 @@ class RobStrideOfficialDriver:
 
         # 1) 自适应前馈扭矩
         ff = self._gripper_ff.get(device_id, 0.0)
+        stalled = False      # 是否已经夹紧/顶住
+        err_deg = 0.0
         actual_deg = self.get_position(device_id)
         if actual_deg is not None:
             err_deg = float(angle_deg) - actual_deg
@@ -1098,14 +1105,14 @@ class RobStrideOfficialDriver:
 
             if abs(err_deg) > cfg["tol_deg"]:
                 if abs(speed_deg_s) < cfg["stall_speed"]:
-                    # ★ 已经夹紧/顶住（位置几乎不动）→ 停止加力，并把扭矩收敛到
-                    #   抓握保持力 grip_torque。这是"抓住后电流持续上升 → 过流失能"
-                    #   的根治点：抓住了只需维持一个小的保持力，继续顶只会白白发热。
-                    #   若物体滑落 → 速度变大 → 自动重新加力补偿。
-                    if abs(ff) > cfg["grip_torque"]:
-                        ff -= math.copysign(cfg["decay_step"] * 0.5, ff)
-                        if abs(ff) < cfg["grip_torque"]:
-                            ff = math.copysign(cfg["grip_torque"], ff)
+                    # ★ 已经夹紧/顶住（位置几乎不动）→ 进入"纯力矩保持"：
+                    #   扭矩固定为 grip_torque，且下面会把位置环 kp/kd 清零。
+                    #   关位置环是关键：夹住后位置永远到不了目标，位置环只会按
+                    #   kp × 误差 一直白白出力 → 力矩持续、电流上升、过热失能。
+                    #   若物体滑落 → 速度变大 → 自动退出本分支重新加力补偿。
+                    stalled = True
+                    ff = math.copysign(
+                        cfg["grip_torque"], ff if ff != 0.0 else err_deg)
                 else:
                     # 还在动 → 说明力不够，继续加
                     ff += math.copysign(cfg["ramp_step"], err_deg)
@@ -1128,9 +1135,15 @@ class RobStrideOfficialDriver:
         ff = max(-cap, min(cap, ff))
         self._gripper_ff[device_id] = ff
 
-        # 3) 下发：完整位置环（角度）+ 自适应前馈扭矩
-        _kp = cfg["kp"] if cfg["kp"] else self._kp
-        _kd = cfg["kd"] if cfg["kd"] else self._kd
+        # 3) 下发
+        if stalled:
+            # 夹紧保持：关掉位置环(kp=kd=0)，只输出恒定的 grip_torque
+            # → 力矩不再增长、电流稳定，抓多久都不会过流失能
+            _kp, _kd = 0.0, 0.0
+        else:
+            # 正常跟随：完整位置环（角度）+ 自适应前馈扭矩
+            _kp = cfg["kp"] if cfg["kp"] else self._kp
+            _kd = cfg["kd"] if cfg["kd"] else self._kd
         motor_rad = self._logical_rad_to_motor_rad(device_id, deg_to_rad(float(angle_deg)))
         return self._can.send_motion_control(
             motor_id=device_id, position=motor_rad, velocity=0.0,
